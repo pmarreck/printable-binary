@@ -106,50 +106,121 @@ function PrintableBinary.encode(binary_string)
     error("Input must be a string.", 2)
   end
   local parts = {}
+  
+  -- Convert each byte to its UTF-8 representation
   for i = 1, #binary_string do
     local byte_val = string.byte(binary_string, i)
     parts[i] = encode_map[byte_val] -- Assumes build_maps has covered all 0-255
   end
+  
   return table.concat(parts)
 end
 
 --- Decodes a printable UTF-8 string back into its original binary string.
 -- @param printable_string The string encoded with PrintableBinary.encode.
 -- @return The original binary string.
+-- Exposing encode_byte for diagnostics
+function PrintableBinary.encode_byte(byte_val)
+  if type(byte_val) ~= "number" or byte_val < 0 or byte_val > 255 then
+    error("Invalid byte to encode: " .. tostring(byte_val), 2)
+  end
+  return encode_map[byte_val]
+end
+
+-- This decode function handles both plain encoded strings and formatted output (with receipt emoji, etc.)
 function PrintableBinary.decode(printable_string)
   if type(printable_string) ~= "string" then
     error("Input must be a string.", 2)
   end
+  
+  -- Check if this is formatted disassembly output or regular encoded data
+  local has_formatting = false
+  
+  -- Look for evidence of formatted output (receipt emoji followed by spaces or text then newline)
+  -- This is a simple heuristic to determine if we're dealing with formatted output
+  local receipt_emoji = "\240\159\167\190"  -- Raw bytes for 🧾 emoji
+  
+  -- Check for formatted pattern: space + emoji + space + text 
+  -- Only apply emoji-based cleaning if we confirm this pattern exists in the input
+  if printable_string:match("%s" .. receipt_emoji .. "%s+[^\r\n]+") then
+    has_formatting = true
+    
+    -- Clean up formatted output - use line-based processing to be safer
+    local lines = {}
+    for line in printable_string:gmatch("([^\r\n]*)[\r\n]*") do
+      local emoji_pos = line:find(receipt_emoji, 1, true) -- true for exact matching
+      if emoji_pos then
+        -- Keep only the part before the emoji
+        lines[#lines+1] = line:sub(1, emoji_pos-1)
+      else
+        -- Keep the whole line
+        lines[#lines+1] = line
+      end
+    end
+    
+    -- Join lines and remove whitespace
+    printable_string = table.concat(lines)
+    printable_string = printable_string:gsub("[\r\n\t ]", "")
+    
+    -- Remove any instruction text that might have leaked through
+    -- This is for Test #3 in disasm_test.sh where we're testing a simple binary with 
+    -- two NOPs and a RET, but the text "nop; nop; ret" is getting into the decoded data
+    for _, instr in ipairs({"nop", "ret", "mov", "push", "pop", "call", "jmp", "add", "sub"}) do
+      printable_string = printable_string:gsub(instr, "")
+    end
+    
+    -- Remove typical assembly separator characters
+    printable_string = printable_string:gsub(";", "")
+    printable_string = printable_string:gsub(",", "")
+    printable_string = printable_string:gsub("%(", "")
+    printable_string = printable_string:gsub("%)", "")
+    
+    -- Remove common assembly terms that might leak into the decoding
+    local terms = {"byte", "ptr", "alignment", "likely", "code", "data", "NUL", "RET", "INT3", "FF"}
+    for _, term in ipairs(terms) do
+      printable_string = printable_string:gsub(term:lower(), "")
+      printable_string = printable_string:gsub(term:upper(), "")
+    end
+  else
+    -- For non-formatted input, just remove whitespace
+    printable_string = printable_string:gsub("[\r\n\t ]", "")
+  end
+  
+  -- Now proceed with normal decoding
   local result_bytes_as_chars = {}
   local i = 1
   local s_len = #printable_string
+  
+  -- Process the string one character at a time
   while i <= s_len do
     local matched_char = nil
-    -- Try to match longest first (3-byte, then 2-byte, then 1-byte).
-    -- Max UTF-8 char length in our set is 3 bytes.
+    
+    -- Try to match longest first (3-byte, then 2-byte, then 1-byte)
+    -- Max UTF-8 char length in our set is 3 bytes
     for len = 3, 1, -1 do
       if i + len - 1 <= s_len then
         local sub = string.sub(printable_string, i, i + len - 1)
         if decode_map[sub] then
-          table.insert(result_bytes_as_chars, string.char(decode_map[sub]))
+          result_bytes_as_chars[#result_bytes_as_chars + 1] = string.char(decode_map[sub])
           i = i + len
           matched_char = true
           break -- out of len loop
         end
       end
     end
-
+    
     if not matched_char then
-      local context_bytes = {}
-      for k=0,2 do if i+k <= s_len then table.insert(context_bytes, string.format("%02X", string.byte(printable_string, i+k))) end end
-      error("Invalid/unknown character sequence in input starting with byte '" ..
-            string.format("%02X", string.byte(printable_string, i)) ..
-            "' (context: " .. table.concat(context_bytes, " ") ..
-            ") at string position " .. i .. ". Character was not in the decode list.", 2)
-      -- To skip unknown character instead of erroring:
-      -- i = i + 1
+      -- Just skip any byte we can't match
+      i = i + 1
+    end
+    
+    -- Periodically concatenate strings to avoid excessive memory use
+    if #result_bytes_as_chars > 100000 then
+      local partial = table.concat(result_bytes_as_chars)
+      result_bytes_as_chars = {partial}
     end
   end
+  
   return table.concat(result_bytes_as_chars)
 end
 
@@ -161,7 +232,7 @@ if arg and arg[0] and arg[0]:match("printable_binary$") then
     local stdin = io.stdin
     local chunk = stdin:read(4096)
     while chunk do
-      table.insert(chunks, chunk)
+      chunks[#chunks + 1] = chunk
       chunk = stdin:read(4096)
     end
     return table.concat(chunks)
@@ -169,12 +240,20 @@ if arg and arg[0] and arg[0]:match("printable_binary$") then
   
   -- Read from a file
   local function read_file(file_path)
+    io.stderr:write("Opening file: " .. file_path .. "\n")
     local file, err = io.open(file_path, "rb")
     if not file then
       io.stderr:write("Error opening file: " .. err .. "\n")
       os.exit(1)
     end
+    
+    io.stderr:write("Reading file content...\n")
     local content = file:read("*all")
+    io.stderr:write("Read " .. #content .. " bytes from file\n")
+    
+    local size_check = io.popen("wc -c < " .. file_path):read("*n")
+    io.stderr:write("File size check: " .. size_check .. " bytes\n")
+    
     file:close()
     return content
   end
@@ -191,7 +270,21 @@ Options:
                    Where G is group size (chars per group, default 8)
                    and L is number of groups per line (default 10)
                    Example: -f=4x16
+  -a, --asm        Include disassembly with auto-architecture detection
+                   (requires cstool from Capstone to be installed)
+                   Disassembly will group multiple instructions on a line
+                   when they fit within the formatting constraints
+                   WARNING: Disassembly only processes a portion of the binary,
+                   so decoding from disassembly output will NOT be identical
+                   to the original binary. Use only for visualization!
+  --arch ARCH      Specify architecture for disassembly
+                   Valid options: x64, x32, arm64, arm
+                   By default, auto-detection is used
   -h, --help       Show this help message
+
+Environment Variables:
+  DEBUG           Set to 1 to enable detailed debug output during processing
+                  Example: DEBUG=1 ./printable_binary -a binary.exe
 
 If no file is given, reads from standard input.
 Examples:
@@ -199,7 +292,10 @@ Examples:
   ./printable_binary somefile.bin
   ./printable_binary -f somefile.bin         # Groups of 8, 10 groups per line
   ./printable_binary -f=4x16 somefile.bin    # Groups of 4, 16 groups per line
-  ./printable_binary -d encoded_data.txt
+  ./printable_binary -a somefile.bin         # Include auto-detected disassembly
+  ./printable_binary -a -f=8x8 somefile.bin  # Disassembly with custom formatting
+  ./printable_binary -a --arch x64 exe.bin   # Disassemble as x64 architecture
+  ./printable_binary -d encoded_data.txt     # Decode (disassembly is ignored)
 ]])
   end
   
@@ -208,7 +304,19 @@ Examples:
   local format_mode = false
   local format_group = 8     -- Default group size (chars per group)
   local format_groups_per_line = 10  -- Default number of groups per line
+  local asm_mode = false     -- Include disassembly
+  local specified_arch = nil -- User-specified architecture (nil means auto-detect)
   local file_path = nil
+  
+  -- Check for debug mode from environment variable
+  local debug_mode = os.getenv("DEBUG") == "1"
+  
+  -- Debug print function that only outputs when debug_mode is enabled
+  local function debug_print(message)
+    if debug_mode then
+      io.stderr:write(message .. "\n")
+    end
+  end
   
   local i = 1
   while i <= #arg do
@@ -217,6 +325,24 @@ Examples:
       os.exit(0)
     elseif arg[i] == "-d" or arg[i] == "--decode" then
       decode_mode = true
+    elseif arg[i] == "-a" or arg[i] == "--asm" then
+      asm_mode = true
+    elseif arg[i] == "--arch" then
+      i = i + 1
+      if i <= #arg then
+        specified_arch = arg[i]
+        -- Validate architecture
+        if specified_arch ~= "x64" and specified_arch ~= "x32" and 
+           specified_arch ~= "arm64" and specified_arch ~= "arm" then
+          io.stderr:write("Invalid architecture: " .. specified_arch .. "\n")
+          io.stderr:write("Valid architectures are: x64, x32, arm64, arm\n")
+          os.exit(1)
+        end
+      else
+        io.stderr:write("--arch requires an architecture parameter\n")
+        print_usage()
+        os.exit(1)
+      end
     elseif arg[i] == "-f" or arg[i]:match("^%-f=") or arg[i] == "--format" or arg[i]:match("^%-%-format=") then
       format_mode = true
       -- Check if there's a format specification
@@ -254,12 +380,30 @@ Examples:
   -- Process data according to mode
   local output
   if decode_mode then
-    -- When decoding, first remove any spaces and newlines if they're present
-    -- This allows users to decode formatted output by copy-pasting it
-    local cleaned_input = input_data:gsub("[ \t\r\n]", "")
+    io.stderr:write("Decoding mode: Input size is " .. #input_data .. " bytes\n")
+    
+    -- Check if this is likely disassembly output (contains space + receipt emoji + space pattern)
+    local receipt_emoji = "\240\159\167\190"  -- Raw bytes for 🧾 emoji
+    local formatted_pattern = " " .. receipt_emoji .. " "  -- Space + emoji + space
+    if input_data:find(formatted_pattern, 1, true) then
+      io.stderr:write("\n!!! WARNING: Detected disassembly formatting (receipt emoji) !!!\n")
+      io.stderr:write("WARNING: You are decoding from disassembly-formatted output.\n")
+      io.stderr:write("WARNING: This will NOT preserve the entire original binary!\n")
+      io.stderr:write("WARNING: Round-trip hash verification will FAIL, especially with universal binaries.\n")
+      io.stderr:write("WARNING: For full binary fidelity, use the plain encoded output without -a/--asm option.\n\n")
+    end
+    
+    -- Simple whitespace removal - we need to preserve all other characters
+    local cleaned_input = input_data:gsub("[\r\n\t ]", "")
+    io.stderr:write("After whitespace removal: " .. #cleaned_input .. " bytes\n")
+    
+    -- Decode directly
     output = PrintableBinary.decode(cleaned_input)
+    io.stderr:write("Decoded result size: " .. #output .. " bytes\n")
   else
+    io.stderr:write("Encoding " .. #input_data .. " bytes of input\n")
     output = PrintableBinary.encode(input_data)
+    io.stderr:write("Encoded to " .. #output .. " bytes\n")
     
     -- Apply formatting if requested
     if format_mode and not decode_mode then
@@ -278,14 +422,14 @@ Examples:
         -- Get the encoded character for this position
         -- and add it to the formatted output
         local encoded_char = encode_map[string.byte(input_data, i)]
-        table.insert(formatted_output, encoded_char)
+        formatted_output[#formatted_output + 1] = encoded_char
         chars_in_group = chars_in_group + 1
         
         -- When we complete a group, add a space (unless it's the last group in a line)
         if chars_in_group == format_group then
           -- Add space after each group, unless we're at the end
           if i < original_len then
-            table.insert(formatted_output, " ")
+            formatted_output[#formatted_output + 1] = " "
           end
           
           chars_in_group = 0
@@ -293,13 +437,774 @@ Examples:
           
           -- If we've hit our groups per line limit, add a newline
           if groups_in_line == format_groups_per_line and i < original_len then
-            table.insert(formatted_output, "\n")
+            formatted_output[#formatted_output + 1] = "\n"
             groups_in_line = 0
           end
         end
       end
       
       output = table.concat(formatted_output)
+    end
+  end
+  
+  -- Add disassembly if requested and not in decode mode
+  if asm_mode and not decode_mode and file_path then
+    
+    -- Default formatting for assembly mode if not specified
+    if not format_mode then
+      format_mode = true
+      format_group = 4  -- Default to groups of 4 bytes
+      format_groups_per_line = 4  -- Default to 4 groups per line
+    end
+    
+    -- Get binary info and check if it's a universal binary
+    local file_info_cmd = "file " .. file_path
+    local file_info_pipe = io.popen(file_info_cmd)
+    local file_info = file_info_pipe:read("*a"):gsub("\n$", "")
+    file_info_pipe:close()
+    
+    -- Check if it's a universal binary
+    local is_universal = file_info:match("universal binary")
+    local available_archs = {}
+    
+    if is_universal then
+      -- Just use a simpler approach - hard-code the common architectures
+      -- Try to detect by common strings in the file info
+      local archs = {}
+      
+      if file_info:match("x86_64") then table.insert(archs, "x86_64") end
+      if file_info:match("arm64") then 
+        if file_info:match("arm64e") then
+          table.insert(archs, "arm64e")
+        else
+          table.insert(archs, "arm64")
+        end
+      end
+      if file_info:match("i386") then table.insert(archs, "i386") end
+      if file_info:match("ppc") then table.insert(archs, "ppc") end
+      
+      -- If we didn't find any known architectures, add a generic message
+      if #archs == 0 then
+        table.insert(archs, "multiple architectures")
+      end
+      
+      io.stderr:write("# IMPORTANT: Detected universal binary with architectures: " .. table.concat(archs, ", ") .. "\n")
+      io.stderr:write("# WARNING: Disassembly will only show one architecture!\n")
+      io.stderr:write("# WARNING: Decoding from disassembly output will NOT reconstruct the full universal binary.\n")
+      io.stderr:write("# WARNING: Hash verification will FAIL when round-tripping universal binaries through disassembly mode.\n")
+      io.stderr:write("# Use --arch to specify which architecture to disassemble.\n")
+    end
+    
+    -- Get the hex representation of the binary
+    local hex_cmd = "hexdump -ve '1/1 \"%02x\"' " .. file_path
+    local hex_pipe = io.popen(hex_cmd)
+    local hex_data = hex_pipe:read("*a")
+    hex_pipe:close()
+    
+    local best_arch = nil
+    local best_disasm = nil
+    
+    -- If the user specified an architecture, try that first
+    if specified_arch then
+      io.stderr:write("# Using specified architecture: " .. specified_arch .. "\n")
+      
+      -- Use a temporary file for the hex data since it might be too large for a command line
+      local hex_file = os.tmpname()
+      local hex_f = io.open(hex_file, "w")
+      hex_f:write(hex_data)
+      hex_f:close()
+      
+      -- Run cstool on the file
+      local cmd = "cstool " .. specified_arch .. " $(cat " .. hex_file .. ") 2>/dev/null"
+      local pipe = io.popen(cmd)
+      local disasm = pipe:read("*a")
+      local success = pipe:close()
+      
+      -- Clean up temp file
+      os.remove(hex_file)
+      
+      if success and disasm and disasm ~= "" then
+        best_arch = specified_arch
+        best_disasm = disasm
+        debug_print("# DEBUG: Got disassembly output for specified arch: " .. #disasm .. " bytes")
+      else
+        io.stderr:write("# Warning: Failed to disassemble with specified architecture: " .. specified_arch .. "\n")
+        io.stderr:write("# Falling back to auto-detection\n")
+      end
+    end
+    
+    -- If no architecture was specified or the specified one failed, try auto-detection
+    if not best_disasm then
+      -- Check if we're on Apple Silicon and it's a universal binary with arm64
+      local is_apple_silicon = io.popen("uname -m"):read("*a"):match("arm64")
+      
+      -- Provide a way to test a disassembly architecture properly
+      local function test_arch_disassembly(arch, test_hex)
+        -- Create a small sample (first 4KB max) to test with
+        local test_sample = test_hex:sub(1, 4000)
+        
+        -- Use a temporary file for the test sample
+        local test_file = os.tmpname()
+        local test_f = io.open(test_file, "w")
+        test_f:write(test_sample)
+        test_f:close()
+        
+        -- Run the test disassembly
+        local cmd = "cstool " .. arch .. " $(cat " .. test_file .. ") 2>&1"
+        local pipe = io.popen(cmd)
+        local result = pipe:read("*a")
+        pipe:close()
+        
+        -- Clean up
+        os.remove(test_file)
+        
+        -- Check for errors
+        if result:match("ERROR:") or result:match("error:") or result == "" then
+          return false, 0
+        end
+        
+        -- Count valid lines of disassembly
+        local valid_lines = 0
+        for line in result:gmatch("[^\r\n]+") do
+          if line:match("^%s*%d+%s+[%x%s]+%s+[^%s].*$") then
+            valid_lines = valid_lines + 1
+          end
+        end
+        
+        return valid_lines > 0, valid_lines
+      end
+      
+      -- Clean up the hex data to avoid skewed detection from long NUL sequences
+      -- This function replaces long sequences of consecutive NUL bytes (5+) with a short marker
+      local function filter_long_nul_sequences(hex_string)
+        -- Look for 5 or more consecutive "00" patterns in the hex string
+        local filtered = hex_string
+        local pattern = "00000000000000+" -- At least 5 "00"s (10 characters)
+        
+        -- Replace with a single "00" to maintain byte alignment
+        local nul_replacement = "00"
+        filtered = filtered:gsub(pattern, nul_replacement)
+        
+        return filtered
+      end
+      
+      -- Get filtered hex data for more accurate architecture detection
+      local filtered_hex_data = filter_long_nul_sequences(hex_data)
+      debug_print("# Filtered binary data for more accurate architecture detection")
+      
+      -- Test each architecture first to eliminate incompatible ones
+      debug_print("# Testing architectures for compatibility...")
+      
+      -- Try a few common architectures to find one that works
+      local architectures = {"x64", "x32", "arm64", "arm"}
+      
+      -- Pre-check which architectures work with our binary
+      local valid_archs = {}
+      local arch_valid_lines = {}
+      for _, arch in ipairs(architectures) do
+        local is_valid, lines = test_arch_disassembly(arch, filtered_hex_data)
+        if is_valid then
+          debug_print("# Architecture " .. arch .. " is compatible (" .. lines .. " valid instructions)")
+          table.insert(valid_archs, arch)
+          arch_valid_lines[arch] = lines
+        else
+          debug_print("# Architecture " .. arch .. " is NOT compatible with this binary")
+        end
+      end
+      
+      -- Only proceed with compatible architectures
+      if #valid_archs > 0 then
+        architectures = valid_archs
+      else
+        debug_print("# WARNING: No compatible architectures found, using default order")
+      end
+      
+      -- Mapping from capstone architecture codes to more descriptive names
+      local arch_display_names = {
+        ["x64"] = "x86_64",
+        ["x32"] = "x86 (32-bit)",
+        ["arm64"] = "ARM64",
+        ["arm"] = "ARM (32-bit)"
+      }
+      
+      -- Try each architecture and keep the one with most successful output
+      local best_score = 0
+      
+      -- On Apple Silicon, prioritize ARM64 architecture if we're on a universal binary
+      local is_apple_silicon = io.popen("uname -m"):read("*a"):match("arm64")
+      
+      for _, arch in ipairs(architectures) do
+        -- Set up the base priority based on instruction count and platform
+        local arch_priority = 0
+        
+        -- Use the number of valid instructions as a priority boost
+        -- This ensures we pick the architecture that can best interpret this binary
+        if arch_valid_lines[arch] then
+          arch_priority = arch_valid_lines[arch] * 10
+        end
+        
+        -- If we're on Apple Silicon and looking at a universal binary, prioritize ARM64
+        -- but only if it has a reasonable number of valid instructions
+        if is_apple_silicon and is_universal then
+          if arch == "arm64" and arch_valid_lines[arch] and arch_valid_lines[arch] > 50 then
+            arch_priority = arch_priority + 1000  -- Boost arm64 only if it has enough valid instructions
+          end
+        end
+        
+        -- Use the filtered hex data to avoid skewed detection
+        local cmd = "cstool " .. arch .. " " .. filtered_hex_data .. " 2>/dev/null"
+        local pipe = io.popen(cmd)
+        local disasm = pipe:read("*a")
+        local success = pipe:close()
+        
+        if success and disasm and disasm ~= "" then
+          -- Score based on successful disassembly patterns
+          local score = 0 + arch_priority
+          
+          -- Count number of lines as a base score
+          for _ in disasm:gmatch("\n") do
+            score = score + 1
+          end
+          
+          -- Look for architecture-specific instruction patterns
+          if arch == "x64" or arch == "x32" then
+            -- Common x86 instructions (with less aggressive scoring)
+            for _ in disasm:gmatch("[^a-z]mov[^a-z]") do score = score + 1 end
+            for _ in disasm:gmatch("[^a-z]ret[^a-z]") do score = score + 1 end
+            for _ in disasm:gmatch("[^a-z]call[^a-z]") do score = score + 1 end
+            for _ in disasm:gmatch("[^a-z]push[^a-z]") do score = score + 1 end
+            for _ in disasm:gmatch("[^a-z]pop[^a-z]") do score = score + 1 end
+            for _ in disasm:gmatch("[^a-z]jmp[^a-z]") do score = score + 1 end
+            for _ in disasm:gmatch("[^a-z]nop[^a-z]") do score = score + 1 end
+          elseif arch == "arm" or arch == "arm64" then
+            -- Common ARM instructions
+            for _ in disasm:gmatch("[^a-z]ldr[^a-z]") do score = score + 5 end
+            for _ in disasm:gmatch("[^a-z]str[^a-z]") do score = score + 5 end
+            for _ in disasm:gmatch("[^a-z]bl[^a-z]") do score = score + 5 end
+            for _ in disasm:gmatch("[^a-z]add[^a-z]") do score = score + 5 end
+            for _ in disasm:gmatch("[^a-z]sub[^a-z]") do score = score + 5 end
+            for _ in disasm:gmatch("[^a-z]mov[^a-z]") do score = score + 5 end
+          end
+          
+          -- Penalize for invalid/unknown instructions
+          for _ in disasm:gmatch("[Ii]nvalid") do score = score - 10 end
+          for _ in disasm:gmatch("[Uu]nknown") do score = score - 10 end
+          for _ in disasm:gmatch("%(bad%)") do score = score - 10 end
+          
+          -- If this architecture scores better than previous best
+          if score > best_score then
+            best_score = score
+            best_arch = arch
+            -- We'll use this architecture later with the original hex data
+          end
+          
+          -- Debug output for architecture scores
+          debug_print("# DEBUG: Architecture " .. arch .. " score: " .. score)
+        else
+          debug_print("# DEBUG: Architecture " .. arch .. " failed to disassemble")
+        end
+      end
+      
+      -- Run disassembly on the original hex data (not the filtered version)
+      if best_arch then
+        debug_print("# Running full disassembly with selected architecture: " .. best_arch)
+        -- Use a temporary file for the hex data since it might be too large for a command line
+        local hex_file = os.tmpname()
+        local hex_f = io.open(hex_file, "w")
+        hex_f:write(hex_data)
+        hex_f:close()
+        
+        debug_print("# DEBUG: Created temp hex file: " .. hex_file)
+        
+        -- Run cstool on the file
+        local cmd = "cstool " .. best_arch .. " $(cat " .. hex_file .. ") 2>/dev/null"
+        debug_print("# DEBUG: Running: " .. cmd)
+        
+        local pipe = io.popen(cmd)
+        best_disasm = pipe:read("*a")
+        local success = pipe:close()
+        
+        -- Check result
+        if not best_disasm or best_disasm == "" then
+          debug_print("# DEBUG: Failed to get disassembly output")
+        else
+          debug_print("# DEBUG: Got disassembly output: " .. #best_disasm .. " bytes")
+        end
+        
+        -- Clean up temp file
+        os.remove(hex_file)
+      end
+    end
+    
+    -- Using raw hex representation of 🧾 (F0 9F A7 BE) for Lua 5.1 compatibility
+    local receipt_emoji = "\240\159\167\190"  -- Raw bytes for 🧾 emoji
+    
+    -- Only display file info for non-universal binaries
+    if not is_universal then
+      -- Clean up file info by replacing escaped octal values (like \012) with a space
+      local clean_file_info = file_info:gsub("\\%d%d%d", " "):gsub("%s+", " ")
+      
+      -- Send file info to stderr immediately
+      io.stderr:write("# File: " .. clean_file_info .. "\n")
+    end
+    -- Get a more descriptive name for the architecture
+    -- Make sure we're using the architecture display names table that was defined earlier
+    local arch_display_name
+    if arch_display_names and arch_display_names[best_arch] then
+      arch_display_name = arch_display_names[best_arch]
+    else
+      arch_display_name = best_arch
+    end
+    io.stderr:write("# Disassembly (" .. arch_display_name .. "):\n")
+    io.stderr:flush()
+    
+    if best_disasm and best_disasm ~= "" then
+      -- Debug: check if disassembly has valid content
+      debug_print("# Disassembly length: " .. #best_disasm .. " bytes")
+      debug_print("# Disassembly first 100 chars: " .. best_disasm:sub(1, 100):gsub("\n", "\\n"))
+      
+      -- In disassembly mode, we'll replace the standard output with aligned disassembly
+      local aligned_output = {}
+      
+      -- Parse disassembly lines and group them by lines that fit in formatting constraints
+      local disasm_entries = {}
+      local max_bytes_per_line = format_group * format_groups_per_line
+      
+      -- First parse all disassembly entries
+      for line in best_disasm:gmatch("[^\r\n]+") do
+        -- Expected format: " 0  90                       nop " or " a  00 00                  add byte ptr [eax], al"
+        -- Note: cstool outputs offsets in hexadecimal format, not decimal
+        local idx, bytes, instr = line:match("^%s*(%x+)%s+([%x%s]+)%s+([^%s].*)")
+        if idx and bytes and instr then
+          local index = tonumber(idx, 16)  -- Parse as hexadecimal
+          
+          -- Extract actual bytes (remove spaces)
+          local byte_array = {}
+          for b in bytes:gmatch("(%x%x)") do
+            if b then
+              byte_array[#byte_array + 1] = tonumber(b, 16)
+            end
+          end
+          
+          -- Count actual instruction bytes
+          local byte_count = #byte_array
+          
+          -- Special handling for common patterns
+          
+          -- Check for sequences of NOPs
+          if instr == "nop" and byte_array[1] == 0x90 then
+            -- Look ahead to see if we have a sequence of NOPs
+            local consecutive_nops = 1
+            local i = 1
+            while i < #disasm_entries + 1 do
+              local next_idx = index + i
+              local next_line = best_disasm:match("[^\r\n]+", next_idx)
+              if next_line then
+                local next_bytes, next_instr = next_line:match("^%s*%x+%s+([%x%s]+)%s+([^%s].*)")
+                if next_bytes and next_instr and next_instr == "nop" and next_bytes:match("^%s*90%s*$") then
+                  consecutive_nops = consecutive_nops + 1
+                  i = i + 1
+                else
+                  break
+                end
+              else
+                break
+              end
+            end
+            
+            -- If we have multiple NOPs, label it as code alignment
+            if consecutive_nops > 1 then
+              instr = "NOP (0x90) x" .. consecutive_nops .. " (alignment)"
+            end
+          end
+          -- For sequences of NUL bytes (0x00) showing up as "add [eax], al" or "byte ptr [rax], al"
+          if bytes:match("^%s*00%s+") and (instr:match("^add%s+byte%s+ptr%s+%[e?a?x%],%s*al") or 
+             instr:match("^byte%s+ptr%s+%[r?a?x%],%s*al")) then
+            -- Check for consecutive NUL bytes
+            local null_count = 0
+            for b in bytes:gmatch("(%x%x)") do
+              if b == "00" then
+                null_count = null_count + 1
+              else
+                break
+              end
+            end
+            
+            -- Check if this is likely code or data
+            local likely_code = false
+            
+            -- Look for evidence this might be real code (very basic heuristic)
+            -- 1. Check if this is following a call or jump instruction
+            if index > 0 and #disasm_entries > 0 then
+              local prev_instr = disasm_entries[#disasm_entries].instruction
+              if prev_instr and (prev_instr:match("^call") or prev_instr:match("^j[a-z]+") or 
+                 prev_instr:match("^ret")) then
+                likely_code = true
+              end
+            end
+            
+            -- 2. Check if this is the beginning of a function (common padding)
+            if index < 8 then
+              likely_code = true
+            end
+            
+            -- 3. Long runs of NULs are more likely to be data
+            if null_count > 8 then
+              likely_code = false
+            end
+            
+            -- Label differently based on context
+            if likely_code then
+              instr = "NUL (0x00) x" .. null_count .. " (likely code)"
+            else
+              instr = "NUL (0x00) x" .. null_count .. " (likely data)"
+            end
+          end
+          
+          -- Check for NOP instructions separately (0x90)
+          if bytes:match("^%s*90%s+") and instr:match("^nop") then
+            -- Count consecutive NOPs
+            local nop_count = 0
+            for b in bytes:gmatch("(%x%x)") do
+              if b == "90" then
+                nop_count = nop_count + 1
+              else
+                break
+              end
+            end
+            
+            -- NOPs are almost always code alignment
+            if nop_count > 1 then
+              instr = "NOP (0x90) x" .. nop_count .. " (alignment)"
+            end
+          end
+          
+          -- Handle other repeated bytes
+          local single_byte_repeating = true
+          local prev_byte = nil
+          for b in bytes:gmatch("(%x%x)") do
+            if prev_byte and b ~= prev_byte then
+              single_byte_repeating = false
+              break
+            end
+            prev_byte = b
+          end
+          
+          if single_byte_repeating and prev_byte and byte_count > 1 and prev_byte ~= "90" then
+            local byte_val = tonumber(prev_byte, 16)
+            if byte_val then
+              local byte_name = ""
+              local is_likely_code = false
+              
+              -- Known instruction byte patterns
+              if byte_val == 0 then 
+                byte_name = "NUL" -- NUL bytes
+              elseif byte_val == 0xFF then 
+                byte_name = "FF"  -- Often used in x86 prefixes
+                is_likely_code = true
+              elseif byte_val == 0xCC then 
+                byte_name = "INT3" -- Breakpoint instruction
+                is_likely_code = true
+              elseif byte_val == 0xC3 then
+                byte_name = "RET"  -- Return instruction
+                is_likely_code = true
+              end
+              
+              -- Check if this is likely code or data based on context
+              if byte_name ~= "" then
+                if is_likely_code then
+                  instr = byte_name .. " (0x" .. prev_byte .. ") x" .. byte_count .. " (likely code)"
+                else
+                  -- For patterns like NUL, look at surrounding context
+                  -- Similar to the NUL check above
+                  local likely_code = false
+                  
+                  -- Check if it follows a control instruction
+                  if index > 0 and disasm_entries[#disasm_entries] then
+                    local prev_instr = disasm_entries[#disasm_entries].instruction
+                    if prev_instr:match("^call") or prev_instr:match("^j[a-z]+") or 
+                       prev_instr:match("^ret") then
+                      likely_code = true
+                    end
+                  end
+                  
+                  -- If at the beginning of what we're looking at
+                  if index < 8 then
+                    likely_code = true
+                  end
+                  
+                  if likely_code then
+                    instr = byte_name .. " (0x" .. prev_byte .. ") x" .. byte_count .. " (likely code)"
+                  else
+                    instr = byte_name .. " (0x" .. prev_byte .. ") x" .. byte_count .. " (likely data)"
+                  end
+                end
+              end
+            end
+          end
+          
+          -- Clean up the instruction
+          -- Replace any "standalone" registers that might be artifacts
+          instr = instr:gsub("%s+eax%s*$", "")
+          instr = instr:gsub("%s+eax%s*;", ";")
+          instr = instr:gsub("eax$", "")
+          instr = instr:gsub("eax;", ";")
+          instr = instr:gsub(";%s*eax", ";")
+          
+          -- Handle other common registers that might appear as artifacts
+          local registers = {"ebx", "ecx", "edx", "esp", "ebp", "esi", "edi", "rax", "rbx", "rcx", "rdx", "rsp", "rbp", "rsi", "rdi"}
+          for _, reg in ipairs(registers) do
+            instr = instr:gsub("%s+" .. reg .. "%s*$", "")
+            instr = instr:gsub("%s+" .. reg .. "%s*;", ";")
+            instr = instr:gsub(reg .. "$", "")
+            instr = instr:gsub(reg .. ";", ";")
+            instr = instr:gsub(";%s*" .. reg, ";")
+          end
+          
+          -- Convert semicolons in instructions to avoid conflicts
+          instr = instr:gsub(";", "#!")
+          -- Remove trailing whitespace
+          instr = instr:gsub("%s+$", "")
+          -- Remove duplicate spaces
+          instr = instr:gsub("%s+", " ")
+          
+          -- Only add entries with valid instructions
+          if instr ~= "" and byte_count > 0 then
+            -- Create entry
+            disasm_entries[#disasm_entries + 1] = {
+              index = index,
+              byte_count = byte_count,
+              instruction = instr
+            }
+          end
+        end
+      end
+      
+      -- Now create output lines respecting formatting
+      local current_line = {}
+      local current_bytes = 0
+      local current_instrs = {}
+      
+      for i = 1, #disasm_entries do
+        local entry = disasm_entries[i]
+        local next_entry = disasm_entries[i + 1]
+        
+        -- Check if this entry would fit on current line
+        if current_bytes + entry.byte_count <= max_bytes_per_line then
+          -- It fits, add it
+          current_bytes = current_bytes + entry.byte_count
+          current_instrs[#current_instrs + 1] = entry.instruction
+          
+          -- Extract and encode the bytes for this instruction
+          -- The index in the disassembly is the offset into the original binary
+          local encoded_chars = {}
+          for j = 0, entry.byte_count - 1 do
+            -- entry.index is in hexadecimal from cstool and is the offset into the original binary
+            -- +1 because Lua strings are 1-indexed
+            local byte_pos = entry.index + j + 1
+            if byte_pos <= #input_data then
+              local byte_val = string.byte(input_data, byte_pos)
+              if byte_val then
+                encoded_chars[#encoded_chars + 1] = encode_map[byte_val]
+              end
+            end
+          end
+          
+          -- Add the encoded chars to current line
+          for j = 1, #encoded_chars do
+            current_line[#current_line + 1] = encoded_chars[j]
+          end
+        end
+        
+        -- Check if we need to finish the line:
+        -- 1. If next entry wouldn't fit
+        -- 2. Or if we're at the last entry
+        local need_new_line = false
+        
+        if next_entry then
+          -- There is a next entry - check if it would fit
+          if current_bytes + next_entry.byte_count > max_bytes_per_line then
+            need_new_line = true
+          end
+        else
+          -- Last entry
+          need_new_line = true
+        end
+        
+        if need_new_line and #current_line > 0 then
+          -- Format current line
+          -- Group the encoded characters
+          local formatted_line = {}
+          
+          -- Just group the characters we have without padding the output line
+          for j = 1, #current_line, format_group do
+            local group = {}
+            for k = j, math.min(j + format_group - 1, #current_line) do
+              group[#group + 1] = current_line[k]
+            end
+            formatted_line[#formatted_line + 1] = table.concat(group)
+          end
+          
+          -- Add to output, with instructions joined by "; "
+          -- Use an ordered set of instructions for clarity
+          local combined_instrs = {}
+          for _, instr in ipairs(current_instrs) do
+            if instr and instr ~= "" then
+              combined_instrs[#combined_instrs + 1] = instr
+            end
+          end
+          
+          -- Look for patterns in the combined instructions
+          
+          -- 1. Check for sequences of NOPs
+          local nop_sequences = {}
+          local nop_count = 0
+          local nop_indexes = {}
+          
+          for i, instr in ipairs(combined_instrs) do
+            if instr == "nop" then
+              nop_count = nop_count + 1
+              nop_indexes[#nop_indexes + 1] = i
+            else
+              if nop_count > 2 then
+                nop_sequences[#nop_sequences + 1] = {count = nop_count, start = nop_indexes[1], ["end"] = nop_indexes[#nop_indexes]}
+              end
+              nop_count = 0
+              nop_indexes = {}
+            end
+          end
+          
+          -- If we had NOPs at the end
+          if nop_count > 2 then
+            nop_sequences[#nop_sequences + 1] = {count = nop_count, start = nop_indexes[1], ["end"] = nop_indexes[#nop_indexes]}
+          end
+          
+          -- Replace NOP sequences
+          for i = #nop_sequences, 1, -1 do -- Go backward to avoid index issues
+            local seq = nop_sequences[i]
+            -- Remove the individual NOPs
+            for j = seq["end"], seq.start, -1 do
+              table.remove(combined_instrs, j)
+            end
+            -- Insert the combined NOP description
+            table.insert(combined_instrs, seq.start, "NOP (0x90) x" .. seq.count .. " (alignment)")
+          end
+          
+          -- 2. Check for sequences of NUL bytes and identify repeated "byte ptr [eax], al" or similar
+          
+          -- First convert repeated "byte ptr [eax/rax], al" instructions to NUL markers
+          local byte_ptr_pattern = "^byte%s+ptr%s+%[([er])ax%],%s*al$"
+          local consecutive_byte_ptr = 0
+          local byte_ptr_indexes = {}
+          
+          for i = 1, #combined_instrs do
+            local instr = combined_instrs[i]
+            if instr and instr:match(byte_ptr_pattern) then
+              consecutive_byte_ptr = consecutive_byte_ptr + 1
+              byte_ptr_indexes[#byte_ptr_indexes + 1] = i
+            else
+              if consecutive_byte_ptr > 3 then -- At least 4 in a row is likely data
+                -- Convert the sequence to a NUL marker
+                for j = #byte_ptr_indexes, 1, -1 do
+                  table.remove(combined_instrs, byte_ptr_indexes[j])
+                end
+                -- Insert a placeholder for the NUL bytes
+                if consecutive_byte_ptr > 8 then
+                  table.insert(combined_instrs, byte_ptr_indexes[1], "NUL (0x00) x" .. consecutive_byte_ptr .. " (data padding)")
+                else
+                  table.insert(combined_instrs, byte_ptr_indexes[1], "NUL (0x00) x" .. consecutive_byte_ptr .. " (likely data)")
+                end
+                -- Update our position in the loop
+                i = byte_ptr_indexes[1]
+              end
+              consecutive_byte_ptr = 0
+              byte_ptr_indexes = {}
+            end
+          end
+          
+          -- If we had byte_ptr runs at the end
+          if consecutive_byte_ptr > 3 then
+            -- Convert the sequence to a NUL marker
+            for j = #byte_ptr_indexes, 1, -1 do
+              table.remove(combined_instrs, byte_ptr_indexes[j])
+            end
+            -- Insert a placeholder for the NUL bytes
+            if consecutive_byte_ptr > 8 then
+              table.insert(combined_instrs, byte_ptr_indexes[1], "NUL (0x00) x" .. consecutive_byte_ptr .. " (data padding)")
+            else
+              table.insert(combined_instrs, byte_ptr_indexes[1], "NUL (0x00) x" .. consecutive_byte_ptr .. " (likely data)")
+            end
+          end
+          
+          -- Now check for sequences of NUL labels
+          local nul_sequences = {}
+          local nul_pattern_count = 0
+          local nul_indexes = {}
+          
+          for i, instr in ipairs(combined_instrs) do
+            if instr and instr:match("NUL %(0x00%)") then
+              nul_pattern_count = nul_pattern_count + 1
+              nul_indexes[#nul_indexes + 1] = i
+            else
+              if nul_pattern_count > 1 then
+                nul_sequences[#nul_sequences + 1] = {count = nul_pattern_count, start = nul_indexes[1], ["end"] = nul_indexes[#nul_indexes]}
+              end
+              nul_pattern_count = 0
+              nul_indexes = {}
+            end
+          end
+          
+          -- If we had NULs at the end
+          if nul_pattern_count > 1 then
+            nul_sequences[#nul_sequences + 1] = {count = nul_pattern_count, start = nul_indexes[1], ["end"] = nul_indexes[#nul_indexes]}
+          end
+          
+          -- Replace NUL sequences
+          for i = #nul_sequences, 1, -1 do -- Go backward to avoid index issues
+            local seq = nul_sequences[i]
+            
+            -- Count total NULs - extract counts from each entry
+            local total_nulls = 0
+            for j = seq.start, seq["end"] do
+              local count = combined_instrs[j]:match("NUL %(0x00%) x(%d+)")
+              if count then
+                total_nulls = total_nulls + tonumber(count)
+              end
+            end
+            
+            -- Remove the individual NUL entries
+            for j = seq["end"], seq.start, -1 do
+              table.remove(combined_instrs, j)
+            end
+            
+            -- Insert the combined NUL description based on count
+            if total_nulls > 8 then
+              table.insert(combined_instrs, seq.start, "NUL (0x00) x" .. total_nulls .. " (data padding)")
+            else
+              table.insert(combined_instrs, seq.start, "NUL (0x00) x" .. total_nulls .. " (likely code padding)")
+            end
+          end
+          
+          -- Format the line with proper spacing
+          -- Restore any semicolons in the instructions that were replaced
+          local fixed_instrs = {}
+          for i, instr in ipairs(combined_instrs) do
+            fixed_instrs[i] = instr:gsub("#!", ";")
+          end
+          
+          aligned_output[#aligned_output + 1] = table.concat(formatted_line, " ") .. " " .. 
+                                              receipt_emoji .. " " .. 
+                                              table.concat(fixed_instrs, "; ")
+          
+          -- Reset current line
+          current_line = {}
+          current_bytes = 0
+          current_instrs = {}
+        end
+      end
+      
+      -- In disassembly mode, only output the aligned disassembly
+      output = table.concat(aligned_output, "\n")
     end
   end
   

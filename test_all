@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Master test runner for printable_binary
+# Runs all test suites
+
+set -e
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}=== PrintableBinary Test Suite Runner ===${NC}"
+
+# Track success/failure
+FAILED=0
+
+# Run deterministic unit tests
+echo -e "\n${YELLOW}Running deterministic unit tests...${NC}"
+if ./test; then
+  echo -e "${GREEN}Unit tests: PASSED${NC}"
+else
+  echo -e "${RED}Unit tests: FAILED${NC}"
+  FAILED=1
+fi
+
+# Run non-deterministic fuzz tests
+echo -e "\n${YELLOW}Running non-deterministic fuzz tests...${NC}"
+if ./fuzz_test; then
+  echo -e "${GREEN}Fuzz tests: PASSED${NC}"
+else
+  echo -e "${RED}Fuzz tests: FAILED${NC}"
+  FAILED=1
+fi
+
+# Run performance benchmark tests
+echo -e "\n${YELLOW}Running performance benchmark tests...${NC}"
+if ./benchmark_test; then
+  echo -e "${GREEN}Benchmark tests: PASSED${NC}"
+else
+  echo -e "${RED}Benchmark tests: FAILED${NC}"
+  FAILED=1
+fi
+
+# Summary
+echo -e "\n${BLUE}=== Test Suite Summary ===${NC}"
+if [ $FAILED -eq 0 ]; then
+  echo -e "${GREEN}All test suites passed!${NC}"
+  exit 0
+else
+  echo -e "${RED}One or more test suites failed.${NC}"
+  exit 1
+fi

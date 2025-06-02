@@ -16,6 +16,11 @@ This implementation allows you to view binary data directly in a terminal withou
 - **Single Character Width**: Each encoded representation renders as a single character wide in a monospace terminal.
 - **Compactness**: Uses 1-3 byte UTF-8 characters for optimal space efficiency.
 - **Usability**: Encoded strings are easily copyable, pastable, and printable.
+- **Disassembly**: Optional disassembly of binary files with auto-architecture detection or manual selection.
+- **Formatting**: Customizable output formatting with group size and line width options.
+- **Universal Binary Support**: Detects and clearly identifies macOS universal binaries with multiple architectures.
+- **Intelligent Pattern Recognition**: Recognizes common byte patterns (NUL, NOP, INT3) and provides context-aware analysis to distinguish between code and data.
+- **Binary Safety**: Preserves all binary data, including NUL bytes, when encoding and decoding.
 
 ## Usage
 
@@ -35,12 +40,29 @@ echo -n "Hello, World!" | ./printable_binary
 # Encode with custom formatting (groups of 4 characters, 16 groups per line)
 ./printable_binary -f=4x16 somefile.bin > custom_formatted.txt
 
+# Encode with disassembly (auto-detects architecture)
+./printable_binary -a executable.bin > disassembled.txt
+
+# Encode with both formatting and disassembly
+./printable_binary -a -f=8x8 executable.bin > formatted_disassembly.txt
+
+# Encode with specific architecture (useful for universal binaries)
+./printable_binary -a --arch x64 universal_binary.bin > x64_disassembly.txt
+
+# NOTE: Disassembly only processes a portion of the binary
+# Decoding from disassembly will not reconstruct the full binary
+# For universal binaries, it will only show one architecture
+./printable_binary universal_binary.bin > full_binary.txt  # Use this for full binary preservation
+
 # Decode data (spaces and newlines are automatically ignored during decoding)
 echo -n "Hello,␣World!" | ./printable_binary -d
 # Output: Hello, World!
 
 # Decode formatted data (formatting is ignored)
 cat formatted_encoded.txt | ./printable_binary -d > original.bin
+
+# Decode disassembled data (disassembly info is ignored)
+cat disassembled.txt | ./printable_binary -d > original_executable.bin
 ```
 
 ### As a Lua Library
@@ -119,8 +141,23 @@ Bytes 192-255 are encoded as UTF-8 sequences with first byte 0xC4 (196) followed
 
 ## Running Tests
 
+To run the entire test suite, including basic tests, disassembly tests, and fuzz tests:
+
 ```bash
+./test
+```
+
+You can also run individual test suites:
+
+```bash
+# Basic functionality tests
 ./test.sh
+
+# Disassembly feature tests
+./disasm_test.sh
+
+# Fuzz tests with random data
+./fuzz_test.sh
 ```
 
 ## Requirements
