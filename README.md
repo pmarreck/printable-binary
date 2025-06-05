@@ -141,24 +141,45 @@ Bytes 192-255 are encoded as UTF-8 sequences with first byte 0xC4 (196) followed
 
 ## Running Tests
 
-To run the entire test suite, including basic tests, disassembly tests, and fuzz tests:
+The project includes three types of test suites:
+
+### Deterministic Unit Tests
+
+These tests validate basic functionality and expected behavior:
 
 ```bash
 ./test
 ```
 
-You can also run individual test suites:
+### Non-deterministic Fuzz Tests
+
+These tests run randomized inputs to verify robustness:
 
 ```bash
-# Basic functionality tests
-./test.sh
-
-# Disassembly feature tests
-./disasm_test.sh
-
-# Fuzz tests with random data
-./fuzz_test.sh
+./fuzz_test
 ```
+
+### Performance Benchmark Tests
+
+These tests measure encoding and decoding performance:
+
+```bash
+./benchmark_test
+```
+
+### Running All Tests
+
+To run all test suites at once:
+
+```bash
+./test_all
+```
+
+## Utilities
+
+The project includes several utility scripts in the `utils/` directory:
+
+- `dump-chars.sh`: Displays the character mappings for all byte values
 
 ## Requirements
 
