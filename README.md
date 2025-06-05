@@ -1,12 +1,12 @@
 # PrintableBinary
 
-A Lua library for encoding arbitrary binary data into human-readable UTF-8 text, and then decoding it back to the original binary data.
+A Lua/Luajit library for encoding arbitrary binary data into human-readable UTF-8 text, and then decoding it back to the original binary data.
 
 ## Overview
 
 PrintableBinary is designed to serialize binary data into a visually distinct, human-readable format that is also copy-pastable. It's an alternative to hexadecimal encoding that offers better visual density and makes embedded ASCII text immediately recognizable.
 
-This implementation allows you to view binary data directly in a terminal without breaking the display, making it particularly useful for debugging, logging, and sharing binary data in human-readable form.
+This implementation allows you to view binary data directly in a terminal (it even has a pipe inspection mode with `--passthrough`) without breaking the display, making it particularly useful for debugging, logging, and sharing binary data in human-readable form.
 
 ## Features
 
@@ -21,6 +21,7 @@ This implementation allows you to view binary data directly in a terminal withou
 - **Universal Binary Support**: Detects and clearly identifies macOS universal binaries with multiple architectures.
 - **Intelligent Pattern Recognition**: Recognizes common byte patterns (NUL, NOP, INT3) and provides context-aware analysis to distinguish between code and data.
 - **Binary Safety**: Preserves all binary data, including NUL bytes, when encoding and decoding.
+- **Passthrough Mode**: Simultaneously outputs original binary data to stdout and encoded text to stderr for flexible processing pipelines.
 
 ## Usage
 
@@ -30,6 +31,10 @@ This implementation allows you to view binary data directly in a terminal withou
 # Encode binary data
 echo -n "Hello, World!" | ./printable_binary
 # Output: Hello,␣World!
+
+# Note: Direct encoding of binary data as command-line arguments is not supported
+# because shell environments cannot represent all binary data (such as NUL bytes)
+# Always pipe input or specify a file to encode
 
 # Encode a file
 ./printable_binary somefile.bin > encoded.txt
@@ -63,6 +68,11 @@ cat formatted_encoded.txt | ./printable_binary -d > original.bin
 
 # Decode disassembled data (disassembly info is ignored)
 cat disassembled.txt | ./printable_binary -d > original_executable.bin
+
+# Use passthrough mode to output both original binary (stdout) and encoded text (stderr)
+# This is useful for binary data processing pipelines that need both representations
+echo -n "Hello, World!" | ./printable_binary --passthrough 2>encoded.txt | wc -c
+# Binary data goes to stdout, encoded text to stderr
 ```
 
 ### As a Lua Library
@@ -216,6 +226,7 @@ The implementation builds two lookup tables at initialization:
 - `decode_map`: Maps UTF-8 string representations back to byte values
 
 These bidirectional maps ensure efficient and accurate conversion in both directions.
+
 
 ## License
 

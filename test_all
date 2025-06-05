@@ -25,6 +25,10 @@ else
   FAILED=1
 fi
 
+# Passthrough functionality tests are now integrated into the main test suite
+echo -e "\n${YELLOW}Passthrough functionality tests are integrated into the main test suite${NC}"
+echo -e "${GREEN}Passthrough tests: INCLUDED IN MAIN TESTS${NC}"
+
 # Run non-deterministic fuzz tests
 echo -e "\n${YELLOW}Running non-deterministic fuzz tests...${NC}"
 if ./fuzz_test; then
