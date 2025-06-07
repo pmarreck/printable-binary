@@ -51,12 +51,13 @@ local function build_maps()
   -- Special ASCII characters
   def_char(32, "\226\144\163") -- ␣ (U+2423)
   def_char(34, "\203\181") -- ˵ (U+02F5)
+  def_char(39, "\202\188") -- ʼ (U+02BC MODIFIER LETTER APOSTROPHE)
   def_char(92, "\201\133") -- Ʌ (U+0245)
   def_char(127, "\226\140\166") -- ⌦ (U+2326)
 
-  -- Regular ASCII characters (33-126, except 34 and 92)
+  -- Regular ASCII characters (33-126, except 34, 39, and 92)
   for i = 33, 126 do
-    if i ~= 34 and i ~= 92 then
+    if i ~= 34 and i ~= 39 and i ~= 92 then
       def_char(i, string.char(i))
     end
   end

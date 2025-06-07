@@ -183,12 +183,22 @@ fi
 function test_byte() {
   local byte_val=$1
   local name=$2
+  local expected_char=$3
   
   # Create single byte file
   printf "\\$(printf '%03o' $byte_val)" > "$TEST_FILE"
   
   # Encode
   ./printable_binary "$TEST_FILE" 2>/dev/null > "$ENCODED_FILE"
+  
+  # If expected character is provided, verify it appears in the encoding
+  if [ ! -z "$expected_char" ]; then
+    local encoded_result=$(cat "$ENCODED_FILE")
+    if [[ "$encoded_result" != "$expected_char" ]]; then
+      echo -e "${RED}FAIL${NC}: Byte ${byte_val} (${name}) encoded as '${encoded_result}', expected '${expected_char}'"
+      exit 1
+    fi
+  fi
   
   # Decode 
   ./printable_binary -d "$ENCODED_FILE" 2>/dev/null > "$DECODED_FILE"
@@ -214,6 +224,7 @@ test_byte 13 "CR"
 test_byte 27 "ESC"
 test_byte 32 "SPACE"
 test_byte 34 "QUOTE"
+test_byte 39 "SINGLE QUOTE" "ʼ"  # Expect U+02BC MODIFIER LETTER APOSTROPHE
 test_byte 92 "BACKSLASH"
 test_byte 127 "DEL"
 

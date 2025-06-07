@@ -94,7 +94,10 @@ print(decoded)  -- Output: Hello, World!
 
 - **Control Characters (0-31)**: Mapped to visually distinct symbols like ∅, ¯, «, », etc.
 - **Space (32)**: Encoded as ␣ for visibility
-- **Printable ASCII (33-126)**: Mostly unchanged except for double quote (34) → ˵ and backslash (92) → Ʌ
+- **Printable ASCII (33-126)**: Mostly unchanged except for:
+  - Double quote (34) → ˵ (U+02F5)
+  - Single quote (39) → ʼ (U+02BC)
+  - Backslash (92) → Ʌ (U+0245)
 - **DEL (127)**: Encoded as ⌦
 - **Extended Bytes (128-255)**: Mapped to characters from Latin-1 Supplement and Latin Extended-A blocks
 
@@ -138,12 +141,13 @@ This detailed mapping table is provided to help others create compatible encoder
 | 31 (US)    | ¶         | U+00B6  | C2 B6             | Pilcrow Sign |
 | 32 (Space) | ␣         | U+2423  | E2 90 A3          | Open Box |
 | 34 (")     | ˵         | U+02F5  | CB B5             | Double Quote |
+| 39 (')     | ʼ         | U+02BC  | CA BC             | Modifier Letter Apostrophe |
 | 92 (\\)    | Ʌ         | U+0245  | C9 85             | Latin Capital Letter Turned V |
 | 127 (DEL)  | ⌦         | U+2326  | E2 8C A6          | Erase to the Right |
 | 152        | Ō         | U+014C  | C5 8C             | Latin Capital Letter O with Macron |
 | 184        | ŏ         | U+014F  | C5 8F             | Latin Small Letter O with Breve |
 
-Bytes 33-126 (printable ASCII, except 34 and 92) are represented as themselves.
+Bytes 33-126 (printable ASCII, except 34, 39, and 92) are represented as themselves.
 
 Bytes 128-191 (excluding 152 and 184) are encoded as UTF-8 sequences with first byte 0xC3 (195) followed by the original byte value.
 
