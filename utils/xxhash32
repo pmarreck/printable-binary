@@ -1,0 +1,94 @@
+#!/usr/bin/env luajit
+
+local xxhash = require '../lib/xxhash32'
+local bit = require('bit')
+
+-- Command line argument parsing
+local function usage()
+    io.stderr:write("xxhash32 - Calculate XXH32 hash of input data\n\n")
+    io.stderr:write("Usage: xxhash32 [OPTIONS] [input]\n")
+    io.stderr:write("Options:\n")
+    io.stderr:write("  -s, --seed N      Seed value (default: 0)\n")
+    io.stderr:write("  -b, --binary      Output binary hash instead of hex\n")
+    io.stderr:write("  -e, --encoded     Output hash encoded with PrintableBinary\n")
+    io.stderr:write("  -h, --help        Show this help\n")
+    io.stderr:write("\n")
+    io.stderr:write("Examples:\n")
+    io.stderr:write("  echo 'hello' | xxhash32           # Hash stdin, output hex\n")
+    io.stderr:write("  xxhash32 --seed=42 file.txt       # Hash file with seed\n")
+    io.stderr:write("  xxhash32 --binary data.bin        # Output raw binary hash\n")
+    io.stderr:write("  xxhash32 --encoded file.txt       # Output PrintableBinary encoded hash\n")
+    os.exit(1)
+end
+
+local seed = 0
+local binary_output = false
+local encoded_output = false
+local input_file = nil
+
+-- Parse arguments
+local i = 1
+while i <= #arg do
+    local a = arg[i]
+    if a == "--help" or a == "-h" then
+        usage()
+    elseif a:match("^--seed=(.+)") then
+        seed = tonumber(a:match("^--seed=(.+)")) or 0
+    elseif a == "--seed" or a == "-s" then
+        i = i + 1
+        seed = tonumber(arg[i]) or 0
+    elseif a == "--binary" or a == "-b" then
+        binary_output = true
+    elseif a == "--encoded" or a == "-e" then
+        encoded_output = true
+    elseif not a:match("^-") then
+        input_file = a
+    else
+        io.stderr:write("Unknown option: " .. a .. "\n")
+        usage()
+    end
+    i = i + 1
+end
+
+-- Read input data
+local data
+if input_file then
+    local f = io.open(input_file, "rb")
+    if not f then
+        io.stderr:write("Error: Cannot open file: " .. input_file .. "\n")
+        os.exit(1)
+    end
+    data = f:read("*a")
+    f:close()
+else
+    data = io.read("*a")
+end
+
+-- Calculate hash
+local hash = xxhash(data, #data, seed)
+
+-- Output hash in requested format
+if encoded_output then
+    -- Convert hash to 4 bytes and encode with PrintableBinary
+    local hash_bytes = string.char(
+        bit.band(hash, 0xFF),
+        bit.band(bit.rshift(hash, 8), 0xFF),
+        bit.band(bit.rshift(hash, 16), 0xFF),
+        bit.band(bit.rshift(hash, 24), 0xFF)
+    )
+    -- We need to load the PrintableBinary encoding functions
+    -- For now, just output a placeholder - this would need the encoding logic
+    io.stderr:write("Error: --encoded not yet implemented\n")
+    os.exit(1)
+elseif binary_output then
+    -- Output 4 bytes of binary hash (little-endian)
+    io.write(string.char(
+        bit.band(hash, 0xFF),
+        bit.band(bit.rshift(hash, 8), 0xFF),
+        bit.band(bit.rshift(hash, 16), 0xFF),
+        bit.band(bit.rshift(hash, 24), 0xFF)
+    ))
+else
+    -- Default: hex output
+    print(string.format("%08x", hash))
+end

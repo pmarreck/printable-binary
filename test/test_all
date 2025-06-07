@@ -13,12 +13,19 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}=== PrintableBinary Test Suite Runner ===${NC}"
 
+# Show which implementation is being tested
+# Auto-detect the correct path based on script location
+SCRIPT_DIR="$(dirname "$0")"
+DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../printable_binary"
+IMPLEMENTATION="${IMPLEMENTATION_TO_TEST:-$DEFAULT_IMPLEMENTATION}"
+echo -e "${YELLOW}Testing implementation: $IMPLEMENTATION${NC}"
+
 # Track success/failure
 FAILED=0
 
 # Run deterministic unit tests
 echo -e "\n${YELLOW}Running deterministic unit tests...${NC}"
-if ./test; then
+if $(dirname "$0")/test; then
   echo -e "${GREEN}Unit tests: PASSED${NC}"
 else
   echo -e "${RED}Unit tests: FAILED${NC}"
@@ -31,16 +38,25 @@ echo -e "${GREEN}Passthrough tests: INCLUDED IN MAIN TESTS${NC}"
 
 # Run non-deterministic fuzz tests
 echo -e "\n${YELLOW}Running non-deterministic fuzz tests...${NC}"
-if ./fuzz_test; then
+if $(dirname "$0")/fuzz_test; then
   echo -e "${GREEN}Fuzz tests: PASSED${NC}"
 else
   echo -e "${RED}Fuzz tests: FAILED${NC}"
   FAILED=1
 fi
 
+# Run disassembly tests
+echo -e "\n${YELLOW}Running disassembly tests...${NC}"
+if $(dirname "$0")/test_disassembly; then
+  echo -e "${GREEN}Disassembly tests: PASSED${NC}"
+else
+  echo -e "${RED}Disassembly tests: FAILED${NC}"
+  FAILED=1
+fi
+
 # Run performance benchmark tests
 echo -e "\n${YELLOW}Running performance benchmark tests...${NC}"
-if ./benchmark_test; then
+if $(dirname "$0")/benchmark_test; then
   echo -e "${GREEN}Benchmark tests: PASSED${NC}"
 else
   echo -e "${RED}Benchmark tests: FAILED${NC}"

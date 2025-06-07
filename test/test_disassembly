@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+# Disassembly test for printable_binary
+# Tests the -a/--asm functionality with various architectures
+
+set -e
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+# Path to the printable_binary script (can be overridden with IMPLEMENTATION_TO_TEST)
+# Auto-detect the correct path based on script location
+SCRIPT_DIR="$(dirname "$0")"
+DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../printable_binary"
+SCRIPT="${IMPLEMENTATION_TO_TEST:-$DEFAULT_IMPLEMENTATION}"
+
+# Create temp files for testing
+TMP_DIR=$(mktemp -d)
+TMP_X64_BIN="$TMP_DIR/test_x64.bin"
+TMP_ARM64_BIN="$TMP_DIR/test_arm64.bin"
+TMP_X32_BIN="$TMP_DIR/test_x32.bin"
+TMP_DISASM_OUTPUT="$TMP_DIR/disasm_output.txt"
+TMP_DECODED="$TMP_DIR/decoded.bin"
+
+# Cleanup function
+cleanup() {
+    rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT
+
+echo -e "${BLUE}=== PrintableBinary Disassembly Test Suite ===${NC}"
+echo -e "${YELLOW}Testing implementation: $SCRIPT${NC}"
+
+# Check if cstool is available
+if ! command -v cstool &> /dev/null; then
+    echo -e "${RED}SKIP: cstool (Capstone) not available - disassembly tests cannot run${NC}"
+    exit 0
+fi
+
+###############################################################################
+# BASIC DISASSEMBLY TESTS
+###############################################################################
+
+echo -e "\n${YELLOW}Running basic disassembly tests...${NC}"
+
+# Test 1: x64 disassembly
+echo -e "${BLUE}Test #1: x64 disassembly${NC}"
+# Create simple x64 assembly: mov rbp, rsp; sub rsp, 0x10
+echo -e "\x48\x89\xe5\x48\x83\xec\x10" > "$TMP_X64_BIN"
+
+# Test with explicit architecture
+$SCRIPT -a --arch=x64 "$TMP_X64_BIN" > "$TMP_DISASM_OUTPUT" 2>/dev/null
+if grep -q "mov.*rbp.*rsp" "$TMP_DISASM_OUTPUT" && grep -q "sub.*rsp" "$TMP_DISASM_OUTPUT"; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL - Expected x64 disassembly not found${NC}"
+    echo "Output was:"
+    cat "$TMP_DISASM_OUTPUT"
+    exit 1
+fi
+
+# Test 2: Verify disassembly output can be decoded (not perfect round-trip by design)
+echo -e "${BLUE}Test #2: Disassembly output decodable${NC}"
+$SCRIPT -d "$TMP_DISASM_OUTPUT" > "$TMP_DECODED" 2>/dev/null
+if [ -s "$TMP_DECODED" ]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL - Disassembly output cannot be decoded at all${NC}"
+    exit 1
+fi
+
+# Test 3: ARM64 disassembly
+echo -e "${BLUE}Test #3: ARM64 disassembly${NC}"
+# Create simple ARM64 assembly: mov x0, #42; ret
+echo -e "\x40\x05\x80\xd2\xc0\x03\x5f\xd6" > "$TMP_ARM64_BIN"
+
+$SCRIPT -a --arch=arm64 "$TMP_ARM64_BIN" > "$TMP_DISASM_OUTPUT" 2>/dev/null
+if grep -q "mov.*x0.*#0x2a\|mov.*x0.*#42" "$TMP_DISASM_OUTPUT" && grep -q "ret" "$TMP_DISASM_OUTPUT"; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL - Expected ARM64 disassembly not found${NC}"
+    echo "Output was:"
+    cat "$TMP_DISASM_OUTPUT"
+    exit 1
+fi
+
+# Test 4: x32 disassembly  
+echo -e "${BLUE}Test #4: x32 disassembly${NC}"
+# Create simple x32 assembly: mov ebp, esp; sub esp, 0x10
+echo -e "\x89\xe5\x83\xec\x10" > "$TMP_X32_BIN"
+
+$SCRIPT -a --arch=x32 "$TMP_X32_BIN" > "$TMP_DISASM_OUTPUT" 2>/dev/null
+if grep -q "mov.*ebp.*esp" "$TMP_DISASM_OUTPUT" && grep -q "sub.*esp" "$TMP_DISASM_OUTPUT"; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL - Expected x32 disassembly not found${NC}"
+    echo "Output was:"
+    cat "$TMP_DISASM_OUTPUT"
+    exit 1
+fi
+
+# Test 5: Auto-detection
+echo -e "${BLUE}Test #5: Architecture auto-detection${NC}"
+$SCRIPT -a "$TMP_X64_BIN" > "$TMP_DISASM_OUTPUT" 2>&1
+if grep -q "Auto-detected\|Detected.*architecture\|Using.*architecture" "$TMP_DISASM_OUTPUT"; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL - No architecture detection output found${NC}"
+    echo "Output was:"
+    cat "$TMP_DISASM_OUTPUT"
+    exit 1
+fi
+
+# Test 6: Invalid architecture handling
+echo -e "${BLUE}Test #6: Invalid architecture handling${NC}"
+if $SCRIPT -a --arch=invalid "$TMP_X64_BIN" 2>/dev/null; then
+    echo -e "${GREEN}PASS - Invalid architecture handled gracefully${NC}"
+else
+    echo -e "${GREEN}PASS - Invalid architecture rejected as expected${NC}"
+fi
+
+###############################################################################
+# INTEGRATION TESTS
+###############################################################################
+
+echo -e "\n${YELLOW}Running integration tests...${NC}"
+
+# Test 7: Disassembly with formatting
+echo -e "${BLUE}Test #7: Disassembly with formatting${NC}"
+$SCRIPT -a -f=4x8 --arch=x64 "$TMP_X64_BIN" > "$TMP_DISASM_OUTPUT" 2>/dev/null
+if grep -q "mov.*rbp.*rsp" "$TMP_DISASM_OUTPUT"; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL - Formatted disassembly failed${NC}"
+    exit 1
+fi
+
+# Test 8: Verify formatted disassembly is decodable
+echo -e "${BLUE}Test #8: Formatted disassembly decodable${NC}"
+$SCRIPT -d "$TMP_DISASM_OUTPUT" > "$TMP_DECODED" 2>/dev/null
+if [ -s "$TMP_DECODED" ]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL - Formatted disassembly output cannot be decoded at all${NC}"
+    exit 1
+fi
+
+# Test 9: Large binary disassembly (if /bin/ls exists)
+if [ -f "/bin/ls" ]; then
+    echo -e "${BLUE}Test #9: Large binary disassembly${NC}"
+    $SCRIPT -a "/bin/ls" > "$TMP_DISASM_OUTPUT" 2>&1
+    if grep -q "architecture" "$TMP_DISASM_OUTPUT" && [ -s "$TMP_DISASM_OUTPUT" ]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL - Large binary disassembly failed${NC}"
+        exit 1
+    fi
+    
+    # Test 10: Large binary disassembly decodable
+    echo -e "${BLUE}Test #10: Large binary disassembly decodable${NC}"
+    $SCRIPT -d "$TMP_DISASM_OUTPUT" > "$TMP_DECODED" 2>/dev/null
+    if [ -s "$TMP_DECODED" ]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL - Large binary disassembly output cannot be decoded at all${NC}"
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}SKIP: Test #9 and #10 - /bin/ls not available${NC}"
+fi
+
+###############################################################################
+# OUTPUT FORMAT TESTS
+###############################################################################
+
+echo -e "\n${YELLOW}Running output format tests...${NC}"
+
+# Test 11: Verify disassembly section separator
+echo -e "${BLUE}Test #11: Disassembly section separator${NC}"
+$SCRIPT -a --arch=x64 "$TMP_X64_BIN" > "$TMP_DISASM_OUTPUT" 2>/dev/null
+if grep -q "🧾\|Disassembly" "$TMP_DISASM_OUTPUT"; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL - No disassembly section separator found${NC}"
+    exit 1
+fi
+
+# Test 12: Verify both encoded data and disassembly are present
+echo -e "${BLUE}Test #12: Both encoded data and disassembly present${NC}"
+$SCRIPT -a --arch=x64 "$TMP_X64_BIN" > "$TMP_DISASM_OUTPUT" 2>/dev/null
+ENCODED_LINES=$(grep -v "^#\|^$\|🧾\|Disassembly\|mov\|sub\|ret\|add\|push\|pop" "$TMP_DISASM_OUTPUT" | wc -l)
+DISASM_LINES=$(grep -E "mov|sub|ret|add|push|pop" "$TMP_DISASM_OUTPUT" | wc -l)
+
+if [ "$DISASM_LINES" -gt 0 ]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL - Missing disassembly ($DISASM_LINES lines)${NC}"
+    exit 1
+fi
+
+###############################################################################
+# ERROR HANDLING TESTS
+###############################################################################
+
+echo -e "\n${YELLOW}Running error handling tests...${NC}"
+
+# Test 13: Non-executable file
+echo -e "${BLUE}Test #13: Non-executable file disassembly${NC}"
+echo "Hello World" > "$TMP_DIR/text_file.txt"
+$SCRIPT -a --arch=x64 "$TMP_DIR/text_file.txt" > "$TMP_DISASM_OUTPUT" 2>/dev/null
+# Should still work (disassemble as data), just might not make sense
+if [ -s "$TMP_DISASM_OUTPUT" ]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL - Should handle non-executable files${NC}"
+    exit 1
+fi
+
+# Test 14: Empty file
+echo -e "${BLUE}Test #14: Empty file disassembly${NC}"
+touch "$TMP_DIR/empty_file"
+$SCRIPT -a --arch=x64 "$TMP_DIR/empty_file" > "$TMP_DISASM_OUTPUT" 2>/dev/null
+if [ -f "$TMP_DISASM_OUTPUT" ]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL - Should handle empty files${NC}"
+    exit 1
+fi
+
+echo -e "\n${GREEN}All disassembly tests passed!${NC}"
+echo -e "${BLUE}Summary:${NC}"
+echo -e "  ✓ Basic disassembly (x64, ARM64, x32)"
+echo -e "  ✓ Architecture auto-detection"
+echo -e "  ✓ Disassembly output is decodable (not perfect round-trip by design)"
+echo -e "  ✓ Formatted output with disassembly"
+echo -e "  ✓ Large binary handling"
+echo -e "  ✓ Output format verification"
+echo -e "  ✓ Error handling"

@@ -36,7 +36,7 @@ local function build_maps()
   def_char(18, "\194\178") -- ² (U+00B2)
   def_char(19, "\194\186") -- º (U+00BA)
   def_char(20, "\194\179") -- ³ (U+00B3)
-  def_char(21, "\205\182") -- Ͷ (U+0376)
+  def_char(21, "\194\181") -- µ (U+00B5)
   def_char(22, "\201\168") -- ɨ (U+0268)
   def_char(23, "\194\172") -- ¬ (U+00AC)
   def_char(24, "\194\169") -- © (U+00A9)
@@ -48,16 +48,39 @@ local function build_maps()
   def_char(30, "\199\128") -- ǀ (U+01C0)
   def_char(31, "\194\182") -- ¶ (U+00B6)
 
-  -- Special ASCII characters
+  -- Special ASCII characters (shell-safe encodings)
   def_char(32, "\226\144\163") -- ␣ (U+2423)
+  def_char(33, "\239\185\151") -- ﹗ (U+FE57) Small Exclamation Mark
   def_char(34, "\203\181") -- ˵ (U+02F5)
+  def_char(35, "\226\153\175") -- ♯ (U+266F) Music Sharp Sign
+  def_char(36, "\239\185\169") -- ﹩ (U+FE69) Small Dollar Sign
+  def_char(37, "\239\185\170") -- ﹪ (U+FE6A) Small Percent Sign
+  def_char(38, "\239\185\160") -- ﹠ (U+FE60) Small Ampersand
   def_char(39, "\202\188") -- ʼ (U+02BC MODIFIER LETTER APOSTROPHE)
-  def_char(92, "\201\133") -- Ʌ (U+0245)
+  def_char(40, "\226\157\168") -- ❨ (U+2768) Medium Left Parenthesis Ornament
+  def_char(41, "\226\157\169") -- ❩ (U+2769) Medium Right Parenthesis Ornament
+  def_char(42, "\239\185\161") -- ﹡ (U+FE61) Small Asterisk
+  def_char(43, "\239\185\162") -- ﹢ (U+FE62) Small Plus Sign
+  def_char(45, "\239\185\163") -- ﹣ (U+FE63) Small Hyphen-Minus
+  def_char(47, "\226\129\132") -- ⁄ (U+2044) Fraction Slash
+  def_char(58, "\239\185\149") -- ﹕ (U+FE55) Small Colon
+  def_char(59, "\239\185\148") -- ﹔ (U+FE54) Small Semicolon
+  def_char(61, "\239\185\166") -- ﹦ (U+FE66) Small Equals Sign
+  def_char(63, "\239\185\150") -- ﹖ (U+FE56) Small Question Mark
+  def_char(64, "\239\185\171") -- ﹫ (U+FE6B) Small Commercial At
+  def_char(91, "\226\159\166") -- ⟦ (U+27E6) Mathematical Left White Square Bracket
+  def_char(92, "\226\167\185") -- ⧹ (U+29F9) Big Reverse Solidus
+  def_char(93, "\226\159\167") -- ⟧ (U+27E7) Mathematical Right White Square Bracket
+  def_char(96, "\203\139") -- ˋ (U+02CB) Modifier Letter Grave Accent
+  def_char(123, "\226\157\180") -- ❴ (U+2774) Medium Left Curly Bracket Ornament
+  def_char(124, "\226\136\163") -- ∣ (U+2223) Divides
+  def_char(125, "\226\157\181") -- ❵ (U+2775) Medium Right Curly Bracket Ornament
+  def_char(126, "\203\156") -- ˜ (U+02DC) Small Tilde
   def_char(127, "\226\140\166") -- ⌦ (U+2326)
 
-  -- Regular ASCII characters (33-126, except 34, 39, and 92)
+  -- Regular ASCII characters (remaining ones not specially encoded above)
   for i = 33, 126 do
-    if i ~= 34 and i ~= 39 and i ~= 92 then
+    if not encode_map[i] then
       def_char(i, string.char(i))
     end
   end
@@ -684,11 +707,13 @@ if arg then
         for line in best_disasm:gmatch("[^\r\n]+") do
           -- Skip empty lines
           if line:match("%S") then
-            -- Extract components from the line, assuming "address: bytes    instruction" format
-            local addr, bytes, instruction = line:match("([^:]+):%s+([^%s]+)%s+(.*)")
+            -- Extract components from the line, cstool format: "0  48 89 e5                                         mov	rbp, rsp"
+            local addr, bytes, instruction = line:match("^%s*([0-9a-f]+)%s+([0-9a-f ]+)%s+(.+)$")
 
             if addr and bytes and instruction then
               local hex_addr = tonumber(addr, 16) or 0
+              -- Clean up bytes (remove spaces)
+              bytes = bytes:gsub("%s+", "")
 
               -- If this is a standalone instruction entry, add it
               disasm_entries[#disasm_entries + 1] = {

@@ -9,6 +9,13 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}=== PrintableBinary Performance Benchmark ===${NC}"
 
+# Path to the printable_binary script (can be overridden with IMPLEMENTATION_TO_TEST)
+# Auto-detect the correct path based on script location
+SCRIPT_DIR="$(dirname "$0")"
+DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../printable_binary"
+SCRIPT="${IMPLEMENTATION_TO_TEST:-$DEFAULT_IMPLEMENTATION}"
+echo -e "${YELLOW}Testing implementation: $SCRIPT${NC}"
+
 # Test sizes
 SIZES=("1MB" "5MB" "10MB")
 MB_SIZES=(1 5 10)
@@ -39,7 +46,7 @@ for i in "${!SIZES[@]}"; do
     # Measure encoding performance
     echo -e "${YELLOW}Benchmarking encoding...${NC}"
     ENCODE_START=$(date +%s.%N)
-    ./printable_binary "$RANDOM_DATA" > "$ENCODED_DATA"
+    $SCRIPT "$RANDOM_DATA" > "$ENCODED_DATA"
     ENCODE_END=$(date +%s.%N)
     ENCODE_TIME=$(echo "$ENCODE_END - $ENCODE_START" | bc)
     ENCODE_RATE=$(echo "scale=2; $BYTES / $ENCODE_TIME / 1024 / 1024" | bc)
@@ -55,7 +62,7 @@ for i in "${!SIZES[@]}"; do
     # Measure decoding performance
     echo -e "${YELLOW}Benchmarking decoding...${NC}"
     DECODE_START=$(date +%s.%N)
-    ./printable_binary -d "$ENCODED_DATA" > "$DECODED_DATA"
+    $SCRIPT -d "$ENCODED_DATA" > "$DECODED_DATA"
     DECODE_END=$(date +%s.%N)
     DECODE_TIME=$(echo "$DECODE_END - $DECODE_START" | bc)
     DECODE_RATE=$(echo "scale=2; $ENCODED_SIZE / $DECODE_TIME / 1024 / 1024" | bc)

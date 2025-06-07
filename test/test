@@ -17,8 +17,11 @@ if ! command -v luajit &> /dev/null; then
     exit 1
 fi
 
-# Path to the printable_binary script
-SCRIPT="./printable_binary"
+# Path to the printable_binary script (can be overridden with IMPLEMENTATION_TO_TEST)
+# Auto-detect the correct path based on script location
+SCRIPT_DIR="$(dirname "$0")"
+DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../printable_binary"
+SCRIPT="${IMPLEMENTATION_TO_TEST:-$DEFAULT_IMPLEMENTATION}"
 
 # Create temp files for testing
 TMP_BINARY=$(mktemp)
@@ -32,6 +35,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo -e "${BLUE}=== PrintableBinary Test Suite ===${NC}"
+echo -e "${YELLOW}Testing implementation: $SCRIPT${NC}"
 
 ###############################################################################
 # BASIC FUNCTIONALITY TESTS
@@ -163,11 +167,11 @@ done
 
 # Encode the test file
 echo -e "${BLUE}Encoding all 256 byte values...${NC}"
-./printable_binary "$TEST_FILE" > "$ENCODED_FILE"
+$SCRIPT "$TEST_FILE" > "$ENCODED_FILE"
 
 # Decode back
 echo -e "${BLUE}Decoding back to binary...${NC}"
-./printable_binary -d "$ENCODED_FILE" > "$DECODED_FILE"
+$SCRIPT -d "$ENCODED_FILE" > "$DECODED_FILE"
 
 # Verify entire file roundtrip
 if cmp -s "$TEST_FILE" "$DECODED_FILE"; then
@@ -184,13 +188,13 @@ function test_byte() {
   local byte_val=$1
   local name=$2
   local expected_char=$3
-  
+
   # Create single byte file
   printf "\\$(printf '%03o' $byte_val)" > "$TEST_FILE"
-  
+
   # Encode
-  ./printable_binary "$TEST_FILE" 2>/dev/null > "$ENCODED_FILE"
-  
+  $SCRIPT "$TEST_FILE" 2>/dev/null > "$ENCODED_FILE"
+
   # If expected character is provided, verify it appears in the encoding
   if [ ! -z "$expected_char" ]; then
     local encoded_result=$(cat "$ENCODED_FILE")
@@ -199,14 +203,14 @@ function test_byte() {
       exit 1
     fi
   fi
-  
-  # Decode 
-  ./printable_binary -d "$ENCODED_FILE" 2>/dev/null > "$DECODED_FILE"
-  
+
+  # Decode
+  $SCRIPT -d "$ENCODED_FILE" 2>/dev/null > "$DECODED_FILE"
+
   # Get result as hex
   local result=$(hexdump -ve '1/1 "%02x"' "$DECODED_FILE")
   local expected=$(printf '%02x' $byte_val)
-  
+
   if [[ "$result" == "$expected" ]]; then
     echo -e "${GREEN}PASS${NC}: Byte ${byte_val} (${name}): ${expected} -> encoded -> decoded -> ${result}"
   else
@@ -221,11 +225,35 @@ test_byte 0 "NUL"
 test_byte 9 "TAB"
 test_byte 10 "LF"
 test_byte 13 "CR"
+test_byte 21 "CONTROL_21" "µ"  # Expect µ (U+00B5) MICRO SIGN
 test_byte 27 "ESC"
 test_byte 32 "SPACE"
+test_byte 33 "EXCLAMATION" "﹗"  # Expect U+FE57 SMALL EXCLAMATION MARK
 test_byte 34 "QUOTE"
+test_byte 35 "HASH" "♯"  # Expect U+266F MUSIC SHARP SIGN
+test_byte 36 "DOLLAR" "﹩"  # Expect U+FE69 SMALL DOLLAR SIGN
+test_byte 37 "PERCENT" "﹪"  # Expect U+FE6A SMALL PERCENT SIGN
+test_byte 38 "AMPERSAND" "﹠"  # Expect U+FE60 SMALL AMPERSAND
 test_byte 39 "SINGLE QUOTE" "ʼ"  # Expect U+02BC MODIFIER LETTER APOSTROPHE
-test_byte 92 "BACKSLASH"
+test_byte 40 "LEFT PAREN" "❨"  # Expect U+2768 MEDIUM LEFT PARENTHESIS ORNAMENT
+test_byte 41 "RIGHT PAREN" "❩"  # Expect U+2769 MEDIUM RIGHT PARENTHESIS ORNAMENT
+test_byte 42 "ASTERISK" "﹡"  # Expect U+FE61 SMALL ASTERISK
+test_byte 43 "PLUS" "﹢"  # Expect U+FE62 SMALL PLUS SIGN
+test_byte 45 "MINUS" "﹣"  # Expect U+FE63 SMALL HYPHEN-MINUS
+test_byte 47 "SLASH" "⁄"  # Expect U+2044 FRACTION SLASH
+test_byte 58 "COLON" "﹕"  # Expect U+FE55 SMALL COLON
+test_byte 59 "SEMICOLON" "﹔"  # Expect U+FE54 SMALL SEMICOLON
+test_byte 61 "EQUALS" "﹦"  # Expect U+FE66 SMALL EQUALS SIGN
+test_byte 63 "QUESTION" "﹖"  # Expect U+FE56 SMALL QUESTION MARK
+test_byte 64 "AT" "﹫"  # Expect U+FE6B SMALL COMMERCIAL AT
+test_byte 91 "LEFT BRACKET" "⟦"  # Expect U+27E6 MATHEMATICAL LEFT WHITE SQUARE BRACKET
+test_byte 92 "BACKSLASH" "⧹"  # Expect U+29F9 BIG REVERSE SOLIDUS
+test_byte 93 "RIGHT BRACKET" "⟧"  # Expect U+27E7 MATHEMATICAL RIGHT WHITE SQUARE BRACKET
+test_byte 96 "BACKTICK" "ˋ"  # Expect U+02CB MODIFIER LETTER GRAVE ACCENT
+test_byte 123 "LEFT BRACE" "❴"  # Expect U+2774 MEDIUM LEFT CURLY BRACKET ORNAMENT
+test_byte 124 "PIPE" "∣"  # Expect U+2223 DIVIDES
+test_byte 125 "RIGHT BRACE" "❵"  # Expect U+2775 MEDIUM RIGHT CURLY BRACKET ORNAMENT
+test_byte 126 "TILDE" "˜"  # Expect U+02DC SMALL TILDE
 test_byte 127 "DEL"
 
 # Test some representative values in each range
@@ -243,8 +271,19 @@ test_byte 255 "Extended 255"
 
 echo -e "\n${YELLOW}Running disassembly tests...${NC}"
 
-# Simplified disassembly tests - since capstone may not be available
-echo -e "${GREEN}Skipping detailed disassembly tests (requires capstone)${NC}"
+# Check if cstool is available for disassembly tests
+if ! command -v cstool &> /dev/null; then
+    echo -e "${YELLOW}Skipping detailed disassembly tests (cstool not available)${NC}"
+else
+    # Run the detailed disassembly test suite
+    SCRIPT_DIR="$(dirname "$0")"
+    if "$SCRIPT_DIR/test_disassembly"; then
+        echo -e "${GREEN}Detailed disassembly tests: PASSED${NC}"
+    else
+        echo -e "${RED}Detailed disassembly tests: FAILED${NC}"
+        exit 1
+    fi
+fi
 
 ###############################################################################
 # PASSTHROUGH MODE TESTS
@@ -276,11 +315,11 @@ fi
 
 # Check if stderr contains the encoded data
 STDERR_CONTENT=$(cat "$PASSTHROUGH_STDERR" | grep -v "Encoding" | grep -v "Encoded to")
-if [[ "$STDERR_CONTENT" == *"Hello,␣World!"* ]]; then
+if [[ "$STDERR_CONTENT" == *"Hello,␣World﹗"* ]]; then
     echo -e "${GREEN}PASS: Encoded data correctly sent to stderr${NC}"
 else
     echo -e "${RED}FAIL: Encoded data not found in stderr${NC}"
-    echo "Expected to find: Hello,␣World!"
+    echo "Expected to find: Hello,␣World﹗"
     echo "Got: $STDERR_CONTENT"
     exit 1
 fi
@@ -291,7 +330,7 @@ echo -e "${BLUE}Test #2: Passthrough with binary data${NC}"
 printf '\000\001\002\003Hello\377' > "$PASSTHROUGH_BINARY"
 
 # Run with passthrough mode
-$SCRIPT --passthrough "$PASSTHROUGH_BINARY" > "$PASSTHROUGH_STDOUT" 2> "$PASSTHROUGH_STDERR" 
+$SCRIPT --passthrough "$PASSTHROUGH_BINARY" > "$PASSTHROUGH_STDOUT" 2> "$PASSTHROUGH_STDERR"
 
 # Check if stdout contains the original binary data unchanged
 if cmp -s "$PASSTHROUGH_BINARY" "$PASSTHROUGH_STDOUT"; then
@@ -332,7 +371,7 @@ else
     exit 1
 fi
 
-# Check if stdout contains the decoded data 
+# Check if stdout contains the decoded data
 if grep -q "Test data" "$PASSTHROUGH_STDOUT"; then
     echo -e "${GREEN}PASS: Decoded data correctly sent to stdout despite passthrough${NC}"
 else
@@ -357,6 +396,7 @@ else
 fi
 
 # Check stderr contains the encoded string
+# Check if stderr contains the encoded data
 STDERR_CONTENT=$(cat "$PASSTHROUGH_STDERR" | grep -v "Encoding" | grep -v "Encoded to")
 if [[ "$STDERR_CONTENT" == *"Piped␣test"* ]]; then
     echo -e "${GREEN}PASS: Encoded piped input correctly sent to stderr${NC}"

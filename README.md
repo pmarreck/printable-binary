@@ -4,7 +4,7 @@ A Lua/Luajit library for encoding arbitrary binary data into human-readable UTF-
 
 ## Overview
 
-PrintableBinary is designed to serialize binary data into a visually distinct, human-readable format that is also copy-pastable. It's an alternative to hexadecimal encoding that offers better visual density and makes embedded ASCII text immediately recognizable.
+PrintableBinary is designed to [de]serialize binary data to/from a visually distinct, human-readable format that is also copy-pastable and embeddable in any UTF-8-aware context. It's an alternative to hexadecimal encoding that offers better visual density and makes embedded ASCII text immediately recognizable, while also making it possible to incorporate binary data into text-based formats (such as JSON, TOML, XML, YAML, etc.) without escaping issues.
 
 This implementation allows you to view binary data directly in a terminal (it even has a pipe inspection mode with `--passthrough`) without breaking the display, making it particularly useful for debugging, logging, and sharing binary data in human-readable form.
 
@@ -16,7 +16,8 @@ This implementation allows you to view binary data directly in a terminal (it ev
 - **Single Character Width**: Each encoded representation renders as a single character wide in a monospace terminal.
 - **Compactness**: Uses 1-3 byte UTF-8 characters for optimal space efficiency.
 - **Usability**: Encoded strings are easily copyable, pastable, and printable.
-- **Disassembly**: Optional disassembly of binary files with auto-architecture detection or manual selection.
+- **Smart Disassembly**: Format-aware disassembly using objdump that understands binary file structures (Mach-O, ELF, PE).
+- **Raw Disassembly**: Direct byte-to-instruction disassembly using Capstone with auto-architecture detection or manual selection.
 - **Formatting**: Customizable output formatting with group size and line width options.
 - **Universal Binary Support**: Detects and clearly identifies macOS universal binaries with multiple architectures.
 - **Intelligent Pattern Recognition**: Recognizes common byte patterns (NUL, NOP, INT3) and provides context-aware analysis to distinguish between code and data.
@@ -47,6 +48,9 @@ echo -n "Hello, World!" | ./printable_binary
 
 # Encode with disassembly (auto-detects architecture)
 ./printable_binary -a executable.bin > disassembled.txt
+
+# Encode with smart disassembly (format-aware, uses objdump)
+./printable_binary --smart-asm executable.bin > smart_disassembled.txt
 
 # Encode with both formatting and disassembly
 ./printable_binary -a -f=8x8 executable.bin > formatted_disassembly.txt
@@ -90,6 +94,132 @@ local decoded = PrintableBinary.decode(encoded)
 print(decoded)  -- Output: Hello, World!
 ```
 
+## Disassembly Features
+
+PrintableBinary offers two modes for disassembling binary files, each with different strengths:
+
+### Smart Disassembly (`--smart-asm`)
+
+Uses `objdump` for format-aware disassembly that understands binary file structures:
+
+```bash
+# Smart disassembly - recommended for most use cases
+./printable_binary --smart-asm /usr/bin/ls
+./printable_binary --smart-asm --format=4x8 binary_file.exe
+```
+
+**Advantages:**
+
+- ✅ Format-aware (understands Mach-O, ELF, PE formats)
+- ✅ Only disassembles actual executable code sections
+- ✅ Accurate disassembly with proper architecture detection
+- ✅ Includes section headers and file format information
+- ✅ Best for analyzing complete, well-formed binaries
+
+**Requirements:** `objdump` (usually part of binutils)
+
+### Raw Disassembly (`--asm`)
+
+Uses `cstool` (Capstone) for direct byte-to-instruction disassembly:
+
+```bash
+# Raw disassembly with auto-detection
+./printable_binary --asm binary_file
+
+# Force specific architecture
+./printable_binary --asm --arch=arm64 data_file.bin
+./printable_binary --asm --arch=x64 shellcode.bin
+```
+
+**Advantages:**
+
+- ✅ Works on any binary data, including fragments
+- ✅ Faster performance
+- ✅ Good for shellcode, raw code fragments, or data analysis
+- ✅ Useful for seeing "what would this data look like as code"
+- ✅ Cross-architecture analysis
+
+**Requirements:** `cstool` (part of Capstone framework)
+
+### When to Use Each Mode
+
+| Use Case                        | Recommended Mode | Reason                                         |
+| ------------------------------- | ---------------- | ---------------------------------------------- |
+| Analyzing executables/libraries | `--smart-asm`    | Format-aware, shows only real code             |
+| Raw shellcode analysis          | `--asm`          | Works on code fragments                        |
+| Memory dumps                    | `--asm`          | No file format structure                       |
+| Cross-architecture analysis     | `--asm`          | Force interpretation as different arch         |
+| Data section analysis           | `--asm`          | See what data looks like as code               |
+| Quick analysis                  | `--smart-asm`    | More accurate results                          |
+| Research/debugging              | `--asm`          | Raw interpretation without format intelligence |
+
+### Examples
+
+**Smart disassembly of a macOS binary:**
+
+```bash
+./printable_binary --smart-asm /usr/libexec/rosetta/runtime
+# Output includes proper ARM64 disassembly with section information
+```
+
+**Raw disassembly for shellcode analysis:**
+
+```bash
+# Analyze potential shellcode
+echo -n "4889e5" | xxd -r -p | ./printable_binary --asm --arch=x64
+```
+
+**Cross-architecture analysis:**
+
+```bash
+# See what ARM code looks like when interpreted as x86
+./printable_binary --asm --arch=x32 /usr/bin/arm_binary
+```
+
+## Format Compatibility
+
+The PrintableBinary character set is specifically designed to be highly compatible with common text formats:
+
+### ✅ **Excellent Compatibility With:**
+
+- **JSON** - Perfect in quoted strings (we re-encode `"` as `˵`)
+- **XML/HTML** - Perfect in text content and attributes (no `<>&` in our encodings)
+- **TOML** - Perfect in quoted strings
+- **YAML** - Perfect in quoted strings, good in unquoted context
+- **C/C++/Java/etc.** - Perfect in string literals (we re-encode `\` as `Ʌ`)
+- **Shell scripts** - Perfect in quoted strings (we re-encode `'` as `ʼ`)
+- **SQL** - Perfect in quoted strings
+- **Most UTF-8 aware text formats**
+
+### 🎯 **Key Design Decisions for Compatibility:**
+
+- **Double quotes** (34) → `˵` (U+02F5) - Avoids JSON/XML attribute conflicts
+- **Single quotes** (39) → `ʼ` (U+02BC) - Avoids shell/SQL conflicts  
+- **Backslashes** (92) → `Ʌ` (U+0245) - Avoids escape sequence issues
+- **Control characters** → Safe Unicode symbols (∅, ⇩, ⏎, etc.)
+- **No problematic delimiters** in our special encodings
+
+### 📝 **Usage Recommendations:**
+
+```bash
+# JSON
+echo '{"binary_data": "'$(./printable_binary file.bin)'"}' 
+
+# XML/HTML  
+echo '<data>'$(./printable_binary file.bin)'</data>'
+
+# YAML
+echo 'data: "'$(./printable_binary file.bin)'"'
+
+# Shell variable
+DATA="$(./printable_binary file.bin)"
+
+# C string literal
+printf 'char data[] = "%s";\n' "$(./printable_binary file.bin)"
+```
+
+**Note:** If your original binary contains problematic characters (like `<` or `{`), they'll appear as-is since they're printable ASCII. Use quoted contexts when embedding in structured formats.
+
 ## Character Encoding
 
 - **Control Characters (0-31)**: Mapped to visually distinct symbols like ∅, ¯, «, », etc.
@@ -105,47 +235,47 @@ print(decoded)  -- Output: Hello, World!
 
 This detailed mapping table is provided to help others create compatible encoders/decoders in different languages:
 
-| Byte Value | Character | Unicode | UTF-8 Bytes (hex) | Description |
-|------------|-----------|---------|-------------------|-------------|
-| 0 (NUL)    | ∅         | U+2205  | E2 88 85          | Empty Set |
-| 1 (SOH)    | ¯         | U+00AF  | C2 AF             | Macron |
-| 2 (STX)    | «         | U+00AB  | C2 AB             | Left-Pointing Double Angle Quotation Mark |
+| Byte Value | Character | Unicode | UTF-8 Bytes (hex) | Description                                |
+| ---------- | --------- | ------- | ----------------- | ------------------------------------------ |
+| 0 (NUL)    | ∅         | U+2205  | E2 88 85          | Empty Set                                  |
+| 1 (SOH)    | ¯         | U+00AF  | C2 AF             | Macron                                     |
+| 2 (STX)    | «         | U+00AB  | C2 AB             | Left-Pointing Double Angle Quotation Mark  |
 | 3 (ETX)    | »         | U+00BB  | C2 BB             | Right-Pointing Double Angle Quotation Mark |
-| 4 (EOT)    | ϟ         | U+03DF  | CF 9F             | Greek Small Letter Koppa |
-| 5 (ENQ)    | ¿         | U+00BF  | C2 BF             | Inverted Question Mark |
-| 6 (ACK)    | ¡         | U+00A1  | C2 A1             | Inverted Exclamation Mark |
-| 7 (BEL)    | ª         | U+00AA  | C2 AA             | Feminine Ordinal Indicator |
-| 8 (BS)     | ⌫         | U+232B  | E2 8C AB          | Erase to the Left |
-| 9 (HT)     | ⇥         | U+21E5  | E2 87 A5          | Rightwards Arrow to Bar |
-| 10 (LF)    | ⇩         | U+21E9  | E2 87 A9          | Downwards White Arrow |
-| 11 (VT)    | ↧         | U+21A7  | E2 86 A7          | Downwards Arrow from Bar |
-| 12 (FF)    | §         | U+00A7  | C2 A7             | Section Sign |
-| 13 (CR)    | ⏎         | U+23CE  | E2 8F 8E          | Return Symbol |
-| 14 (SO)    | ȯ         | U+022F  | C8 AF             | Latin Small Letter O with Dot Above |
-| 15 (SI)    | ʘ         | U+0298  | CA 98             | Latin Letter Bilabial Click |
-| 16 (DLE)   | Ɣ         | U+0194  | C6 94             | Latin Capital Letter Gamma |
-| 17 (DC1)   | ¹         | U+00B9  | C2 B9             | Superscript One |
-| 18 (DC2)   | ²         | U+00B2  | C2 B2             | Superscript Two |
-| 19 (DC3)   | º         | U+00BA  | C2 BA             | Masculine Ordinal Indicator |
-| 20 (DC4)   | ³         | U+00B3  | C2 B3             | Superscript Three |
-| 21 (NAK)   | Ͷ         | U+0376  | CD B6             | Greek Capital Letter Pamphylian Digamma |
-| 22 (SYN)   | ɨ         | U+0268  | C9 A8             | Latin Small Letter I with Stroke |
-| 23 (ETB)   | ¬         | U+00AC  | C2 AC             | Not Sign |
-| 24 (CAN)   | ©         | U+00A9  | C2 A9             | Copyright Sign |
-| 25 (EM)    | ¦         | U+00A6  | C2 A6             | Broken Bar |
-| 26 (SUB)   | Ƶ         | U+01B5  | C6 B5             | Latin Capital Letter Z with Stroke |
-| 27 (ESC)   | ⎋         | U+238B  | E2 8E 8B          | Broken Circle with Northwest Arrow |
-| 28 (FS)    | Ξ         | U+039E  | CE 9E             | Greek Capital Letter Xi |
-| 29 (GS)    | ǁ         | U+01C1  | C7 81             | Latin Letter Lateral Click |
-| 30 (RS)    | ǀ         | U+01C0  | C7 80             | Latin Letter Dental Click |
-| 31 (US)    | ¶         | U+00B6  | C2 B6             | Pilcrow Sign |
-| 32 (Space) | ␣         | U+2423  | E2 90 A3          | Open Box |
-| 34 (")     | ˵         | U+02F5  | CB B5             | Double Quote |
-| 39 (')     | ʼ         | U+02BC  | CA BC             | Modifier Letter Apostrophe |
-| 92 (\\)    | Ʌ         | U+0245  | C9 85             | Latin Capital Letter Turned V |
-| 127 (DEL)  | ⌦         | U+2326  | E2 8C A6          | Erase to the Right |
-| 152        | Ō         | U+014C  | C5 8C             | Latin Capital Letter O with Macron |
-| 184        | ŏ         | U+014F  | C5 8F             | Latin Small Letter O with Breve |
+| 4 (EOT)    | ϟ         | U+03DF  | CF 9F             | Greek Small Letter Koppa                   |
+| 5 (ENQ)    | ¿         | U+00BF  | C2 BF             | Inverted Question Mark                     |
+| 6 (ACK)    | ¡         | U+00A1  | C2 A1             | Inverted Exclamation Mark                  |
+| 7 (BEL)    | ª         | U+00AA  | C2 AA             | Feminine Ordinal Indicator                 |
+| 8 (BS)     | ⌫         | U+232B  | E2 8C AB          | Erase to the Left                          |
+| 9 (HT)     | ⇥         | U+21E5  | E2 87 A5          | Rightwards Arrow to Bar                    |
+| 10 (LF)    | ⇩         | U+21E9  | E2 87 A9          | Downwards White Arrow                      |
+| 11 (VT)    | ↧         | U+21A7  | E2 86 A7          | Downwards Arrow from Bar                   |
+| 12 (FF)    | §         | U+00A7  | C2 A7             | Section Sign                               |
+| 13 (CR)    | ⏎         | U+23CE  | E2 8F 8E          | Return Symbol                              |
+| 14 (SO)    | ȯ         | U+022F  | C8 AF             | Latin Small Letter O with Dot Above        |
+| 15 (SI)    | ʘ         | U+0298  | CA 98             | Latin Letter Bilabial Click                |
+| 16 (DLE)   | Ɣ         | U+0194  | C6 94             | Latin Capital Letter Gamma                 |
+| 17 (DC1)   | ¹         | U+00B9  | C2 B9             | Superscript One                            |
+| 18 (DC2)   | ²         | U+00B2  | C2 B2             | Superscript Two                            |
+| 19 (DC3)   | º         | U+00BA  | C2 BA             | Masculine Ordinal Indicator                |
+| 20 (DC4)   | ³         | U+00B3  | C2 B3             | Superscript Three                          |
+| 21 (NAK)   | Ͷ         | U+0376  | CD B6             | Greek Capital Letter Pamphylian Digamma    |
+| 22 (SYN)   | ɨ         | U+0268  | C9 A8             | Latin Small Letter I with Stroke           |
+| 23 (ETB)   | ¬         | U+00AC  | C2 AC             | Not Sign                                   |
+| 24 (CAN)   | ©        | U+00A9  | C2 A9             | Copyright Sign                             |
+| 25 (EM)    | ¦         | U+00A6  | C2 A6             | Broken Bar                                 |
+| 26 (SUB)   | Ƶ         | U+01B5  | C6 B5             | Latin Capital Letter Z with Stroke         |
+| 27 (ESC)   | ⎋         | U+238B  | E2 8E 8B          | Broken Circle with Northwest Arrow         |
+| 28 (FS)    | Ξ         | U+039E  | CE 9E             | Greek Capital Letter Xi                    |
+| 29 (GS)    | ǁ         | U+01C1  | C7 81             | Latin Letter Lateral Click                 |
+| 30 (RS)    | ǀ         | U+01C0  | C7 80             | Latin Letter Dental Click                  |
+| 31 (US)    | ¶         | U+00B6  | C2 B6             | Pilcrow Sign                               |
+| 32 (Space) | ␣         | U+2423  | E2 90 A3          | Open Box                                   |
+| 34 (")     | ˵         | U+02F5  | CB B5             | Double Quote                               |
+| 39 (')     | ʼ         | U+02BC  | CA BC             | Modifier Letter Apostrophe                 |
+| 92 (\\)    | Ʌ         | U+0245  | C9 85             | Latin Capital Letter Turned V              |
+| 127 (DEL)  | ⌦         | U+2326  | E2 8C A6          | Erase to the Right                         |
+| 152        | Ō         | U+014C  | C5 8C             | Latin Capital Letter O with Macron         |
+| 184        | ŏ         | U+014F  | C5 8F             | Latin Small Letter O with Breve            |
 
 Bytes 33-126 (printable ASCII, except 34, 39, and 92) are represented as themselves.
 
@@ -204,11 +334,13 @@ The project includes several utility scripts in the `utils/` directory:
 ### Algorithm Overview
 
 For encoding:
+
 1. Each byte of the input binary data is processed individually
 2. The byte value (0-255) is used as a key to look up the corresponding UTF-8 representation
 3. The encoded representations are concatenated to form the output string
 
 For decoding:
+
 1. The input string is processed from left to right
 2. At each position, the decoder attempts to match the longest possible UTF-8 sequence (3, 2, or 1 bytes)
 3. When a match is found, the corresponding byte value is output
@@ -226,11 +358,11 @@ This implementation uses a carefully chosen set of UTF-8 characters to represent
 ### Encoding/Decoding Maps
 
 The implementation builds two lookup tables at initialization:
+
 - `encode_map`: Maps byte values (0-255) to their UTF-8 string representations
 - `decode_map`: Maps UTF-8 string representations back to byte values
 
 These bidirectional maps ensure efficient and accurate conversion in both directions.
-
 
 ## License
 
