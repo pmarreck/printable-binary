@@ -269,7 +269,7 @@ This detailed mapping table is provided to help others create compatible encoder
 | 1 (SOH)    | ¯         | U+00AF  | C2 AF             | Macron                                     |
 | 2 (STX)    | «         | U+00AB  | C2 AB             | Left-Pointing Double Angle Quotation Mark  |
 | 3 (ETX)    | »         | U+00BB  | C2 BB             | Right-Pointing Double Angle Quotation Mark |
-| 4 (EOT)    | Ϟ         | U+03DE  | CF 9E             | Greek Letter Koppa                         |
+| 4 (EOT)    | ϟ         | U+03DF  | CF 9F             | Greek Small Letter Koppa                   |
 | 5 (ENQ)    | ¿         | U+00BF  | C2 BF             | Inverted Question Mark                     |
 | 6 (ACK)    | ¡         | U+00A1  | C2 A1             | Inverted Exclamation Mark                  |
 | 7 (BEL)    | ª         | U+00AA  | C2 AA             | Feminine Ordinal Indicator                 |

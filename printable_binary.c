@@ -129,7 +129,7 @@ static void init_tables(void) {
     special_sequences[1] = "\xc2\xaf";        // ¯ (U+00AF)
     special_sequences[2] = "\xc2\xab";        // « (U+00AB)
     special_sequences[3] = "\xc2\xbb";        // » (U+00BB)
-    special_sequences[4] = "\xcf\x9e";        // ϟ (U+03DE)
+    special_sequences[4] = "\xcf\x9f";        // ϟ (U+03DF)
     special_sequences[5] = "\xc2\xbf";        // ¿ (U+00BF)
     special_sequences[6] = "\xc2\xa1";        // ¡ (U+00A1)
     special_sequences[7] = "\xc2\xaa";        // ª (U+00AA)
