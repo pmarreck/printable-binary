@@ -17,6 +17,8 @@
 #define MAX_UTF8_BYTES 4
 #define DECODE_MAP_SIZE 65536  // Covers all possible 2-byte combinations
 #define INITIAL_BUFFER_SIZE 8192
+#define BUFFER_GROW_FACTOR 2
+#define STACK_BUFFER_SIZE 4096
 
 // UTF-8 encoding structure
 typedef struct {
@@ -43,32 +45,78 @@ typedef struct {
     char *input_file;
 } options_t;
 
-// Buffer for dynamic string building
+// Dynamic growing buffer for string building
 typedef struct {
     char *data;
     size_t size;
     size_t capacity;
+    bool uses_stack;   // True if using stack allocation
+    char stack_data[STACK_BUFFER_SIZE];  // Embedded stack buffer
 } buffer_t;
 
-// Initialize a buffer with specific capacity
-static void buffer_init(buffer_t *buf, size_t capacity) {
-    if (capacity == 0) capacity = INITIAL_BUFFER_SIZE;
-    buf->data = malloc(capacity);
+// Initialize a buffer with stack allocation if small enough
+static void buffer_init(buffer_t *buf, size_t initial_capacity) {
+    if (initial_capacity == 0) initial_capacity = INITIAL_BUFFER_SIZE;
+
     buf->size = 0;
-    buf->capacity = capacity;
-    if (!buf->data) {
-        fprintf(stderr, "Memory allocation failed\n");
-        exit(1);
+
+    if (initial_capacity <= STACK_BUFFER_SIZE) {
+        // Use embedded stack buffer for small data
+        buf->data = buf->stack_data;
+        buf->capacity = STACK_BUFFER_SIZE;
+        buf->uses_stack = true;
+    } else {
+        // Use heap allocation for larger buffers
+        buf->data = malloc(initial_capacity);
+        buf->capacity = initial_capacity;
+        buf->uses_stack = false;
+        if (!buf->data) {
+            fprintf(stderr, "Memory allocation failed\n");
+            exit(1);
+        }
     }
 }
 
-// Append data to buffer (no realloc - buffer must be pre-sized)
+// Grow buffer capacity
+static void buffer_grow(buffer_t *buf, size_t min_additional) {
+    size_t new_capacity = buf->capacity;
+    size_t needed = buf->size + min_additional;
+
+    // Keep growing until we have enough space
+    while (new_capacity < needed) {
+        new_capacity *= BUFFER_GROW_FACTOR;
+    }
+
+    char *new_data;
+    if (buf->uses_stack) {
+        // Transition from stack to heap
+        new_data = malloc(new_capacity);
+        if (!new_data) {
+            fprintf(stderr, "Memory allocation failed\n");
+            exit(1);
+        }
+        // Copy existing data from stack buffer
+        memcpy(new_data, buf->stack_data, buf->size);
+        buf->uses_stack = false;
+    } else {
+        // Regular heap reallocation
+        new_data = realloc(buf->data, new_capacity);
+        if (!new_data) {
+            fprintf(stderr, "Memory reallocation failed\n");
+            exit(1);
+        }
+    }
+
+    buf->data = new_data;
+    buf->capacity = new_capacity;
+}
+
+// Append data to buffer with automatic growth
 static void buffer_append(buffer_t *buf, const void *data, size_t len) {
     if (buf->size + len > buf->capacity) {
-        fprintf(stderr, "Buffer overflow: trying to append %zu bytes to buffer with %zu/%zu capacity\n",
-                len, buf->size, buf->capacity);
-        exit(1);
+        buffer_grow(buf, len);
     }
+
     memcpy(buf->data + buf->size, data, len);
     buf->size += len;
 }
@@ -78,14 +126,33 @@ static void buffer_append_char(buffer_t *buf, char c) {
     buffer_append(buf, &c, 1);
 }
 
+// Prepare buffer for return - ensure data is heap-allocated
+static void buffer_prepare_return(buffer_t *buf) {
+    if (buf->uses_stack && buf->size > 0) {
+        // Need to transition from stack to heap before returning
+        char *heap_data = malloc(buf->size);
+        if (!heap_data) {
+            fprintf(stderr, "Memory allocation failed\n");
+            exit(1);
+        }
+        memcpy(heap_data, buf->stack_data, buf->size);
+        buf->data = heap_data;
+        buf->capacity = buf->size;
+        buf->uses_stack = false;
+    }
+}
+
 // Free buffer memory
 static void buffer_free(buffer_t *buf) {
-    if (buf->data) {
+    if (buf->data && !buf->uses_stack) {
         free(buf->data);
-        buf->data = NULL;
-        buf->size = 0;
-        buf->capacity = 0;
     }
+    // Don't set data to NULL for stack buffers since it points to stack_data
+    if (!buf->uses_stack) {
+        buf->data = NULL;
+    }
+    buf->size = 0;
+    buf->capacity = 0;
 }
 
 // Helper function to create UTF-8 sequence
@@ -228,8 +295,8 @@ static uint8_t utf8_sequence_length(uint8_t first_byte) {
 // Encode binary data to printable UTF-8
 static buffer_t encode_data(const uint8_t *input, size_t input_len) {
     buffer_t output;
-    // Pre-allocate 3x input size (worst case for UTF-8 encoding)
-    buffer_init(&output, input_len * 3);
+    // Start with reasonable initial size, will grow as needed
+    buffer_init(&output, INITIAL_BUFFER_SIZE);
 
     for (size_t i = 0; i < input_len; i++) {
         utf8_sequence_t seq = encode_table[input[i]];
@@ -244,8 +311,8 @@ static buffer_t encode_data(const uint8_t *input, size_t input_len) {
 // Decode printable UTF-8 back to binary
 static buffer_t decode_data(const uint8_t *input, size_t input_len) {
     buffer_t output;
-    // Decoded output will be <= input size (UTF-8 to binary)
-    buffer_init(&output, input_len);
+    // Start with reasonable initial size, will grow as needed
+    buffer_init(&output, INITIAL_BUFFER_SIZE);
 
     size_t i = 0;
     while (i < input_len) {
@@ -279,24 +346,25 @@ static buffer_t decode_data(const uint8_t *input, size_t input_len) {
         }
     }
 
+    buffer_prepare_return(&output);
     return output;
 }
 
 // Apply formatting to encoded output
 static buffer_t format_output(const buffer_t *input, int group_size, int groups_per_line) {
     buffer_t output;
-    // Estimate formatted size: original size + spaces + newlines (generous estimate)
-    size_t estimated_size = input->size + (input->size / group_size) + (input->size / (group_size * groups_per_line));
-    buffer_init(&output, estimated_size);
+    // Start with reasonable initial size, will grow as needed
+    buffer_init(&output, INITIAL_BUFFER_SIZE);
 
     size_t char_count = 0;
     size_t i = 0;
 
     while (i < input->size) {
         // Determine UTF-8 character length
-        uint8_t char_len = utf8_sequence_length(input->data[i]);
+        uint8_t first_byte = (uint8_t)input->data[i];
+        uint8_t char_len = utf8_sequence_length(first_byte);
 
-        // Add the character
+        // Append the UTF-8 character
         for (uint8_t j = 0; j < char_len && i + j < input->size; j++) {
             buffer_append_char(&output, input->data[i + j]);
         }
@@ -304,16 +372,17 @@ static buffer_t format_output(const buffer_t *input, int group_size, int groups_
         char_count++;
         i += char_len;
 
-        // Add spacing
+        // Add spacing after each group
         if (char_count % group_size == 0 && i < input->size) {
-            buffer_append_char(&output, ' ');
-
-            if ((char_count / group_size) % groups_per_line == 0 && i < input->size) {
+            if ((char_count / group_size) % groups_per_line == 0) {
                 buffer_append_char(&output, '\n');
+            } else {
+                buffer_append_char(&output, ' ');
             }
         }
     }
 
+    buffer_prepare_return(&output);
     return output;
 }
 
@@ -362,14 +431,15 @@ static buffer_t read_file(const char *filename) {
         fclose(file);
     }
 
+    buffer_prepare_return(&buf);
     return buf;
 }
 
 // Clean input for decoding (remove whitespace and disassembly formatting)
 static buffer_t clean_decode_input(const buffer_t *input) {
     buffer_t output;
-    // Cleaned output will be <= input size
-    buffer_init(&output, input->size);
+    // Start with reasonable initial size, will grow as needed
+    buffer_init(&output, INITIAL_BUFFER_SIZE);
 
     // Simple whitespace removal for now
     for (size_t i = 0; i < input->size; i++) {
@@ -379,10 +449,10 @@ static buffer_t clean_decode_input(const buffer_t *input) {
         }
     }
 
+    buffer_prepare_return(&output);
     return output;
 }
 
-// Print usage information
 static void print_usage(const char *program_name) {
     fprintf(stderr, "PrintableBinary C - Encode binary data as printable UTF-8 and decode it back\n\n");
     fprintf(stderr, "Usage: %s [options] [file]\n", program_name);
@@ -573,7 +643,7 @@ int main(int argc, char *argv[]) {
             }
 
             buffer_t objdump_output;
-            buffer_init(&objdump_output, input.size * 10 + 1024);
+            buffer_init(&objdump_output, 0);  // Use default, will start with stack
 
             char line[1024];
             while (fgets(line, sizeof(line), objdump_pipe)) {
@@ -732,7 +802,7 @@ int main(int argc, char *argv[]) {
                 // Read and parse disassembly output
                 char line[256];
                 buffer_t disasm_output;
-                buffer_init(&disasm_output, input.size * 10 + 1024); // Much larger allocation for disassembly
+                buffer_init(&disasm_output, 0); // Will grow as needed, start with stack
 
                 while (fgets(line, sizeof(line), cstool_pipe)) {
                     // Parse cstool format: " addr  bytes    instruction"
