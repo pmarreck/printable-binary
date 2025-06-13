@@ -403,8 +403,8 @@ For decoding:
 This implementation uses a carefully chosen set of UTF-8 characters to represent each possible byte value:
 
 - Control characters (0-31) use visually distinct symbols, primarily from Unicode blocks like Mathematical Symbols, Arrows, and Latin Extended
-- Standard printable ASCII characters (33-126, except " and \) remain themselves
-- Special characters (space, double quote, backslash) get more visible representations
+- Standard printable ASCII characters (33-126, except ", ', and \\) remain themselves
+- Special characters (space, double quote, single quote, backslash) get more visible representations
 - Extended bytes (128-255) use a systematic mapping to Latin-1 Supplement and Latin Extended-A blocks
 
 ### Encoding/Decoding Maps
