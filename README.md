@@ -195,7 +195,7 @@ The PrintableBinary character set is specifically designed to be highly compatib
 - **XML/HTML** - Perfect in text content and attributes (no `<>&` in our encodings)
 - **TOML** - Perfect in quoted strings
 - **YAML** - Perfect in quoted strings, good in unquoted context
-- **C/C++/Java/etc.** - Perfect in string literals (we re-encode `\` as `Ʌ`)
+- **C/C++/Java/etc.** - Perfect in string literals (we re-encode `\` as `⧹`)
 - **Shell scripts** - Perfect in quoted strings (we re-encode `'` as `ʼ`)
 - **SQL** - Perfect in quoted strings
 - **Most UTF-8 aware text formats**
