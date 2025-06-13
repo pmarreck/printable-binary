@@ -1,6 +1,6 @@
 # PrintableBinary
 
-A Lua/Luajit library for encoding arbitrary binary data into human-readable UTF-8 text, and then decoding it back to the original binary data.
+A cross-platform utility (LuaJIT and C implementations) for encoding arbitrary binary data into human-readable UTF-8 text, and then decoding it back to the original binary data.
 
 ## Overview
 
@@ -10,28 +10,34 @@ This implementation allows you to view binary data directly in a terminal (it ev
 
 ## Features
 
-- **Visually Distinct Characters**: Each of the 256 possible byte values maps to a unique, visually distinct UTF-8 character.
-- **ASCII Passthrough**: Standard printable ASCII characters (32-126) largely remain themselves for immediate recognition.
-- **Special Handling**: Space, double quotes, and backslashes have distinct representations to avoid escaping issues.
-- **Single Character Width**: Each encoded representation renders as a single character wide in a monospace terminal.
-- **Compactness**: Uses 1-3 byte UTF-8 characters for optimal space efficiency.
-- **Usability**: Encoded strings are easily copyable, pastable, and printable.
-- **Smart Disassembly**: Format-aware disassembly using objdump that understands binary file structures (Mach-O, ELF, PE).
-- **Raw Disassembly**: Direct byte-to-instruction disassembly using Capstone with auto-architecture detection or manual selection.
-- **Formatting**: Customizable output formatting with group size and line width options.
-- **Universal Binary Support**: Detects and clearly identifies macOS universal binaries with multiple architectures.
-- **Intelligent Pattern Recognition**: Recognizes common byte patterns (NUL, NOP, INT3) and provides context-aware analysis to distinguish between code and data.
-- **Binary Safety**: Preserves all binary data, including NUL bytes, when encoding and decoding.
-- **Passthrough Mode**: Simultaneously outputs original binary data to stdout and encoded text to stderr for flexible processing pipelines.
+- **Dual Implementations**: Available as both LuaJIT script and compiled C binary for maximum compatibility and performance
+- **Visually Distinct Characters**: Each of the 256 possible byte values maps to a unique, visually distinct UTF-8 character
+- **ASCII Passthrough**: Standard printable ASCII characters (32-126) largely remain themselves for immediate recognition
+- **Shell-Safe Encoding**: Special characters that could cause shell issues are encoded with safe Unicode alternatives
+- **Single Character Width**: Each encoded representation renders as a single character wide in a monospace terminal
+- **Compactness**: Uses 1-3 byte UTF-8 characters for optimal space efficiency
+- **Usability**: Encoded strings are easily copyable, pastable, and printable
+- **Smart Disassembly**: Format-aware disassembly using objdump that understands binary file structures (Mach-O, ELF, PE)
+- **Raw Disassembly**: Direct byte-to-instruction disassembly using Capstone with auto-architecture detection or manual selection
+- **Formatting**: Customizable output formatting with group size and line width options
+- **Universal Binary Support**: Detects and clearly identifies macOS universal binaries with multiple architectures
+- **Intelligent Pattern Recognition**: Recognizes common byte patterns (NUL, NOP, INT3) and provides context-aware analysis to distinguish between code and data
+- **Binary Safety**: Preserves all binary data, including NUL bytes, when encoding and decoding
+- **Passthrough Mode**: Simultaneously outputs original binary data to stdout and encoded text to stderr for flexible processing pipelines
 
 ## Usage
 
 ### As a Command Line Tool
 
 ```bash
+# Use either implementation:
+# LuaJIT version: ./printable_binary
+# C version: ./bin/printable_binary_c
+# (Examples below use LuaJIT version, but C version has identical interface)
+
 # Encode binary data
 echo -n "Hello, World!" | ./printable_binary
-# Output: Hello,␣World!
+# Output: Hello,␣World﹗
 
 # Note: Direct encoding of binary data as command-line arguments is not supported
 # because shell environments cannot represent all binary data (such as NUL bytes)
@@ -46,10 +52,10 @@ echo -n "Hello, World!" | ./printable_binary
 # Encode with custom formatting (groups of 4 characters, 16 groups per line)
 ./printable_binary -f=4x16 somefile.bin > custom_formatted.txt
 
-# Encode with disassembly (auto-detects architecture)
+# Encode with raw disassembly (auto-detects architecture)
 ./printable_binary -a executable.bin > disassembled.txt
 
-# Encode with smart disassembly (format-aware, uses objdump)
+# Encode with smart disassembly (format-aware)
 ./printable_binary --smart-asm executable.bin > smart_disassembled.txt
 
 # Encode with both formatting and disassembly
@@ -64,7 +70,7 @@ echo -n "Hello, World!" | ./printable_binary
 ./printable_binary universal_binary.bin > full_binary.txt  # Use this for full binary preservation
 
 # Decode data (spaces and newlines are automatically ignored during decoding)
-echo -n "Hello,␣World!" | ./printable_binary -d
+echo -n "Hello,␣World﹗" | ./printable_binary -d
 # Output: Hello, World!
 
 # Decode formatted data (formatting is ignored)
@@ -77,6 +83,9 @@ cat disassembled.txt | ./printable_binary -d > original_executable.bin
 # This is useful for binary data processing pipelines that need both representations
 echo -n "Hello, World!" | ./printable_binary --passthrough 2>encoded.txt | wc -c
 # Binary data goes to stdout, encoded text to stderr
+
+# Use the C implementation for better performance on large files
+./bin/printable_binary_c large_file.bin > encoded_large.txt
 ```
 
 ### As a Lua Library
@@ -105,7 +114,7 @@ Uses `objdump` for format-aware disassembly that understands binary file structu
 ```bash
 # Smart disassembly - recommended for most use cases
 ./printable_binary --smart-asm /usr/bin/ls
-./printable_binary --smart-asm --format=4x8 binary_file.exe
+./printable_binary --smart-asm -f=4x8 binary_file.exe
 ```
 
 **Advantages:**
@@ -118,17 +127,17 @@ Uses `objdump` for format-aware disassembly that understands binary file structu
 
 **Requirements:** `objdump` (usually part of binutils)
 
-### Raw Disassembly (`--asm`)
+### Raw Disassembly (`-a, --asm`)
 
 Uses `cstool` (Capstone) for direct byte-to-instruction disassembly:
 
 ```bash
 # Raw disassembly with auto-detection
-./printable_binary --asm binary_file
+./printable_binary -a binary_file
 
 # Force specific architecture
-./printable_binary --asm --arch=arm64 data_file.bin
-./printable_binary --asm --arch=x64 shellcode.bin
+./printable_binary -a --arch=arm64 data_file.bin
+./printable_binary -a --arch=x64 shellcode.bin
 ```
 
 **Advantages:**
@@ -146,12 +155,12 @@ Uses `cstool` (Capstone) for direct byte-to-instruction disassembly:
 | Use Case                        | Recommended Mode | Reason                                         |
 | ------------------------------- | ---------------- | ---------------------------------------------- |
 | Analyzing executables/libraries | `--smart-asm`    | Format-aware, shows only real code             |
-| Raw shellcode analysis          | `--asm`          | Works on code fragments                        |
-| Memory dumps                    | `--asm`          | No file format structure                       |
-| Cross-architecture analysis     | `--asm`          | Force interpretation as different arch         |
-| Data section analysis           | `--asm`          | See what data looks like as code               |
+| Raw shellcode analysis          | `-a, --asm`      | Works on code fragments                        |
+| Memory dumps                    | `-a, --asm`      | No file format structure                       |
+| Cross-architecture analysis     | `-a, --asm`      | Force interpretation as different arch         |
+| Data section analysis           | `-a, --asm`      | See what data looks like as code               |
 | Quick analysis                  | `--smart-asm`    | More accurate results                          |
-| Research/debugging              | `--asm`          | Raw interpretation without format intelligence |
+| Research/debugging              | `-a, --asm`      | Raw interpretation without format intelligence |
 
 ### Examples
 
@@ -166,14 +175,14 @@ Uses `cstool` (Capstone) for direct byte-to-instruction disassembly:
 
 ```bash
 # Analyze potential shellcode
-echo -n "4889e5" | xxd -r -p | ./printable_binary --asm --arch=x64
+echo -n "4889e5" | xxd -r -p | ./printable_binary -a --arch=x64
 ```
 
 **Cross-architecture analysis:**
 
 ```bash
 # See what ARM code looks like when interpreted as x86
-./printable_binary --asm --arch=x32 /usr/bin/arm_binary
+./printable_binary -a --arch=x32 /usr/bin/arm_binary
 ```
 
 ## Format Compatibility
@@ -194,8 +203,8 @@ The PrintableBinary character set is specifically designed to be highly compatib
 ### 🎯 **Key Design Decisions for Compatibility:**
 
 - **Double quotes** (34) → `˵` (U+02F5) - Avoids JSON/XML attribute conflicts
-- **Single quotes** (39) → `ʼ` (U+02BC) - Avoids shell/SQL conflicts  
-- **Backslashes** (92) → `Ʌ` (U+0245) - Avoids escape sequence issues
+- **Single quotes** (39) → `ʼ` (U+02BC) - Avoids shell/SQL conflicts
+- **Backslashes** (92) → `⧹` (U+29F9) - Avoids escape sequence issues
 - **Control characters** → Safe Unicode symbols (∅, ⇩, ⏎, etc.)
 - **No problematic delimiters** in our special encodings
 
@@ -203,9 +212,9 @@ The PrintableBinary character set is specifically designed to be highly compatib
 
 ```bash
 # JSON
-echo '{"binary_data": "'$(./printable_binary file.bin)'"}' 
+echo '{"binary_data": "'$(./printable_binary file.bin)'"}'
 
-# XML/HTML  
+# XML/HTML
 echo '<data>'$(./printable_binary file.bin)'</data>'
 
 # YAML
@@ -222,12 +231,31 @@ printf 'char data[] = "%s";\n' "$(./printable_binary file.bin)"
 
 ## Character Encoding
 
-- **Control Characters (0-31)**: Mapped to visually distinct symbols like ∅, ¯, «, », etc.
+- **Control Characters (0-31)**: Mapped to visually distinct symbols like ∅, ¯, «, », µ, etc.
 - **Space (32)**: Encoded as ␣ for visibility
-- **Printable ASCII (33-126)**: Mostly unchanged except for:
-  - Double quote (34) → ˵ (U+02F5)
-  - Single quote (39) → ʼ (U+02BC)
-  - Backslash (92) → Ʌ (U+0245)
+- **Shell-unsafe ASCII characters**: Mapped to safe Unicode alternatives:
+  - Exclamation mark (33) → ﹗ (U+FE57) Small Exclamation Mark
+  - Double quote (34) → ˵ (U+02F5) Modifier Letter Middle Double Grave Accent
+  - Hash (35) → ♯ (U+266F) Music Sharp Sign
+  - Dollar sign (36) → ﹩ (U+FE69) Small Dollar Sign
+  - Percent (37) → ﹪ (U+FE6A) Small Percent Sign
+  - Ampersand (38) → ﹠ (U+FE60) Small Ampersand
+  - Single quote (39) → ʼ (U+02BC) Modifier Letter Apostrophe
+  - Parentheses (40-41) → ❨❩ (U+2768-2769) Medium Parenthesis Ornaments
+  - Asterisk (42) → ﹡ (U+FE61) Small Asterisk
+  - Plus (43) → ﹢ (U+FE62) Small Plus Sign
+  - Minus (45) → ﹣ (U+FE63) Small Hyphen-Minus
+  - Slash (47) → ⁄ (U+2044) Fraction Slash
+  - Colon (58) → ﹕ (U+FE55) Small Colon
+  - Semicolon (59) → ﹔ (U+FE54) Small Semicolon
+  - Equals (61) → ﹦ (U+FE66) Small Equals Sign
+  - Question mark (63) → ﹖ (U+FE56) Small Question Mark
+  - At sign (64) → ﹫ (U+FE6B) Small Commercial At
+  - Backslash (92) → ⧹ (U+29F9) Big Reverse Solidus
+  - Brackets (91, 93) → ⟦⟧ (U+27E6-27E7) Mathematical White Square Brackets
+  - Backtick (96) → ˋ (U+02CB) Modifier Letter Grave Accent
+  - Braces (123-125) → ❴∣❵ (Ornament and mathematical variants)
+  - Tilde (126) → ˜ (U+02DC) Small Tilde
 - **DEL (127)**: Encoded as ⌦
 - **Extended Bytes (128-255)**: Mapped to characters from Latin-1 Supplement and Latin Extended-A blocks
 
@@ -258,7 +286,7 @@ This detailed mapping table is provided to help others create compatible encoder
 | 18 (DC2)   | ²         | U+00B2  | C2 B2             | Superscript Two                            |
 | 19 (DC3)   | º         | U+00BA  | C2 BA             | Masculine Ordinal Indicator                |
 | 20 (DC4)   | ³         | U+00B3  | C2 B3             | Superscript Three                          |
-| 21 (NAK)   | Ͷ         | U+0376  | CD B6             | Greek Capital Letter Pamphylian Digamma    |
+| 21 (NAK)   | µ         | U+00B5  | C2 B5             | Micro Sign                                 |
 | 22 (SYN)   | ɨ         | U+0268  | C9 A8             | Latin Small Letter I with Stroke           |
 | 23 (ETB)   | ¬         | U+00AC  | C2 AC             | Not Sign                                   |
 | 24 (CAN)   | ©        | U+00A9  | C2 A9             | Copyright Sign                             |
@@ -323,11 +351,35 @@ To run all test suites at once:
 
 The project includes several utility scripts in the `utils/` directory:
 
-- `dump-chars.sh`: Displays the character mappings for all byte values
+- `xxhash32`: Standard XXH32 hash utility (supports binary/hex/encoded output)
+- `prng`: Deterministic pseudo-random number generator using XXH32 (supports seeded and auto-seeded generation)
 
 ## Requirements
 
+### LuaJIT Implementation
+
 - LuaJIT (tested with LuaJIT 2.0.5)
+
+### C Implementation
+
+- C99-compatible compiler (GCC, Clang)
+- Standard C library
+
+### Optional Dependencies (for disassembly features)
+
+- `cstool` (Capstone disassembly engine) for raw disassembly (`-a/--asm`)
+- `objdump` for smart disassembly (`--smart-asm`)
+
+### Build
+
+```bash
+# Build C implementation
+make
+
+# Both implementations are included:
+# ./printable_binary (LuaJIT script)
+# ./bin/printable_binary_c (compiled C binary)
+```
 
 ## Implementation Details
 

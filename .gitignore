@@ -1,3 +1,12 @@
 **/.claude/settings.local.json
 .DS_Store
 **/.DS_Store
+
+# Compiled binaries
+bin/printable_binary_c
+bin/printable_binary
+*.o
+*.exe
+*.dll
+*.so
+*.dylib

@@ -260,7 +260,8 @@ if arg then
     io.stderr:write("  -p, --passthrough  Pass input to stdout unchanged, send encoded data to stderr\n")
     io.stderr:write("  -f[=NxM], --format[=NxM]   Format output in groups\n")
     io.stderr:write("                    Default: 8x10 (groups of 8 chars, 10 groups per line)\n")
-    io.stderr:write("  -a, --asm        Disassemble binary (with Capstone if available)\n")
+    io.stderr:write("  -a, --asm        Raw disassembly (works on any data, uses cstool)\n")
+    io.stderr:write("  --smart-asm      Smart disassembly (format-aware, uses objdump)\n")
     io.stderr:write("  --arch ARCH      Specify architecture for disassembly\n")
     io.stderr:write("                    Valid values: x64, x32, arm64, arm\n")
     io.stderr:write("  -h, --help       Show this help\n")
@@ -275,8 +276,9 @@ if arg then
     io.stderr:write("  " .. progname .. " binary_file               # Encode binary to UTF-8\n")
     io.stderr:write("  " .. progname .. " -d encoded_file           # Decode UTF-8 to binary\n")
     io.stderr:write("  " .. progname .. " -f=4x10 binary_file       # Encode with formatting\n")
-    io.stderr:write("  " .. progname .. " -a executable             # Disassemble executable\n")
-    io.stderr:write("  " .. progname .. " -a --arch=arm64 binary    # Force ARM64 disassembly\n")
+    io.stderr:write("  " .. progname .. " -a executable             # Raw disassembly (any data)\n")
+    io.stderr:write("  " .. progname .. " --smart-asm binary        # Smart disassembly (executables)\n")
+    io.stderr:write("  " .. progname .. " -a --arch=arm64 binary    # Force ARM64 raw disassembly\n")
     io.stderr:write("  " .. progname .. " --passthrough file | tool # Monitor binary stream\n")
   end
 
@@ -322,6 +324,7 @@ if arg then
   local decode_mode = false
   local format_mode = false
   local asm_mode = false
+  local smart_asm_mode = false
   local file_path = nil
   local specified_arch = nil
   local format_mode = false
@@ -341,6 +344,8 @@ if arg then
       decode_mode = true
     elseif arg[i] == "-a" or arg[i] == "--asm" then
       asm_mode = true
+    elseif arg[i] == "--smart-asm" then
+      smart_asm_mode = true
     elseif arg[i] == "-p" or arg[i] == "--passthrough" then
       passthrough_mode = true
     elseif arg[i] == "--arch" and i < #arg then
@@ -396,6 +401,12 @@ if arg then
     input_data = read_file(file_path)
   else
     input_data = read_stdin()
+  end
+
+  -- Validate conflicting options
+  if asm_mode and smart_asm_mode then
+    io.stderr:write("Error: Cannot use both --asm and --smart-asm together\n")
+    os.exit(1)
   end
 
   -- Process data according to mode
@@ -483,6 +494,76 @@ if arg then
 
       output = table.concat(formatted_output)
     end
+  end
+
+  -- If in smart disassembly mode, use objdump
+  if smart_asm_mode and not decode_mode then
+    if not file_path then
+      io.stderr:write("Error: Smart disassembly mode requires a file input\n")
+      os.exit(1)
+    end
+
+    -- Check if objdump is available
+    local objdump_available = os.execute("which objdump > /dev/null 2>&1")
+    if not objdump_available then
+      io.stderr:write("Error: objdump not found. Smart disassembly requires objdump.\n")
+      os.exit(1)
+    end
+
+    io.stderr:write("# Smart disassembly using objdump (format-aware):\n")
+
+    -- Create objdump command
+    local objdump_cmd = "objdump -d \"" .. file_path .. "\" 2>/dev/null"
+    debug_print("# DEBUG: Running objdump command: " .. objdump_cmd)
+
+    local objdump_pipe = io.popen(objdump_cmd)
+    if not objdump_pipe then
+      io.stderr:write("Error: Failed to run objdump\n")
+      os.exit(1)
+    end
+
+    local objdump_output = {}
+    for line in objdump_pipe:lines() do
+      -- Look for disassembly lines (address: bytes instruction)
+      local addr, bytes_str, instr = line:match("^%s*([0-9a-f]+):%s+([0-9a-f ]+)%s+(.+)$")
+      if addr and bytes_str and instr then
+        -- Parse the byte string and encode each byte
+        local encoded_bytes = {}
+        for byte_str in bytes_str:gmatch("([0-9a-f][0-9a-f])") do
+          local byte_val = tonumber(byte_str, 16)
+          if byte_val and encode_map[byte_val] then
+            table.insert(encoded_bytes, encode_map[byte_val])
+          end
+        end
+
+        -- Create the output line: encoded_bytes 🧾 instruction
+        if #encoded_bytes > 0 then
+          local encoded_line = table.concat(encoded_bytes, "") .. " 🧾 " .. instr
+          table.insert(objdump_output, encoded_line)
+        end
+      elseif line:match("Disassembly of section") or line:match("file format") then
+        -- Include section headers as comments
+        local trimmed_line = line:match("^%s*(.-)%s*$") or line
+        table.insert(objdump_output, "# " .. trimmed_line)
+      end
+    end
+    objdump_pipe:close()
+
+    -- Output the smart disassembly
+    if passthrough_mode then
+      -- In passthrough mode, send encoded binary to stderr and raw to stdout
+      local file_handle = io.open(file_path, "rb")
+      if file_handle then
+        local file_data = file_handle:read("*a")
+        file_handle:close()
+        io.stdout:write(file_data)
+      end
+      io.stderr:write(table.concat(objdump_output, "\n") .. "\n")
+    else
+      print(table.concat(objdump_output, "\n"))
+    end
+
+    os.exit(0)
   end
 
   -- If in disassembly mode, attempt to disassemble

@@ -41,13 +41,13 @@ if ! command -v cstool &> /dev/null; then
 fi
 
 ###############################################################################
-# BASIC DISASSEMBLY TESTS
+# BASIC DISASSEMBLY TESTS (CAPSTONE)
 ###############################################################################
 
-echo -e "\n${YELLOW}Running basic disassembly tests...${NC}"
+echo -e "\n${YELLOW}Running basic capstone disassembly tests...${NC}"
 
-# Test 1: x64 disassembly
-echo -e "${BLUE}Test #1: x64 disassembly${NC}"
+# Test 1: x64 capstone disassembly
+echo -e "${BLUE}Test #1: x64 capstone disassembly${NC}"
 # Create simple x64 assembly: mov rbp, rsp; sub rsp, 0x10
 echo -e "\x48\x89\xe5\x48\x83\xec\x10" > "$TMP_X64_BIN"
 
@@ -62,8 +62,8 @@ else
     exit 1
 fi
 
-# Test 2: Verify disassembly output can be decoded (not perfect round-trip by design)
-echo -e "${BLUE}Test #2: Disassembly output decodable${NC}"
+# Test 2: Verify capstone disassembly output can be decoded (not perfect round-trip by design)
+echo -e "${BLUE}Test #2: Capstone disassembly output decodable${NC}"
 $SCRIPT -d "$TMP_DISASM_OUTPUT" > "$TMP_DECODED" 2>/dev/null
 if [ -s "$TMP_DECODED" ]; then
     echo -e "${GREEN}PASS${NC}"
@@ -72,8 +72,8 @@ else
     exit 1
 fi
 
-# Test 3: ARM64 disassembly
-echo -e "${BLUE}Test #3: ARM64 disassembly${NC}"
+# Test 3: ARM64 capstone disassembly
+echo -e "${BLUE}Test #3: ARM64 capstone disassembly${NC}"
 # Create simple ARM64 assembly: mov x0, #42; ret
 echo -e "\x40\x05\x80\xd2\xc0\x03\x5f\xd6" > "$TMP_ARM64_BIN"
 
@@ -87,8 +87,8 @@ else
     exit 1
 fi
 
-# Test 4: x32 disassembly  
-echo -e "${BLUE}Test #4: x32 disassembly${NC}"
+# Test 4: x32 capstone disassembly
+echo -e "${BLUE}Test #4: x32 capstone disassembly${NC}"
 # Create simple x32 assembly: mov ebp, esp; sub esp, 0x10
 echo -e "\x89\xe5\x83\xec\x10" > "$TMP_X32_BIN"
 
@@ -123,13 +123,68 @@ else
 fi
 
 ###############################################################################
+# SMART DISASSEMBLY TESTS (OBJDUMP)
+###############################################################################
+
+echo -e "\n${YELLOW}Running smart disassembly (objdump) tests...${NC}"
+
+# Check if objdump is available
+if ! command -v objdump &> /dev/null; then
+    echo -e "${RED}SKIP: objdump not available - smart disassembly tests cannot run${NC}"
+else
+    # Test 7: Smart disassembly with executable file
+    echo -e "${BLUE}Test #7: Smart disassembly with /bin/ls${NC}"
+    if [ -f "/bin/ls" ]; then
+        $SCRIPT --smart-asm "/bin/ls" > "$TMP_DISASM_OUTPUT" 2>&1
+        if grep -q "🧾" "$TMP_DISASM_OUTPUT" && [ -s "$TMP_DISASM_OUTPUT" ]; then
+            echo -e "${GREEN}PASS${NC}"
+        else
+            echo -e "${RED}FAIL - Smart disassembly failed${NC}"
+            echo "Output was:"
+            cat "$TMP_DISASM_OUTPUT"
+            exit 1
+        fi
+
+        # Test 8: Smart disassembly output decodable
+        echo -e "${BLUE}Test #8: Smart disassembly output decodable${NC}"
+        $SCRIPT -d "$TMP_DISASM_OUTPUT" > "$TMP_DECODED" 2>/dev/null
+        if [ -s "$TMP_DECODED" ]; then
+            echo -e "${GREEN}PASS${NC}"
+        else
+            echo -e "${RED}FAIL - Smart disassembly output cannot be decoded at all${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${YELLOW}SKIP: Test #7 and #8 - /bin/ls not available${NC}"
+    fi
+
+    # Test 9: Smart disassembly error handling (conflicting options)
+    echo -e "${BLUE}Test #9: Smart disassembly conflicting options${NC}"
+    if $SCRIPT -a --smart-asm "$TMP_X64_BIN" 2>/dev/null; then
+        echo -e "${RED}FAIL - Should reject conflicting --asm and --smart-asm options${NC}"
+        exit 1
+    else
+        echo -e "${GREEN}PASS - Correctly rejected conflicting options${NC}"
+    fi
+
+    # Test 10: Smart disassembly requires file input
+    echo -e "${BLUE}Test #10: Smart disassembly requires file input${NC}"
+    if echo "test" | $SCRIPT --smart-asm 2>/dev/null; then
+        echo -e "${RED}FAIL - Should require file input for smart disassembly${NC}"
+        exit 1
+    else
+        echo -e "${GREEN}PASS - Correctly requires file input${NC}"
+    fi
+fi
+
+###############################################################################
 # INTEGRATION TESTS
 ###############################################################################
 
 echo -e "\n${YELLOW}Running integration tests...${NC}"
 
-# Test 7: Disassembly with formatting
-echo -e "${BLUE}Test #7: Disassembly with formatting${NC}"
+# Test 11: Capstone disassembly with formatting
+echo -e "${BLUE}Test #11: Capstone disassembly with formatting${NC}"
 $SCRIPT -a -f=4x8 --arch=x64 "$TMP_X64_BIN" > "$TMP_DISASM_OUTPUT" 2>/dev/null
 if grep -q "mov.*rbp.*rsp" "$TMP_DISASM_OUTPUT"; then
     echo -e "${GREEN}PASS${NC}"
@@ -138,8 +193,8 @@ else
     exit 1
 fi
 
-# Test 8: Verify formatted disassembly is decodable
-echo -e "${BLUE}Test #8: Formatted disassembly decodable${NC}"
+# Test 12: Verify formatted capstone disassembly is decodable
+echo -e "${BLUE}Test #12: Formatted capstone disassembly decodable${NC}"
 $SCRIPT -d "$TMP_DISASM_OUTPUT" > "$TMP_DECODED" 2>/dev/null
 if [ -s "$TMP_DECODED" ]; then
     echo -e "${GREEN}PASS${NC}"
@@ -148,9 +203,9 @@ else
     exit 1
 fi
 
-# Test 9: Large binary disassembly (if /bin/ls exists)
+# Test 13: Large binary capstone disassembly (if /bin/ls exists)
 if [ -f "/bin/ls" ]; then
-    echo -e "${BLUE}Test #9: Large binary disassembly${NC}"
+    echo -e "${BLUE}Test #13: Large binary capstone disassembly${NC}"
     $SCRIPT -a "/bin/ls" > "$TMP_DISASM_OUTPUT" 2>&1
     if grep -q "architecture" "$TMP_DISASM_OUTPUT" && [ -s "$TMP_DISASM_OUTPUT" ]; then
         echo -e "${GREEN}PASS${NC}"
@@ -158,9 +213,9 @@ if [ -f "/bin/ls" ]; then
         echo -e "${RED}FAIL - Large binary disassembly failed${NC}"
         exit 1
     fi
-    
-    # Test 10: Large binary disassembly decodable
-    echo -e "${BLUE}Test #10: Large binary disassembly decodable${NC}"
+
+    # Test 14: Large binary capstone disassembly decodable
+    echo -e "${BLUE}Test #14: Large binary capstone disassembly decodable${NC}"
     $SCRIPT -d "$TMP_DISASM_OUTPUT" > "$TMP_DECODED" 2>/dev/null
     if [ -s "$TMP_DECODED" ]; then
         echo -e "${GREEN}PASS${NC}"
@@ -169,7 +224,7 @@ if [ -f "/bin/ls" ]; then
         exit 1
     fi
 else
-    echo -e "${YELLOW}SKIP: Test #9 and #10 - /bin/ls not available${NC}"
+    echo -e "${YELLOW}SKIP: Test #13 and #14 - /bin/ls not available${NC}"
 fi
 
 ###############################################################################
@@ -178,8 +233,8 @@ fi
 
 echo -e "\n${YELLOW}Running output format tests...${NC}"
 
-# Test 11: Verify disassembly section separator
-echo -e "${BLUE}Test #11: Disassembly section separator${NC}"
+# Test 15: Verify capstone disassembly section separator
+echo -e "${BLUE}Test #15: Capstone disassembly section separator${NC}"
 $SCRIPT -a --arch=x64 "$TMP_X64_BIN" > "$TMP_DISASM_OUTPUT" 2>/dev/null
 if grep -q "🧾\|Disassembly" "$TMP_DISASM_OUTPUT"; then
     echo -e "${GREEN}PASS${NC}"
@@ -188,8 +243,8 @@ else
     exit 1
 fi
 
-# Test 12: Verify both encoded data and disassembly are present
-echo -e "${BLUE}Test #12: Both encoded data and disassembly present${NC}"
+# Test 16: Verify both encoded data and capstone disassembly are present
+echo -e "${BLUE}Test #16: Both encoded data and capstone disassembly present${NC}"
 $SCRIPT -a --arch=x64 "$TMP_X64_BIN" > "$TMP_DISASM_OUTPUT" 2>/dev/null
 ENCODED_LINES=$(grep -v "^#\|^$\|🧾\|Disassembly\|mov\|sub\|ret\|add\|push\|pop" "$TMP_DISASM_OUTPUT" | wc -l)
 DISASM_LINES=$(grep -E "mov|sub|ret|add|push|pop" "$TMP_DISASM_OUTPUT" | wc -l)
@@ -207,8 +262,8 @@ fi
 
 echo -e "\n${YELLOW}Running error handling tests...${NC}"
 
-# Test 13: Non-executable file
-echo -e "${BLUE}Test #13: Non-executable file disassembly${NC}"
+# Test 17: Non-executable file capstone disassembly
+echo -e "${BLUE}Test #17: Non-executable file capstone disassembly${NC}"
 echo "Hello World" > "$TMP_DIR/text_file.txt"
 $SCRIPT -a --arch=x64 "$TMP_DIR/text_file.txt" > "$TMP_DISASM_OUTPUT" 2>/dev/null
 # Should still work (disassemble as data), just might not make sense
@@ -219,8 +274,8 @@ else
     exit 1
 fi
 
-# Test 14: Empty file
-echo -e "${BLUE}Test #14: Empty file disassembly${NC}"
+# Test 18: Empty file capstone disassembly
+echo -e "${BLUE}Test #18: Empty file capstone disassembly${NC}"
 touch "$TMP_DIR/empty_file"
 $SCRIPT -a --arch=x64 "$TMP_DIR/empty_file" > "$TMP_DISASM_OUTPUT" 2>/dev/null
 if [ -f "$TMP_DISASM_OUTPUT" ]; then
@@ -232,10 +287,12 @@ fi
 
 echo -e "\n${GREEN}All disassembly tests passed!${NC}"
 echo -e "${BLUE}Summary:${NC}"
-echo -e "  ✓ Basic disassembly (x64, ARM64, x32)"
+echo -e "  ✓ Basic capstone disassembly (x64, ARM64, x32)"
+echo -e "  ✓ Smart objdump disassembly (when available)"
 echo -e "  ✓ Architecture auto-detection"
 echo -e "  ✓ Disassembly output is decodable (not perfect round-trip by design)"
 echo -e "  ✓ Formatted output with disassembly"
 echo -e "  ✓ Large binary handling"
 echo -e "  ✓ Output format verification"
 echo -e "  ✓ Error handling"
+echo -e "  ✓ Option validation"

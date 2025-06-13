@@ -506,6 +506,12 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    // Validate conflicting options
+    if (opts.asm_mode && opts.smart_asm_mode) {
+        fprintf(stderr, "Error: Cannot use both --asm and --smart-asm together\n");
+        return 1;
+    }
+
     // Check for terminal input when no file specified
     if (!opts.input_file && isatty(STDIN_FILENO)) {
         print_usage(argv[0]);
