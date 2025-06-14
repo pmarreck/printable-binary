@@ -747,6 +747,7 @@ int main(int argc, char *argv[]) {
             }
 
             buffer_free(&objdump_output);
+            return 0;
 
         } else if (opts.asm_mode) {
             // Basic disassembly implementation

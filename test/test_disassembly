@@ -285,6 +285,44 @@ else
     exit 1
 fi
 
+# Test 19: Verify capstone disassembly only outputs disassembly format (no pure binary)
+echo -e "${BLUE}Test #19: Capstone disassembly only outputs disassembly format${NC}"
+$SCRIPT -a --arch=x64 "$TMP_X64_BIN" > "$TMP_DISASM_OUTPUT" 2>/dev/null
+# All lines should either be comments (#), contain receipt emoji (🧾), or be empty
+# No lines should contain pure encoded binary without disassembly formatting
+PURE_BINARY_LINES=$(grep -v "^#\|🧾\|^$\|architecture\|Using\|Auto-detected\|Detected" "$TMP_DISASM_OUTPUT" | wc -l)
+if [ "$PURE_BINARY_LINES" -eq 0 ]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL - Found $PURE_BINARY_LINES lines of pure binary data (should be 0)${NC}"
+    echo "Pure binary lines found:"
+    grep -v "^#\|🧾\|^$\|architecture\|Using\|Auto-detected\|Detected" "$TMP_DISASM_OUTPUT" | head -5
+    exit 1
+fi
+
+# Test 20: Verify smart disassembly only outputs disassembly format (no pure binary)
+if command -v objdump &> /dev/null; then
+    echo -e "${BLUE}Test #20: Smart disassembly only outputs disassembly format${NC}"
+    if [ -f "/bin/ls" ]; then
+        $SCRIPT --smart-asm "/bin/ls" > "$TMP_DISASM_OUTPUT" 2>/dev/null
+        # All lines should either be comments (#), contain receipt emoji (🧾), or be empty
+        # No lines should contain pure encoded binary without disassembly formatting
+        PURE_BINARY_LINES=$(grep -v "^#\|🧾\|^$\|Smart disassembly\|format-aware" "$TMP_DISASM_OUTPUT" | wc -l)
+        if [ "$PURE_BINARY_LINES" -eq 0 ]; then
+            echo -e "${GREEN}PASS${NC}"
+        else
+            echo -e "${RED}FAIL - Found $PURE_BINARY_LINES lines of pure binary data (should be 0)${NC}"
+            echo "Pure binary lines found:"
+            grep -v "^#\|🧾\|^$\|Smart disassembly\|format-aware" "$TMP_DISASM_OUTPUT" | head -5
+            exit 1
+        fi
+    else
+        echo -e "${YELLOW}SKIP: Test #20 - /bin/ls not available${NC}"
+    fi
+else
+    echo -e "${YELLOW}SKIP: Test #20 - objdump not available${NC}"
+fi
+
 echo -e "\n${GREEN}All disassembly tests passed!${NC}"
 echo -e "${BLUE}Summary:${NC}"
 echo -e "  ✓ Basic capstone disassembly (x64, ARM64, x32)"
