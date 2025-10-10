@@ -63,6 +63,19 @@ else
   FAILED=1
 fi
 
+# Run JavaScript implementation tests (if Deno is available)
+echo -e "\n${YELLOW}Running JavaScript implementation tests...${NC}"
+if command -v deno &> /dev/null; then
+  if deno run --allow-read "$SCRIPT_DIR/../test_printable_binary.js"; then
+    echo -e "${GREEN}JavaScript tests: PASSED${NC}"
+  else
+    echo -e "${RED}JavaScript tests: FAILED${NC}"
+    FAILED=1
+  fi
+else
+  echo -e "${YELLOW}JavaScript tests: SKIPPED (Deno not found)${NC}"
+fi
+
 # Summary
 echo -e "\n${BLUE}=== Test Suite Summary ===${NC}"
 if [ $FAILED -eq 0 ]; then

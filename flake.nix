@@ -19,34 +19,34 @@
             clang
             gdb
             valgrind
-            
+
             # Build systems
             gnumake
             cmake
             ninja
-            
+
             # Performance and profiling tools
             perf-tools
             hyperfine
             time
-            
+
             # Cross-compilation targets (optional)
             pkgsCross.mingwW64.buildPackages.gcc
-            
+
             # Development utilities
             xxd
             hexdump
             file
-            
+
             # Benchmarking and testing
             luajit
-            
-            # Memory debugging
-            address-sanitizer
+
+            # JavaScript/TypeScript runtime for web implementation
+            deno
           ];
           
           shellHook = ''
-            echo "PrintableBinary C Development Environment"
+            echo "PrintableBinary Development Environment"
             echo "========================================"
             echo "Available compilers:"
             echo "  gcc: $(gcc --version | head -n1)"
@@ -56,10 +56,18 @@
             echo "  make, cmake, ninja"
             echo "  gdb, valgrind"
             echo "  hyperfine (for benchmarking)"
+            echo "  deno (for JavaScript/web implementation)"
             echo ""
             echo "Example build commands:"
             echo "  gcc -O3 -o printable_binary_c printable_binary.c"
             echo "  clang -O3 -march=native -o printable_binary_c printable_binary.c"
+            echo ""
+            echo "Test JavaScript implementation:"
+            echo "  deno run --allow-read test_printable_binary.js"
+            echo ""
+            echo "Serve web interface (requires simple http server):"
+            echo "  python3 -m http.server 8000"
+            echo "  # Then open http://localhost:8000 in your browser"
             echo ""
             echo "Cross-compilation example:"
             echo "  x86_64-w64-mingw32-gcc -O3 -o printable_binary.exe printable_binary.c"
