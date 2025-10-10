@@ -224,6 +224,7 @@ echo -e "\n${BLUE}Testing important character mappings individually:${NC}"
 test_byte 0 "NUL"
 test_byte 9 "TAB"
 test_byte 10 "LF"
+test_byte 11 "VT" "↧"  # Expect U+21A7 DOWNWARDS ARROW WITH TIP LEFTWARDS
 test_byte 13 "CR"
 test_byte 21 "CONTROL_21" "µ"  # Expect µ (U+00B5) MICRO SIGN
 test_byte 27 "ESC"

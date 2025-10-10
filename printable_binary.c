@@ -252,8 +252,6 @@ static void init_tables(void) {
     special_sequences[125] = "\xe2\x9d\xb5";  // ❵ (U+2775) Medium Right Curly Bracket Ornament
     special_sequences[126] = "\xcb\x9c";      // ˜ (U+02DC) Small Tilde
     special_sequences[127] = "\xe2\x8c\xa6";  // ⌦ (U+2326)
-    special_sequences[152] = "\xc5\x8c";      // Ō (U+014C)
-    special_sequences[184] = "\xc5\x8f";      // ŏ (U+014F)
 
     // Build encoding table
     for (int i = 0; i < 256; i++) {
@@ -263,13 +261,17 @@ static void init_tables(void) {
             // Regular ASCII characters
             char temp[2] = {i, 0};
             encode_table[i] = make_utf8(temp);
-        } else if (i >= 128 && i < 192 && i != 152 && i != 184) {
-            // Extended ASCII 128-191: encoded with 0xC3 + original byte
-            char temp[3] = {0xc3, i, 0};
+        } else if (i >= 128 && i < 192) {
+            // Bytes 128-191 → U+0100-U+013F (Latin Extended-A)
+            // This avoids collisions with special chars in U+00A0-U+00BF
+            // UTF-8: C4 80-BF
+            char temp[3] = {0xc4, 0x80 + (i - 128), 0};
             encode_table[i] = make_utf8(temp);
-        } else if (i >= 192 && i != 184) {
-            // Extended ASCII 192-255: encoded with 0xC4 + (byte - 192 + 128)
-            char temp[3] = {0xc4, i - 192 + 128, 0};
+        } else if (i >= 192) {
+            // Bytes 192-255 → U+00C0-U+00FF (upper half of Latin-1 Supplement)
+            // No special characters use this range, so no collisions
+            // UTF-8: C3 80-BF
+            char temp[3] = {0xc3, i - 64, 0};
             encode_table[i] = make_utf8(temp);
         }
     }

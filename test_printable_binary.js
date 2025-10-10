@@ -198,17 +198,11 @@ console.log('\n--- Known Mapping Verification Tests ---');
   assertEquals(encoded127, "\u2326", 'Byte 127 (DEL) maps to ⌦ (U+2326)');
 }
 
-{
-  const byte152 = new Uint8Array([152]);
-  const encoded152 = encoder.encode(byte152);
-  assertEquals(encoded152, "\u014C", 'Byte 152 maps to Ō (U+014C)');
-}
-
-{
-  const byte184 = new Uint8Array([184]);
-  const encoded184 = encoder.encode(byte184);
-  assertEquals(encoded184, "\u014F", 'Byte 184 maps to ŏ (U+014F)');
-}
+// Note: Bytes 152 and 184 previously had special mappings (U+014C and U+014F)
+// but with the new Latin Extended-A mapping for 128-191, they follow the pattern:
+// Byte 152 → U+0100 + (152-128) = U+0118
+// Byte 184 → U+0100 + (184-128) = U+0138
+// The round-trip test in "All byte values (0-255) encode/decode" verifies these work correctly
 
 // Test 13: Binary data patterns
 console.log('\n--- Binary Pattern Tests ---');

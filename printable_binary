@@ -26,7 +26,7 @@ local function build_maps()
   def_char(8, "\226\140\171") -- ⌫ (U+232B)
   def_char(9, "\226\135\165") -- ⇥ (U+21E5)
   def_char(10, "\226\135\169") -- ⇩ (U+21E9)
-  def_char(11, "\226\138\167") -- ↧ (U+21A7)
+  def_char(11, "\226\134\167") -- ↧ (U+21A7)
   def_char(12, "\194\167") -- § (U+00A7)
   def_char(13, "\226\143\142") -- ⏎ (U+23CE)
   def_char(14, "\200\175") -- ȯ (U+022F)
@@ -86,26 +86,20 @@ local function build_maps()
   end
 
   -- Extended bytes (128-255)
-  -- This follows a systematic pattern:
-  -- 128-191 are encoded with 0xC3 + original byte
-  -- 192-255 are encoded with 0xC4 + (byte value - 192 + 128)
-
-  -- Special cases first
-  def_char(152, "\197\140") -- Ō (U+014C)
-  def_char(184, "\197\143") -- ŏ (U+014F)
-
-  -- Pattern-based characters for the rest
+  -- Map to avoid collisions with special characters in U+00A0-U+00BF range
+  -- Use Latin Extended-A (U+0100-U+013F) for 128-191, Latin-1 upper (U+00C0-U+00FF) for 192-255
   for i = 128, 255 do
-    if i ~= 152 and i ~= 184 then
-      if i < 192 then
-        -- Extended ASCII 128-191
-        -- Encoded as Latin-1 Supplement characters
-        def_char(i, "\195" .. string.char(i))
-      else
-        -- Extended ASCII 192-255
-        -- Encoded as Latin Extended-A characters
-        def_char(i, "\196" .. string.char(i - 192 + 128))
-      end
+    if i < 192 then
+      -- Bytes 128-191 → U+0100-U+013F (Latin Extended-A)
+      -- This avoids collisions with special chars in U+00A0-U+00BF
+      -- UTF-8 for U+0100: C4 80, U+0101: C4 81, ..., U+013F: C4 BF
+      local unicode_val = 0x0100 + (i - 128)
+      def_char(i, "\196" .. string.char(unicode_val - 0x0100 + 128))
+    else
+      -- Bytes 192-255 → U+00C0-U+00FF (upper half of Latin-1 Supplement)
+      -- No special characters use this range, so no collisions
+      -- UTF-8: C3 80-BF
+      def_char(i, "\195" .. string.char(i - 64))
     end
   end
 end
@@ -474,19 +468,18 @@ if arg then
         formatted_output[#formatted_output + 1] = encoded_char
         chars_in_group = chars_in_group + 1
 
-        -- When we complete a group, add a space (unless it's the last group in a line)
         if chars_in_group == format_group then
-          -- Add space after each group, unless we're at the end
-          if i < original_len then
-            formatted_output[#formatted_output + 1] = " "
-          end
-
           chars_in_group = 0
           groups_in_line = groups_in_line + 1
 
-          -- If we've hit our groups per line limit, add a newline
-          if groups_in_line == format_groups_per_line and i < original_len then
-            formatted_output[#formatted_output + 1] = "\n"
+          if i < original_len then
+            if groups_in_line == format_groups_per_line then
+              formatted_output[#formatted_output + 1] = "\n"
+              groups_in_line = 0
+            else
+              formatted_output[#formatted_output + 1] = " "
+            end
+          elseif groups_in_line == format_groups_per_line then
             groups_in_line = 0
           end
         end

@@ -97,24 +97,20 @@ class PrintableBinary {
     }
 
     // Extended bytes (128-255)
-    // Special cases first
-    this.defChar(152, "\u014C"); // Ō (U+014C)
-    this.defChar(184, "\u014F"); // ŏ (U+014F)
-
-    // Pattern-based characters for the rest
+    // Map to avoid collisions with special characters in U+00A0-U+00BF range
+    // Use Latin Extended-A (U+0100-U+013F) for 128-191, Latin-1 upper (U+00C0-U+00FF) for 192-255
+    // These are 2-byte and 3-byte UTF-8 sequences respectively
     for (let i = 128; i <= 255; i++) {
-      if (i !== 152 && i !== 184) {
-        if (i < 192) {
-          // Extended ASCII 128-191
-          // Encoded as Latin-1 Supplement characters
-          const char = String.fromCharCode(0xC3, i);
-          this.defChar(i, char);
-        } else {
-          // Extended ASCII 192-255
-          // Encoded as Latin Extended-A characters
-          const char = String.fromCharCode(0xC4, i - 192 + 128);
-          this.defChar(i, char);
-        }
+      if (i < 192) {
+        // Bytes 128-191 → U+0100-U+013F (Latin Extended-A)
+        // This avoids collisions with special chars in U+00A0-U+00BF
+        const char = String.fromCharCode(0x0100 + (i - 128));
+        this.defChar(i, char);
+      } else {
+        // Bytes 192-255 → U+00C0-U+00FF (upper half of Latin-1 Supplement)
+        // No special characters use this range, so no collisions
+        const char = String.fromCharCode(0x00C0 + (i - 192));
+        this.defChar(i, char);
       }
     }
   }
@@ -122,9 +118,11 @@ class PrintableBinary {
   /**
    * Encode binary data (Uint8Array or ArrayBuffer) to printable UTF-8 string
    * @param {Uint8Array|ArrayBuffer} binaryData - The binary data to encode
+   * @param {Object} options - Optional encoding options
+   * @param {string} options.format - Format specification (e.g., "8x10" for 8 chars per group, 10 groups per line)
    * @returns {string} The encoded printable string
    */
-  encode(binaryData) {
+  encode(binaryData, options = {}) {
     // Convert ArrayBuffer to Uint8Array if needed
     if (binaryData instanceof ArrayBuffer) {
       binaryData = new Uint8Array(binaryData);
@@ -134,12 +132,100 @@ class PrintableBinary {
       throw new Error("Input must be a Uint8Array or ArrayBuffer");
     }
 
-    const result = [];
+    // Optimization: Build string in chunks to avoid massive array join
+    // Join operations on million-element arrays are slow
+    const CHUNK_SIZE = 65536; // 64KB chunks - balance between memory and performance
+    const chunks = [];
+    let currentChunk = [];
+
     for (let i = 0; i < binaryData.length; i++) {
       const byte = binaryData[i];
       const encoded = this.encodeMap.get(byte);
       if (encoded !== undefined) {
-        result.push(encoded);
+        currentChunk.push(encoded);
+
+        // Periodically join the chunk and reset
+        if (currentChunk.length >= CHUNK_SIZE) {
+          chunks.push(currentChunk.join(''));
+          currentChunk = [];
+        }
+      }
+    }
+
+    // Don't forget the last chunk
+    if (currentChunk.length > 0) {
+      chunks.push(currentChunk.join(''));
+    }
+
+    let output = chunks.join('');
+
+    // Apply formatting if requested
+    if (options.format) {
+      output = this.formatOutput(output, options.format);
+    }
+
+    return output;
+  }
+
+  /**
+   * Format encoded output with grouping and line breaks
+   * @param {string} encoded - The encoded string
+   * @param {string} formatSpec - Format specification like "8x10" (8 chars per group, 10 groups per line)
+   * @returns {string} Formatted output
+   */
+  formatOutput(encoded, formatSpec) {
+    // Parse format specification (e.g., "8x10" or "75x1")
+    const match = formatSpec.match(/^(\d+)x(\d+)$/);
+    if (!match) {
+      throw new Error(`Invalid format specification: ${formatSpec}. Expected format like "8x10"`);
+    }
+
+    const charsPerGroup = parseInt(match[1], 10);
+    const groupsPerLine = parseInt(match[2], 10);
+    // Optimization for simple case: single group per line
+    if (groupsPerLine === 1) {
+      const result = [];
+      let index = 0;
+      const totalLength = encoded.length;
+
+      while (index < totalLength) {
+        const next = Math.min(index + charsPerGroup, totalLength);
+        result.push(encoded.substring(index, next));
+
+        if (next < totalLength) {
+          result.push('\n');
+        }
+
+        index = next;
+      }
+
+      return result.join('');
+    }
+
+    // Full formatting with groups and lines (matches CLI spacing behavior)
+    const result = [];
+    let charCount = 0;
+    let groupCount = 0;
+
+    for (let i = 0; i < encoded.length; i++) {
+      result.push(encoded[i]);
+      charCount++;
+
+      // Check if we've completed a group
+      if (charCount === charsPerGroup) {
+        groupCount++;
+        charCount = 0;
+
+        if (i < encoded.length - 1) {
+          if (groupCount === groupsPerLine) {
+            result.push('\n');
+            groupCount = 0;
+          } else {
+            result.push(' ');
+          }
+        } else if (groupCount === groupsPerLine) {
+          groupCount = 0;
+        }
       }
     }
 
