@@ -1,16 +1,17 @@
 # PrintableBinary
 
-A cross-platform utility (LuaJIT and C implementations) for encoding arbitrary binary data into human-readable UTF-8 text, and then decoding it back to the original binary data.
+A cross-platform utility (LuaJIT, C, and JavaScript implementations) for encoding arbitrary binary data into human-readable UTF-8 text, and then decoding it back to the original binary data.
 
 ## Overview
 
 PrintableBinary is designed to [de]serialize binary data to/from a visually distinct, human-readable format that is also copy-pastable and embeddable in any UTF-8-aware context. It's an alternative to hexadecimal encoding that offers better visual density and makes embedded ASCII text immediately recognizable, while also making it possible to incorporate binary data into text-based formats (such as JSON, TOML, XML, YAML, etc.) without escaping issues.
 
-This implementation allows you to view binary data directly in a terminal (it even has a pipe inspection mode with `--passthrough`) without breaking the display, making it particularly useful for debugging, logging, and sharing binary data in human-readable form.
+This implementation allows you to view binary data directly in a terminal (it even has a pipe inspection mode with `--passthrough`) without breaking the display, making it particularly useful for debugging, logging, sharing binary data in human-readable form, and even dragging files into a web UI for instant encode/decode.
 
 ## Features
 
-- **Dual Implementations**: Available as both LuaJIT script and compiled C binary for maximum compatibility and performance
+- **Triple Implementations**: Available as LuaJIT script, compiled C binary, and JavaScript module (shared by the browser UI and Node.js tooling) for maximum flexibility
+- **Web & Node.js Tooling**: Drag-and-drop browser interface and a Node-based CLI wrapper share the same encode/decode core for cross-platform workflows
 - **Visually Distinct Characters**: Each of the 256 possible byte values maps to a unique, visually distinct UTF-8 character
 - **ASCII Passthrough**: Standard printable ASCII characters (32-126) largely remain themselves for immediate recognition
 - **Shell-Safe Encoding**: Special characters that could cause shell issues are encoded with safe Unicode alternatives
@@ -25,15 +26,23 @@ This implementation allows you to view binary data directly in a terminal (it ev
 - **Binary Safety**: Preserves all binary data, including NUL bytes, when encoding and decoding
 - **Passthrough Mode**: Simultaneously outputs original binary data to stdout and encoded text to stderr for flexible processing pipelines
 
+### Compared to Hexadecimal Encodings
+
+- **Higher on-screen density**: Hex consumes two glyphs per byte; PrintableBinary maps each byte to a single visible character, so you see roughly twice as much data per line while still preserving UTF-8 safety.
+- **ASCII stands out**: Printable ASCII bytes are left untouched (except for shell-hostile symbols, which use look-alike substitutes), so embedded text is immediately readable instead of needing to mentally decode hex pairs.
+- **Control characters are labeled**: Bytes 0–31 and DEL render as mnemonic symbols (`⏎`, `↧`, `⌫`, etc.), making structure and control flow obvious without extra tooling.
+- **Trade-off**: Hex expands data by exactly 2× in bytes. PrintableBinary averages about 1.8–1.9× on real-world binaries (thanks to the many 1- and 2-byte UTF-8 mappings) and only approaches 3× in the worst case. The small extra cost buys markedly better readability and paste safety.
+
 ## Usage
 
 ### As a Command Line Tool
 
 ```bash
-# Use either implementation:
+# Use any implementation:
 # LuaJIT version: ./printable_binary
-# C version: ./bin/printable_binary_c
-# (Examples below use LuaJIT version, but C version has identical interface)
+# C version:     ./bin/printable_binary_c
+# Node.js CLI:   ./printable_binary_node.js
+# (Examples below use the LuaJIT version; the others accept the same flags.)
 
 # Encode binary data
 echo -n "Hello, World!" | ./printable_binary
@@ -88,6 +97,14 @@ echo -n "Hello, World!" | ./printable_binary --passthrough 2>encoded.txt | wc -c
 ./bin/printable_binary_c large_file.bin > encoded_large.txt
 ```
 
+### Web Interface
+
+- Live demo: <https://pmarreck.github.io/printable-binary/>
+- Drag-and-drop or browse to encode any file; `.pbt` uploads are automatically decoded back to their original binary.
+- Large outputs (>1 MB) skip the textarea to avoid browser jank—use the Download button to grab the UTF-8 text.
+- Default wrapping is 75 characters per line to balance readability and density; copy/download buttons reuse the exact bytes produced by the CLI and Node implementations.
+- To hack locally, open `docs/index.html` (or `index.html`) in any modern browser; the page loads the shared `printable_binary.js` module with no build step required.
+
 ### As a Lua Library
 
 ```lua
@@ -102,6 +119,63 @@ print(encoded)  -- Output: Hello,␣World!
 local decoded = PrintableBinary.decode(encoded)
 print(decoded)  -- Output: Hello, World!
 ```
+
+### As a JavaScript Module
+
+```js
+import PrintableBinary from './printable_binary.js';
+
+const pb = new PrintableBinary();
+const input = new Uint8Array([0x00, 0xFF, 0x41]);
+
+// Encode to printable UTF-8
+const encoded = pb.encode(input, { format: '75x1' });
+console.log(encoded);
+
+// Decode back to bytes
+const decoded = pb.decode(encoded);
+console.log(Array.from(decoded)); // [0, 255, 65]
+```
+
+The same module powers the browser UI and can be run in Node.js (ESM) or bundled for other environments.
+
+### JavaScript CLI
+
+For command-line parity with the LuaJIT/C tools, use the Node-based wrapper:
+
+```bash
+# Encode (auto-detects stdin vs. file)
+./printable_binary_node.js input.bin > encoded.pbt
+
+# Decode (whitespace is ignored automatically)
+./printable_binary_node.js --decode encoded.pbt > restored.bin
+
+# Apply formatting (e.g., 75 characters per line)
+./printable_binary_node.js --format 75x1 input.bin > formatted.pbt
+
+# Pipe data through stdin
+cat input.bin | ./printable_binary_node.js -f=8x10 > encoded.txt
+```
+
+Supported flags: `-d/--decode`, `-f/--format NxM`, `-h/--help`. The CLI shares the exact encode/decode implementation with the browser UI. Disassembly options (`-a`, `--smart-asm`, etc.) are not available in the Node wrapper; use the LuaJIT or C binaries when you need Capstone/objdump features.
+
+### Inspecting Streams (Passthrough Mode)
+
+One powerful trick is to drop PrintableBinary into a pipeline so you can watch the encoded stream on stderr while the raw bytes continue downstream untouched:
+
+```bash
+# Monitor traffic but keep the pipeline lossless
+tcpdump -i en0 -w - | \
+  ./printable_binary --passthrough > capture.raw 2> capture.pbt
+
+# Alternatively inspect a decompression stream:
+gzip -c bigfile > /tmp/data.gz
+gzip -dc /tmp/data.gz | \
+  ./printable_binary --passthrough | md5sum
+# stdout (original bytes) flows into md5sum; stderr shows the printable view.
+```
+
+Because `--passthrough` sends the original binary to stdout, you can insert PrintableBinary anywhere in a Unix pipeline for observability without modifying the data flow.
 
 ## Disassembly Features
 
@@ -289,7 +363,7 @@ This detailed mapping table is provided to help others create compatible encoder
 | 21 (NAK)   | µ         | U+00B5  | C2 B5             | Micro Sign                                 |
 | 22 (SYN)   | ɨ         | U+0268  | C9 A8             | Latin Small Letter I with Stroke           |
 | 23 (ETB)   | ¬         | U+00AC  | C2 AC             | Not Sign                                   |
-| 24 (CAN)   | ©        | U+00A9  | C2 A9             | Copyright Sign                             |
+| 24 (CAN)   | ©         | U+00A9  | C2 A9             | Copyright Sign                             |
 | 25 (EM)    | ¦         | U+00A6  | C2 A6             | Broken Bar                                 |
 | 26 (SUB)   | Ƶ         | U+01B5  | C6 B5             | Latin Capital Letter Z with Stroke         |
 | 27 (ESC)   | ⎋         | U+238B  | E2 8E 8B          | Broken Circle with Northwest Arrow         |
@@ -302,14 +376,14 @@ This detailed mapping table is provided to help others create compatible encoder
 | 39 (')     | ʼ         | U+02BC  | CA BC             | Modifier Letter Apostrophe                 |
 | 92 (\\)    | ⧹         | U+29F9  | E2 A7 B9          | Big Reverse Solidus                        |
 | 127 (DEL)  | ⌦         | U+2326  | E2 8C A6          | Erase to the Right                         |
-| 152        | Ō         | U+014C  | C5 8C             | Latin Capital Letter O with Macron         |
-| 184        | ŏ         | U+014F  | C5 8F             | Latin Small Letter O with Breve            |
+| 152        | Ę         | U+0118  | C4 98             | Latin Capital Letter E with Ogonek         |
+| 184        | ĸ         | U+0138  | C4 B8             | Latin Small Letter Kra                     |
 
 Bytes 33-126 (printable ASCII, except 34, 39, and 92) are represented as themselves.
 
-Bytes 128-191 (excluding 152 and 184) are encoded as UTF-8 sequences with first byte 0xC3 (195) followed by the original byte value.
+Bytes 128-191 are encoded as UTF-8 sequences in the U+0100–U+013F range (`C4 80` through `C4 BF`).
 
-Bytes 192-255 are encoded as UTF-8 sequences with first byte 0xC4 (196) followed by ((byte value - 192) + 128).
+Bytes 192-255 are encoded as UTF-8 sequences in the U+00C0–U+00FF range (`C3 80` through `C3 BF`).
 
 ## Running Tests
 
@@ -380,6 +454,17 @@ make
 # ./printable_binary (LuaJIT script)
 # ./bin/printable_binary_c (compiled C binary)
 ```
+
+### Nix Development Environment
+
+If you're using Nix, the included `flake.nix` provides a full development shell:
+
+```bash
+nix develop        # drops you into a shell with gcc/clang, LuaJIT, Deno, etc.
+nix build          # builds the optimized C binary via the default package output
+```
+
+The shell hook lists the major tools (compilers, debuggers, benchmarking utilities) that are available. This is the easiest way to ensure all optional dependencies—such as LuaJIT for the script version and Deno/Node tooling for the JS implementation—are present.
 
 ## Implementation Details
 

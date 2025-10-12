@@ -26,8 +26,10 @@ echo "=== Test 1: JavaScript encode -> Lua decode ==="
 JS_ENCODED="/tmp/pb_js_encoded.txt"
 LUA_DECODED="/tmp/pb_lua_decoded.bin"
 
+JS_CLI="./printable_binary_node.js"
+
 echo "Encoding with JavaScript..."
-node ./test_web_encoder.js "$TEST_DATA" > "$JS_ENCODED" 2>/dev/null
+"$JS_CLI" "$TEST_DATA" > "$JS_ENCODED"
 echo "JS encoded size: $(wc -c < "$JS_ENCODED") bytes"
 
 echo "Decoding with Lua..."
@@ -54,26 +56,8 @@ echo "Encoding with Lua..."
 ./printable_binary "$TEST_DATA" > "$LUA_ENCODED" 2>/dev/null
 echo "Lua encoded size: $(wc -c < "$LUA_ENCODED") bytes"
 
-# Create a simple JS decoder test
-cat > /tmp/test_js_decoder.js <<EOF
-#!/usr/bin/env node
-import fs from 'fs';
-import path from 'path';
-import { pathToFileURL } from 'url';
-
-const moduleUrl = pathToFileURL(path.resolve('${REPO_DIR}', 'printable_binary.js'));
-const PrintableBinaryModule = await import(moduleUrl.href);
-const PrintableBinary = PrintableBinaryModule.default || PrintableBinaryModule;
-
-const encoder = new PrintableBinary();
-const encoded = fs.readFileSync(process.argv[2], 'utf8');
-const decoded = encoder.decode(encoded);
-
-process.stdout.write(Buffer.from(decoded));
-EOF
-
 echo "Decoding with JavaScript..."
-node /tmp/test_js_decoder.js "$LUA_ENCODED" > "$JS_DECODED"
+"$JS_CLI" -d "$LUA_ENCODED" > "$JS_DECODED"
 echo "JS decoded size: $(wc -c < "$JS_DECODED") bytes"
 
 echo "Comparing original and decoded..."
@@ -90,7 +74,7 @@ echo
 # Test 3: Round-trip JS
 echo "=== Test 3: JavaScript round-trip ==="
 JS_ROUNDTRIP="/tmp/pb_js_roundtrip.bin"
-node /tmp/test_js_decoder.js "$JS_ENCODED" > "$JS_ROUNDTRIP"
+"$JS_CLI" -d "$JS_ENCODED" > "$JS_ROUNDTRIP"
 if cmp -s "$TEST_DATA" "$JS_ROUNDTRIP"; then
     echo "✓ Test 3 PASSED: JS encode -> JS decode round-trip works"
 else
@@ -118,15 +102,7 @@ JS_FORMATTED="/tmp/pb_js_formatted.txt"
 
 ./printable_binary -f=75x1 "$TEST_DATA" > "$LUA_FORMATTED" 2>/dev/null
 
-TEST_DATA_PATH="$TEST_DATA" JS_FORMATTED_PATH="$JS_FORMATTED" node --input-type=module - <<'EOF'
-import fs from 'fs';
-import PrintableBinary from './printable_binary.js';
-
-const encoder = new PrintableBinary();
-const data = fs.readFileSync(process.env.TEST_DATA_PATH);
-const formatted = encoder.encode(data, { format: '75x1' });
-fs.writeFileSync(process.env.JS_FORMATTED_PATH, formatted);
-EOF
+"$JS_CLI" -f=75x1 "$TEST_DATA" > "$JS_FORMATTED"
 
 if cmp -s "$LUA_FORMATTED" "$JS_FORMATTED"; then
     echo "✓ Test 5 PASSED: JS formatted output matches Lua"
@@ -139,7 +115,7 @@ echo
 
 # Cleanup
 echo "Cleaning up temporary files..."
-rm -f "$TEST_DATA" "$JS_ENCODED" "$LUA_DECODED" "$LUA_ENCODED" "$JS_DECODED" "$JS_ROUNDTRIP" "$LUA_ROUNDTRIP" "$LUA_FORMATTED" "$JS_FORMATTED" /tmp/test_js_decoder.js
+rm -f "$TEST_DATA" "$JS_ENCODED" "$LUA_DECODED" "$LUA_ENCODED" "$JS_DECODED" "$JS_ROUNDTRIP" "$LUA_ROUNDTRIP" "$LUA_FORMATTED" "$JS_FORMATTED"
 
 echo
 echo "=== ALL TESTS PASSED ==="

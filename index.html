@@ -310,7 +310,7 @@
     <footer>
       <p>
         Part of the <a href="https://github.com/pmarreck/printable-binary" target="_blank">PrintableBinary</a> project
-        | <a href="https://github.com/pmarreck/printable-binary/blob/main/README.md" target="_blank">Documentation</a>
+        | <a href="https://github.com/pmarreck/printable-binary/blob/yolo/README.md" target="_blank">Documentation</a>
       </p>
     </footer>
   </div>
@@ -471,7 +471,7 @@
           const encodedByteArray = utf8Encoder.encode(encodedOutput);
           const encodedBytes = encodedByteArray.length;
 
-          if (encodedBytes < 1024 * 1024) {
+          if (encodedBytes < 2 * 1024 * 1024) {
             output.value = encodedOutput;
             output.placeholder = "Encoded output will appear here...";
           } else {

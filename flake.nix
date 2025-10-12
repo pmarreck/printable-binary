@@ -43,6 +43,7 @@
 
             # JavaScript/TypeScript runtime for web implementation
             deno
+            nodejs_20
           ];
           
           shellHook = ''
@@ -57,6 +58,7 @@
             echo "  gdb, valgrind"
             echo "  hyperfine (for benchmarking)"
             echo "  deno (for JavaScript/web implementation)"
+            echo "  node (for CLI/automation tests)"
             echo ""
             echo "Example build commands:"
             echo "  gcc -O3 -o printable_binary_c printable_binary.c"
