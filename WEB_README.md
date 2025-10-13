@@ -158,7 +158,7 @@ The character mappings are identical across all implementations:
 - Control characters (0-31) → Visual symbols (∅, ¯, «, », etc.)
 - Special ASCII (space, quotes, backslash, etc.) → Safe Unicode alternatives
 - Regular ASCII (33-126) → Mostly unchanged
-- Extended bytes (128-255) → Latin-1 Supplement and Latin Extended-A
+- Extended bytes (128-255) → Read from `character_map.txt`, grouped alphabetically so neighbouring bytes share related glyphs
 
 ## License
 
