@@ -319,7 +319,7 @@
     import PrintableBinary from './printable_binary.js';
 
     // Initialize the encoder
-    const encoder = new PrintableBinary();
+    let encoder = null;
 
     // DOM elements
     const dropzone = document.getElementById('dropzone');
@@ -338,6 +338,15 @@
     const errorMessage = document.getElementById('errorMessage');
 
     const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
+
+    async function loadCharacterMap() {
+      const response = await fetch('./character_map.txt', { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Failed to load character_map.txt (${response.status} ${response.statusText})`);
+      }
+      const text = await response.text();
+      return PrintableBinary.parseMap(text);
+    }
 
     // Format file size
     function formatFileSize(bytes) {
@@ -401,6 +410,10 @@
     // Handle file selection
     async function handleFile(file) {
       if (!file) return;
+      if (!encoder) {
+        showError('Character map is still loading. Please wait and try again.');
+        return;
+      }
 
       // Validate file size
       if (file.size > MAX_FILE_SIZE) {
@@ -502,105 +515,110 @@
       }
     }
 
-    // Dropzone click to browse
-    dropzone.addEventListener('click', () => {
-      fileInput.click();
-    });
-
-    // File input change
-    fileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      handleFile(file);
-    });
-
-    // Drag and drop
-    dropzone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropzone.classList.add('dragover');
-    });
-
-    dropzone.addEventListener('dragleave', () => {
-      dropzone.classList.remove('dragover');
-    });
-
-    dropzone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropzone.classList.remove('dragover');
-      const file = e.dataTransfer.files[0];
-      handleFile(file);
-    });
-
-    // Copy to clipboard
-    copyBtn.addEventListener('click', async () => {
-      try {
-        // Use stored data if available, otherwise fall back to textarea value
-        const textToCopy = copyBtn.payload ?? output.value;
-        if (!textToCopy) {
-          showError('No encoded text available to copy.');
-          return;
-        }
-        await navigator.clipboard.writeText(textToCopy);
-        const originalText = copyBtn.textContent;
-        copyBtn.textContent = '✓ Copied!';
-        setTimeout(() => {
-          copyBtn.textContent = originalText;
-        }, 2000);
-      } catch (error) {
-        showError('Failed to copy to clipboard');
-      }
-    });
-
-    // Download encoded file
-    downloadBtn.addEventListener('click', () => {
-      // Use stored data if available, otherwise fall back to textarea value
-      const payload = downloadBtn.payload;
-      if (!payload) {
-        showError('No data available to download yet.');
-        return;
-      }
-
-      let blobParts = null;
-
-      if (payload.bytes !== undefined) {
-        blobParts = [payload.bytes instanceof Uint8Array ? payload.bytes : new Uint8Array(payload.bytes)];
-      } else if (payload.fallbackText) {
-        blobParts = [payload.fallbackText];
-      }
-
-      if (!blobParts) {
-        showError('No data available to download yet.');
-        return;
-      }
-
-      const blob = new Blob(blobParts, { type: payload.mime || 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const defaultName = fileName.textContent.replace('File: ', '') || 'output.bin';
-      a.download = payload.filename || defaultName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    });
-
-    // Clear output
-    clearBtn.addEventListener('click', () => {
-      output.value = '';
-      stats.textContent = '';
-      fileInfo.classList.remove('visible');
-      fileInput.value = '';
-      copyBtn.disabled = true;
-      downloadBtn.disabled = true;
-      clearBtn.disabled = true;
-      outputLabel.textContent = 'Encoded Output';
-      delete downloadBtn.payload;
-      delete copyBtn.payload;
-    });
-
     // Prevent default drag/drop on the document
     document.addEventListener('dragover', (e) => e.preventDefault());
     document.addEventListener('drop', (e) => e.preventDefault());
+
+    async function init() {
+      try {
+        const mapLines = await loadCharacterMap();
+        encoder = new PrintableBinary({ map: mapLines });
+      } catch (error) {
+        console.error(error);
+        showError('Failed to load character map. Encoding is disabled.');
+        return;
+      }
+
+      dropzone.addEventListener('click', () => {
+        fileInput.click();
+      });
+
+      fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        handleFile(file);
+      });
+
+      dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+
+      dropzone.addEventListener('dragleave', () => {
+        dropzone.classList.remove('dragover');
+      });
+
+      dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        handleFile(file);
+      });
+
+      copyBtn.addEventListener('click', async () => {
+        try {
+          const textToCopy = copyBtn.payload ?? output.value;
+          if (!textToCopy) {
+            showError('No encoded text available to copy.');
+            return;
+          }
+          await navigator.clipboard.writeText(textToCopy);
+          const originalText = copyBtn.textContent;
+          copyBtn.textContent = '✓ Copied!';
+          setTimeout(() => {
+            copyBtn.textContent = originalText;
+          }, 2000);
+        } catch (error) {
+          showError('Failed to copy to clipboard');
+        }
+      });
+
+      downloadBtn.addEventListener('click', () => {
+        const payload = downloadBtn.payload;
+        if (!payload) {
+          showError('No data available to download yet.');
+          return;
+        }
+
+        let blobParts = null;
+
+        if (payload.bytes !== undefined) {
+          blobParts = [payload.bytes instanceof Uint8Array ? payload.bytes : new Uint8Array(payload.bytes)];
+        } else if (payload.fallbackText) {
+          blobParts = [payload.fallbackText];
+        }
+
+        if (!blobParts) {
+          showError('No data available to download yet.');
+          return;
+        }
+
+        const blob = new Blob(blobParts, { type: payload.mime || 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const defaultName = fileName.textContent.replace('File: ', '') || 'output.bin';
+        a.download = payload.filename || defaultName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      });
+
+      clearBtn.addEventListener('click', () => {
+        output.value = '';
+        stats.textContent = '';
+        fileInfo.classList.remove('visible');
+        fileInput.value = '';
+        copyBtn.disabled = true;
+        downloadBtn.disabled = true;
+        clearBtn.disabled = true;
+        outputLabel.textContent = 'Encoded Output';
+        delete downloadBtn.payload;
+        delete copyBtn.payload;
+      });
+    }
+
+    init();
   </script>
 </body>
 </html>

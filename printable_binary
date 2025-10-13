@@ -13,94 +13,58 @@ local function def_char(byte_val, utf8_str)
   decode_map[utf8_str] = byte_val
 end
 
-local function build_maps()
-  -- Control Characters (0-31)
-  def_char(0, "\226\136\133") -- ∅ (U+2205)
-  def_char(1, "\194\175") -- ¯ (U+00AF)
-  def_char(2, "\194\171") -- « (U+00AB)
-  def_char(3, "\194\187") -- » (U+00BB)
-  def_char(4, "\207\159") -- ϟ (U+03DF)
-  def_char(5, "\194\191") -- ¿ (U+00BF)
-  def_char(6, "\194\161") -- ¡ (U+00A1)
-  def_char(7, "\194\170") -- ª (U+00AA)
-  def_char(8, "\226\140\171") -- ⌫ (U+232B)
-  def_char(9, "\226\135\165") -- ⇥ (U+21E5)
-  def_char(10, "\226\135\169") -- ⇩ (U+21E9)
-  def_char(11, "\226\134\167") -- ↧ (U+21A7)
-  def_char(12, "\194\167") -- § (U+00A7)
-  def_char(13, "\226\143\142") -- ⏎ (U+23CE)
-  def_char(14, "\200\175") -- ȯ (U+022F)
-  def_char(15, "\202\152") -- ʘ (U+0298)
-  def_char(16, "\198\148") -- Ɣ (U+0194)
-  def_char(17, "\194\185") -- ¹ (U+00B9)
-  def_char(18, "\194\178") -- ² (U+00B2)
-  def_char(19, "\194\186") -- º (U+00BA)
-  def_char(20, "\194\179") -- ³ (U+00B3)
-  def_char(21, "\194\181") -- µ (U+00B5)
-  def_char(22, "\201\168") -- ɨ (U+0268)
-  def_char(23, "\194\172") -- ¬ (U+00AC)
-  def_char(24, "\194\169") -- © (U+00A9)
-  def_char(25, "\194\166") -- ¦ (U+00A6)
-  def_char(26, "\198\181") -- Ƶ (U+01B5) -- Changed from 5-byte Ƶ️ to 2-byte Ƶ
-  def_char(27, "\226\142\139") -- ⎋ (U+238B)
-  def_char(28, "\206\158") -- Ξ (U+039E)
-  def_char(29, "\199\129") -- ǁ (U+01C1)
-  def_char(30, "\199\128") -- ǀ (U+01C0)
-  def_char(31, "\194\182") -- ¶ (U+00B6)
+local function load_character_map()
+  local candidates = {}
 
-  -- Special ASCII characters (shell-safe encodings)
-  def_char(32, "\226\144\163") -- ␣ (U+2423)
-  def_char(33, "\239\185\151") -- ﹗ (U+FE57) Small Exclamation Mark
-  def_char(34, "\203\181") -- ˵ (U+02F5)
-  def_char(35, "\226\153\175") -- ♯ (U+266F) Music Sharp Sign
-  def_char(36, "\239\185\169") -- ﹩ (U+FE69) Small Dollar Sign
-  def_char(37, "\239\185\170") -- ﹪ (U+FE6A) Small Percent Sign
-  def_char(38, "\239\185\160") -- ﹠ (U+FE60) Small Ampersand
-  def_char(39, "\202\188") -- ʼ (U+02BC MODIFIER LETTER APOSTROPHE)
-  def_char(40, "\226\157\168") -- ❨ (U+2768) Medium Left Parenthesis Ornament
-  def_char(41, "\226\157\169") -- ❩ (U+2769) Medium Right Parenthesis Ornament
-  def_char(42, "\239\185\161") -- ﹡ (U+FE61) Small Asterisk
-  def_char(43, "\239\185\162") -- ﹢ (U+FE62) Small Plus Sign
-  def_char(45, "\239\185\163") -- ﹣ (U+FE63) Small Hyphen-Minus
-  def_char(47, "\226\129\132") -- ⁄ (U+2044) Fraction Slash
-  def_char(58, "\239\185\149") -- ﹕ (U+FE55) Small Colon
-  def_char(59, "\239\185\148") -- ﹔ (U+FE54) Small Semicolon
-  def_char(61, "\239\185\166") -- ﹦ (U+FE66) Small Equals Sign
-  def_char(63, "\239\185\150") -- ﹖ (U+FE56) Small Question Mark
-  def_char(64, "\239\185\171") -- ﹫ (U+FE6B) Small Commercial At
-  def_char(91, "\226\159\166") -- ⟦ (U+27E6) Mathematical Left White Square Bracket
-  def_char(92, "\226\167\185") -- ⧹ (U+29F9) Big Reverse Solidus
-  def_char(93, "\226\159\167") -- ⟧ (U+27E7) Mathematical Right White Square Bracket
-  def_char(96, "\203\139") -- ˋ (U+02CB) Modifier Letter Grave Accent
-  def_char(123, "\226\157\180") -- ❴ (U+2774) Medium Left Curly Bracket Ornament
-  def_char(124, "\226\136\163") -- ∣ (U+2223) Divides
-  def_char(125, "\226\157\181") -- ❵ (U+2775) Medium Right Curly Bracket Ornament
-  def_char(126, "\203\156") -- ˜ (U+02DC) Small Tilde
-  def_char(127, "\226\140\166") -- ⌦ (U+2326)
+  local env_path = os.getenv("PRINTABLE_BINARY_MAP")
+  if env_path and #env_path > 0 then
+    table.insert(candidates, env_path)
+  end
 
-  -- Regular ASCII characters (remaining ones not specially encoded above)
-  for i = 33, 126 do
-    if not encode_map[i] then
-      def_char(i, string.char(i))
+  local source = debug.getinfo(1, "S").source
+  if source:sub(1, 1) == '@' then
+    local script_path = source:sub(2):gsub('\\', '/')
+    local dir = script_path:match("(.*/)")
+    if dir then
+      table.insert(candidates, dir .. "character_map.txt")
     end
   end
 
-  -- Extended bytes (128-255)
-  -- Map to avoid collisions with special characters in U+00A0-U+00BF range
-  -- Use Latin Extended-A (U+0100-U+013F) for 128-191, Latin-1 upper (U+00C0-U+00FF) for 192-255
-  for i = 128, 255 do
-    if i < 192 then
-      -- Bytes 128-191 → U+0100-U+013F (Latin Extended-A)
-      -- This avoids collisions with special chars in U+00A0-U+00BF
-      -- UTF-8 for U+0100: C4 80, U+0101: C4 81, ..., U+013F: C4 BF
-      local unicode_val = 0x0100 + (i - 128)
-      def_char(i, "\196" .. string.char(unicode_val - 0x0100 + 128))
-    else
-      -- Bytes 192-255 → U+00C0-U+00FF (upper half of Latin-1 Supplement)
-      -- No special characters use this range, so no collisions
-      -- UTF-8: C3 80-BF
-      def_char(i, "\195" .. string.char(i - 64))
+  table.insert(candidates, "character_map.txt")
+
+  for _, path in ipairs(candidates) do
+    local file = io.open(path, "r")
+    if file then
+      local map = {}
+      local index = 0
+      for line in file:lines() do
+        if index >= 256 then break end
+        line = line:gsub("\r$", "")
+        map[index] = line
+        index = index + 1
+      end
+      file:close()
+      if index == 256 then
+        return map
+      end
     end
+  end
+
+  return nil
+end
+
+local function build_maps()
+  local map = load_character_map()
+  if not map then
+    error("Unable to load character_map.txt. Set PRINTABLE_BINARY_MAP or run from the repository root.")
+  end
+
+  for i = 0, 255 do
+    local ch = map[i]
+    if not ch then
+      error(string.format("Character map missing entry at index %d", i))
+    end
+    def_char(i, ch)
   end
 end
 
@@ -209,7 +173,7 @@ function PrintableBinary.decode(printable_string)
 
     -- Try to match longest first (3-byte, then 2-byte, then 1-byte)
     -- Max UTF-8 char length in our set is 3 bytes
-    for len = 3, 1, -1 do
+    for len = 4, 1, -1 do
       if i + len - 1 <= s_len then
         local sub = string.sub(cleaned_string, i, i + len - 1)
         if decode_map[sub] then

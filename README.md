@@ -159,6 +159,16 @@ cat input.bin | ./printable_binary_node.js -f=8x10 > encoded.txt
 
 Supported flags: `-d/--decode`, `-f/--format NxM`, `-h/--help`. The CLI shares the exact encode/decode implementation with the browser UI. Disassembly options (`-a`, `--smart-asm`, etc.) are not available in the Node wrapper; use the LuaJIT or C binaries when you need Capstone/objdump features.
 
+### Character Map
+
+All implementations share the same mapping table stored in `character_map.txt` (256 lines, one glyph per byte). The binaries look for this file in the following order:
+
+- `PRINTABLE_BINARY_MAP` environment variable (path to the file)
+- alongside the executable/module (`printable_binary`, `printable_binary.js`, `printable_binary_c`)
+- the current working directory
+
+Edit the file to experiment with alternative glyphs and the LuaJIT, Node.js, and C CLIs will all pick up the changes automatically.
+
 ### Inspecting Streams (Passthrough Mode)
 
 One powerful trick is to drop PrintableBinary into a pipeline so you can watch the encoded stream on stderr while the raw bytes continue downstream untouched:
@@ -320,12 +330,12 @@ printf 'char data[] = "%s";\n' "$(./printable_binary file.bin)"
   - Plus (43) → ﹢ (U+FE62) Small Plus Sign
   - Minus (45) → ﹣ (U+FE63) Small Hyphen-Minus
   - Slash (47) → ⁄ (U+2044) Fraction Slash
-  - Colon (58) → ﹕ (U+FE55) Small Colon
-  - Semicolon (59) → ﹔ (U+FE54) Small Semicolon
-  - Equals (61) → ﹦ (U+FE66) Small Equals Sign
-  - Question mark (63) → ﹖ (U+FE56) Small Question Mark
-  - At sign (64) → ﹫ (U+FE6B) Small Commercial At
-  - Backslash (92) → ⧹ (U+29F9) Big Reverse Solidus
+  - Colon (58) → ꞉ (U+A789) Modifier Letter Colon
+  - Semicolon (59) → ; (U+037E) Greek Question Mark
+  - Equals (61) → ꞊ (U+A78A) Modifier Letter Short Equals Sign
+  - Question mark (63) → Ɂ (U+0241) Latin Capital Letter Glottal Stop
+  - At sign (64) → @ (U+0040) Commercial At
+  - Backslash (92) → ⧷ (U+29F7) Reverse Solidus with Horizontal Stroke
   - Brackets (91, 93) → ⟦⟧ (U+27E6-27E7) Mathematical White Square Brackets
   - Backtick (96) → ˋ (U+02CB) Modifier Letter Grave Accent
   - Braces (123-125) → ❴∣❵ (Ornament and mathematical variants)
@@ -372,9 +382,22 @@ This detailed mapping table is provided to help others create compatible encoder
 | 30 (RS)    | ǀ         | U+01C0  | C7 80             | Latin Letter Dental Click                  |
 | 31 (US)    | ¶         | U+00B6  | C2 B6             | Pilcrow Sign                               |
 | 32 (Space) | ␣         | U+2423  | E2 90 A3          | Open Box                                   |
+| 33 (!)     | ǃ         | U+01C3  | C7 83             | Latin Letter Retroflex Click               |
 | 34 (")     | ˵         | U+02F5  | CB B5             | Double Quote                               |
+| 35 (#)     | ♯         | U+266F  | E2 99 AF          | Music Sharp Sign                           |
+| 36 ($)     | Ꞩ         | U+A7A8  | EA 9E A8          | Latin Capital Letter S with Oblique Stroke |
+| 37 (%)     | ‰         | U+2030  | E2 80 B0          | Per Mille Sign                             |
+| 38 (&)     | 🙴        | U+1F674 | F0 9F 99 B4       | Heavy Ampersand Ornament                   |
 | 39 (')     | ʼ         | U+02BC  | CA BC             | Modifier Letter Apostrophe                 |
-| 92 (\\)    | ⧹         | U+29F9  | E2 A7 B9          | Big Reverse Solidus                        |
+| 42 (*)     | ⁎         | U+204E  | E2 81 8E          | Low Asterisk                               |
+| 43 (+)     | ⨦        | U+2A26  | E2 A8 A6          | Plus Sign With Tilde Below                 |
+| 45 (-)     | ˗         | U+02D7  | CB 97             | Modifier Letter Minus Sign                 |
+| 58 (:)     | ꞉         | U+A789  | EA 9E 89          | Modifier Letter Colon                      |
+| 59 (;)     | ;         | U+037E  | CD BE             | Greek Question Mark                        |
+| 61 (=)     | ꞊         | U+A78A  | EA 9E 8A          | Modifier Letter Short Equals Sign          |
+| 63 (?)     | Ɂ         | U+0241  | C9 81             | Latin Capital Letter Glottal Stop          |
+| 64 (@)     | @         | U+0040  | 40                | Commercial At                              |
+| 92 (\\)    | ⧷         | U+29F7  | E2 A7 B7          | Reverse Solidus with Horizontal Stroke     |
 | 127 (DEL)  | ⌦         | U+2326  | E2 8C A6          | Erase to the Right                         |
 | 152        | Ę         | U+0118  | C4 98             | Latin Capital Letter E with Ogonek         |
 | 184        | ĸ         | U+0138  | C4 B8             | Latin Small Letter Kra                     |

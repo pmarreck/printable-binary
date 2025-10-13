@@ -229,26 +229,26 @@ test_byte 13 "CR"
 test_byte 21 "CONTROL_21" "µ"  # Expect µ (U+00B5) MICRO SIGN
 test_byte 27 "ESC"
 test_byte 32 "SPACE"
-test_byte 33 "EXCLAMATION" "﹗"  # Expect U+FE57 SMALL EXCLAMATION MARK
+test_byte 33 "EXCLAMATION" "ǃ"  # Expect U+01C3 LATIN LETTER RETROFLEX CLICK
 test_byte 34 "QUOTE"
 test_byte 35 "HASH" "♯"  # Expect U+266F MUSIC SHARP SIGN
-test_byte 36 "DOLLAR" "﹩"  # Expect U+FE69 SMALL DOLLAR SIGN
-test_byte 37 "PERCENT" "﹪"  # Expect U+FE6A SMALL PERCENT SIGN
-test_byte 38 "AMPERSAND" "﹠"  # Expect U+FE60 SMALL AMPERSAND
+test_byte 36 "DOLLAR" "Ꞩ"  # Expect U+A7A8 LATIN CAPITAL LETTER S WITH OBLIQUE STROKE
+test_byte 37 "PERCENT" "‰"  # Expect U+2030 PER MILLE SIGN
+test_byte 38 "AMPERSAND" "🙴"  # Expect U+1F674 HEAVY AMPERSAND ORNAMENT
 test_byte 39 "SINGLE QUOTE" "ʼ"  # Expect U+02BC MODIFIER LETTER APOSTROPHE
 test_byte 40 "LEFT PAREN" "❨"  # Expect U+2768 MEDIUM LEFT PARENTHESIS ORNAMENT
 test_byte 41 "RIGHT PAREN" "❩"  # Expect U+2769 MEDIUM RIGHT PARENTHESIS ORNAMENT
-test_byte 42 "ASTERISK" "﹡"  # Expect U+FE61 SMALL ASTERISK
-test_byte 43 "PLUS" "﹢"  # Expect U+FE62 SMALL PLUS SIGN
-test_byte 45 "MINUS" "﹣"  # Expect U+FE63 SMALL HYPHEN-MINUS
+test_byte 42 "ASTERISK" "⁎"  # Expect U+204E LOW ASTERISK
+test_byte 43 "PLUS" "⨦"  # Expect U+2A26 PLUS SIGN WITH TILDE BELOW
+test_byte 45 "MINUS" "˗"  # Expect U+02D7 MODIFIER LETTER MINUS SIGN
 test_byte 47 "SLASH" "⁄"  # Expect U+2044 FRACTION SLASH
-test_byte 58 "COLON" "﹕"  # Expect U+FE55 SMALL COLON
-test_byte 59 "SEMICOLON" "﹔"  # Expect U+FE54 SMALL SEMICOLON
-test_byte 61 "EQUALS" "﹦"  # Expect U+FE66 SMALL EQUALS SIGN
-test_byte 63 "QUESTION" "﹖"  # Expect U+FE56 SMALL QUESTION MARK
-test_byte 64 "AT" "﹫"  # Expect U+FE6B SMALL COMMERCIAL AT
+test_byte 58 "COLON" "꞉"  # Expect U+A789 MODIFIER LETTER COLON
+test_byte 59 "SEMICOLON" ";"  # Expect U+037E GREEK QUESTION MARK
+test_byte 61 "EQUALS" "꞊"  # Expect U+A78A MODIFIER LETTER SHORT EQUALS SIGN
+test_byte 63 "QUESTION" "Ɂ"  # Expect U+0241 LATIN CAPITAL LETTER GLOTTAL STOP
+test_byte 64 "AT" "@"  # Expect ASCII COMMERCIAL AT
 test_byte 91 "LEFT BRACKET" "⟦"  # Expect U+27E6 MATHEMATICAL LEFT WHITE SQUARE BRACKET
-test_byte 92 "BACKSLASH" "⧹"  # Expect U+29F9 BIG REVERSE SOLIDUS
+test_byte 92 "BACKSLASH" "⧷"  # Expect U+29F7 REVERSE SOLIDUS WITH HORIZONTAL STROKE
 test_byte 93 "RIGHT BRACKET" "⟧"  # Expect U+27E7 MATHEMATICAL RIGHT WHITE SQUARE BRACKET
 test_byte 96 "BACKTICK" "ˋ"  # Expect U+02CB MODIFIER LETTER GRAVE ACCENT
 test_byte 123 "LEFT BRACE" "❴"  # Expect U+2774 MEDIUM LEFT CURLY BRACKET ORNAMENT
@@ -316,11 +316,11 @@ fi
 
 # Check if stderr contains the encoded data
 STDERR_CONTENT=$(cat "$PASSTHROUGH_STDERR" | grep -v "Encoding" | grep -v "Encoded to")
-if [[ "$STDERR_CONTENT" == *"Hello,␣World﹗"* ]]; then
+if [[ "$STDERR_CONTENT" == *"Hello,␣Worldǃ"* ]]; then
     echo -e "${GREEN}PASS: Encoded data correctly sent to stderr${NC}"
 else
     echo -e "${RED}FAIL: Encoded data not found in stderr${NC}"
-    echo "Expected to find: Hello,␣World﹗"
+    echo "Expected to find: Hello,␣Worldǃ"
     echo "Got: $STDERR_CONTENT"
     exit 1
 fi

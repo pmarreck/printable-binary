@@ -6,112 +6,78 @@
  * It can be used as an ES module or included directly in HTML.
  */
 
+const isNodeEnv = typeof process !== 'undefined' && !!process.versions?.node;
+
+function parseCharacterMap(text) {
+  if (typeof text !== 'string') {
+    throw new Error('Character map must be provided as text');
+  }
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  if (lines.length < 256) {
+    throw new Error(`Character map requires 256 lines, found ${lines.length}`);
+  }
+  return lines.slice(0, 256);
+}
+
+let defaultCharacterMap = null;
+if (isNodeEnv) {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { dirname, join } = await import('node:path');
+
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const candidates = [];
+  if (process.env.PRINTABLE_BINARY_MAP) {
+    candidates.push(process.env.PRINTABLE_BINARY_MAP);
+  }
+  candidates.push(join(moduleDir, 'character_map.txt'));
+  candidates.push(join(process.cwd(), 'character_map.txt'));
+
+  let lastError;
+  for (const candidate of candidates) {
+    try {
+      const text = readFileSync(candidate, 'utf8');
+      defaultCharacterMap = parseCharacterMap(text);
+      break;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (!defaultCharacterMap) {
+    throw new Error(`PrintableBinary: Unable to load character_map.txt. Set PRINTABLE_BINARY_MAP or place the map alongside printable_binary.js. Last error: ${lastError?.message ?? 'none'}`);
+  }
+}
+
 class PrintableBinary {
-  constructor() {
+  constructor(options = {}) {
     this.encodeMap = new Map(); // number (0-255) -> string (UTF-8 character)
     this.decodeMap = new Map(); // string (UTF-8 character) -> number (0-255)
-    this.buildMaps();
-  }
 
-  /**
-   * Helper to define an encoding and its reverse mapping
-   */
-  defChar(byteVal, utf8Str) {
-    this.encodeMap.set(byteVal, utf8Str);
-    this.decodeMap.set(utf8Str, byteVal);
-  }
-
-  /**
-   * Build the encoding and decoding maps
-   */
-  buildMaps() {
-    // Control Characters (0-31)
-    this.defChar(0, "\u2205");   // ∅ (U+2205)
-    this.defChar(1, "\u00AF");   // ¯ (U+00AF)
-    this.defChar(2, "\u00AB");   // « (U+00AB)
-    this.defChar(3, "\u00BB");   // » (U+00BB)
-    this.defChar(4, "\u03DF");   // ϟ (U+03DF)
-    this.defChar(5, "\u00BF");   // ¿ (U+00BF)
-    this.defChar(6, "\u00A1");   // ¡ (U+00A1)
-    this.defChar(7, "\u00AA");   // ª (U+00AA)
-    this.defChar(8, "\u232B");   // ⌫ (U+232B)
-    this.defChar(9, "\u21E5");   // ⇥ (U+21E5)
-    this.defChar(10, "\u21E9");  // ⇩ (U+21E9)
-    this.defChar(11, "\u21A7");  // ↧ (U+21A7)
-    this.defChar(12, "\u00A7");  // § (U+00A7)
-    this.defChar(13, "\u23CE");  // ⏎ (U+23CE)
-    this.defChar(14, "\u022F");  // ȯ (U+022F)
-    this.defChar(15, "\u0298");  // ʘ (U+0298)
-    this.defChar(16, "\u0194");  // Ɣ (U+0194)
-    this.defChar(17, "\u00B9");  // ¹ (U+00B9)
-    this.defChar(18, "\u00B2");  // ² (U+00B2)
-    this.defChar(19, "\u00BA");  // º (U+00BA)
-    this.defChar(20, "\u00B3");  // ³ (U+00B3)
-    this.defChar(21, "\u00B5");  // µ (U+00B5)
-    this.defChar(22, "\u0268");  // ɨ (U+0268)
-    this.defChar(23, "\u00AC");  // ¬ (U+00AC)
-    this.defChar(24, "\u00A9");  // © (U+00A9)
-    this.defChar(25, "\u00A6");  // ¦ (U+00A6)
-    this.defChar(26, "\u01B5");  // Ƶ (U+01B5)
-    this.defChar(27, "\u238B");  // ⎋ (U+238B)
-    this.defChar(28, "\u039E");  // Ξ (U+039E)
-    this.defChar(29, "\u01C1");  // ǁ (U+01C1)
-    this.defChar(30, "\u01C0");  // ǀ (U+01C0)
-    this.defChar(31, "\u00B6");  // ¶ (U+00B6)
-
-    // Special ASCII characters (shell-safe encodings)
-    this.defChar(32, "\u2423");  // ␣ (U+2423)
-    this.defChar(33, "\uFE57");  // ﹗ (U+FE57) Small Exclamation Mark
-    this.defChar(34, "\u02F5");  // ˵ (U+02F5)
-    this.defChar(35, "\u266F");  // ♯ (U+266F) Music Sharp Sign
-    this.defChar(36, "\uFE69");  // ﹩ (U+FE69) Small Dollar Sign
-    this.defChar(37, "\uFE6A");  // ﹪ (U+FE6A) Small Percent Sign
-    this.defChar(38, "\uFE60");  // ﹠ (U+FE60) Small Ampersand
-    this.defChar(39, "\u02BC");  // ʼ (U+02BC MODIFIER LETTER APOSTROPHE)
-    this.defChar(40, "\u2768");  // ❨ (U+2768) Medium Left Parenthesis Ornament
-    this.defChar(41, "\u2769");  // ❩ (U+2769) Medium Right Parenthesis Ornament
-    this.defChar(42, "\uFE61");  // ﹡ (U+FE61) Small Asterisk
-    this.defChar(43, "\uFE62");  // ﹢ (U+FE62) Small Plus Sign
-    this.defChar(45, "\uFE63");  // ﹣ (U+FE63) Small Hyphen-Minus
-    this.defChar(47, "\u2044");  // ⁄ (U+2044) Fraction Slash
-    this.defChar(58, "\uFE55");  // ﹕ (U+FE55) Small Colon
-    this.defChar(59, "\uFE54");  // ﹔ (U+FE54) Small Semicolon
-    this.defChar(61, "\uFE66");  // ﹦ (U+FE66) Small Equals Sign
-    this.defChar(63, "\uFE56");  // ﹖ (U+FE56) Small Question Mark
-    this.defChar(64, "\uFE6B");  // ﹫ (U+FE6B) Small Commercial At
-    this.defChar(91, "\u27E6");  // ⟦ (U+27E6) Mathematical Left White Square Bracket
-    this.defChar(92, "\u29F9");  // ⧹ (U+29F9) Big Reverse Solidus
-    this.defChar(93, "\u27E7");  // ⟧ (U+27E7) Mathematical Right White Square Bracket
-    this.defChar(96, "\u02CB");  // ˋ (U+02CB) Modifier Letter Grave Accent
-    this.defChar(123, "\u2774"); // ❴ (U+2774) Medium Left Curly Bracket Ornament
-    this.defChar(124, "\u2223"); // ∣ (U+2223) Divides
-    this.defChar(125, "\u2775"); // ❵ (U+2775) Medium Right Curly Bracket Ornament
-    this.defChar(126, "\u02DC"); // ˜ (U+02DC) Small Tilde
-    this.defChar(127, "\u2326"); // ⌦ (U+2326)
-
-    // Regular ASCII characters (remaining ones not specially encoded above)
-    for (let i = 33; i <= 126; i++) {
-      if (!this.encodeMap.has(i)) {
-        this.defChar(i, String.fromCharCode(i));
-      }
+    const mapLines = options.map || defaultCharacterMap;
+    if (!mapLines) {
+      throw new Error('PrintableBinary: character map not provided. Supply { map: [...] } when constructing in non-Node environments.');
     }
 
-    // Extended bytes (128-255)
-    // Map to avoid collisions with special characters in U+00A0-U+00BF range
-    // Use Latin Extended-A (U+0100-U+013F) for 128-191, Latin-1 upper (U+00C0-U+00FF) for 192-255
-    // These are 2-byte and 3-byte UTF-8 sequences respectively
-    for (let i = 128; i <= 255; i++) {
-      if (i < 192) {
-        // Bytes 128-191 → U+0100-U+013F (Latin Extended-A)
-        // This avoids collisions with special chars in U+00A0-U+00BF
-        const char = String.fromCharCode(0x0100 + (i - 128));
-        this.defChar(i, char);
-      } else {
-        // Bytes 192-255 → U+00C0-U+00FF (upper half of Latin-1 Supplement)
-        // No special characters use this range, so no collisions
-        const char = String.fromCharCode(0x00C0 + (i - 192));
-        this.defChar(i, char);
+    this.buildMaps(mapLines);
+  }
+
+  static parseMap(text) {
+    return parseCharacterMap(text);
+  }
+
+  buildMaps(mapLines) {
+    if (!Array.isArray(mapLines) || mapLines.length < 256) {
+      throw new Error('PrintableBinary: character map must be an array of 256 entries');
+    }
+
+    for (let i = 0; i < 256; i++) {
+      const char = mapLines[i];
+      if (typeof char !== 'string' || char.length === 0) {
+        throw new Error(`PrintableBinary: invalid character mapping at index ${i}`);
       }
+      this.encodeMap.set(i, char);
+      this.decodeMap.set(char, i);
     }
   }
 
@@ -182,33 +148,22 @@ class PrintableBinary {
 
     const charsPerGroup = parseInt(match[1], 10);
     const groupsPerLine = parseInt(match[2], 10);
-    // Optimization for simple case: single group per line
+    const glyphs = Array.from(encoded);
+
     if (groupsPerLine === 1) {
       const result = [];
-      let index = 0;
-      const totalLength = encoded.length;
-
-      while (index < totalLength) {
-        const next = Math.min(index + charsPerGroup, totalLength);
-        result.push(encoded.substring(index, next));
-
-        if (next < totalLength) {
-          result.push('\n');
-        }
-
-        index = next;
+      for (let index = 0; index < glyphs.length; index += charsPerGroup) {
+        result.push(glyphs.slice(index, index + charsPerGroup).join(''));
       }
-
-      return result.join('');
+      return result.join('\n');
     }
 
-    // Full formatting with groups and lines (matches CLI spacing behavior)
     const result = [];
     let charCount = 0;
     let groupCount = 0;
 
-    for (let i = 0; i < encoded.length; i++) {
-      result.push(encoded[i]);
+    for (let i = 0; i < glyphs.length; i++) {
+      result.push(glyphs[i]);
       charCount++;
 
       // Check if we've completed a group
@@ -216,7 +171,7 @@ class PrintableBinary {
         groupCount++;
         charCount = 0;
 
-        if (i < encoded.length - 1) {
+        if (i < glyphs.length - 1) {
           if (groupCount === groupsPerLine) {
             result.push('\n');
             groupCount = 0;

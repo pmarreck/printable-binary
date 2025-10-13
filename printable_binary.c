@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 /*
  * PrintableBinary C Implementation
  * High-performance C version of the printable_binary tool
@@ -15,7 +16,6 @@
 #include <ctype.h>
 
 #define MAX_UTF8_BYTES 4
-#define DECODE_MAP_SIZE 65536  // Covers all possible 2-byte combinations
 #define INITIAL_BUFFER_SIZE 8192
 #define BUFFER_GROW_FACTOR 2
 #define STACK_BUFFER_SIZE 4096
@@ -28,8 +28,14 @@ typedef struct {
 
 // Global encoding and decoding tables
 static utf8_sequence_t *encode_table;
-static uint8_t *decode_table;
-static bool *decode_table_valid;
+
+typedef struct {
+    uint64_t key;
+    uint8_t value;
+} decode_entry_t;
+
+static decode_entry_t decode_entries[256];
+static size_t decode_entry_count = 0;
 
 // Program options
 typedef struct {
@@ -163,127 +169,129 @@ static utf8_sequence_t make_utf8(const char *bytes) {
     return seq;
 }
 
-// Helper function to calculate hash for decode table
-static uint16_t utf8_hash(const uint8_t *bytes, uint8_t len) {
-    if (len == 1) {
-        return bytes[0];
-    } else if (len == 2) {
-        return (bytes[0] << 8) | bytes[1];
-    } else if (len == 3) {
-        // For 3-byte sequences, use a simple hash
-        return ((bytes[0] & 0x0F) << 12) | ((bytes[1] & 0x3F) << 6) | (bytes[2] & 0x3F);
+static uint64_t make_key(const uint8_t *bytes, uint8_t len) {
+    uint64_t key = len;
+    for (uint8_t i = 0; i < len; i++) {
+        key = (key << 8) | bytes[i];
     }
+    return key;
+}
+
+static int compare_decode_entries(const void *a, const void *b) {
+    const decode_entry_t *ea = (const decode_entry_t *)a;
+    const decode_entry_t *eb = (const decode_entry_t *)b;
+    if (ea->key < eb->key) return -1;
+    if (ea->key > eb->key) return 1;
     return 0;
 }
 
-// Initialize encoding and decoding tables
-static void init_tables(void) {
-    // Allocate memory for tables
-    encode_table = calloc(256, sizeof(utf8_sequence_t));
-    decode_table = calloc(DECODE_MAP_SIZE, sizeof(uint8_t));
-    decode_table_valid = calloc(DECODE_MAP_SIZE, sizeof(bool));
+static bool load_map_from_path(const char *path) {
+    if (!path) {
+        return false;
+    }
 
-    if (!encode_table || !decode_table || !decode_table_valid) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        return false;
+    }
+
+    char buffer[64];
+    for (int i = 0; i < 256; i++) {
+        if (!fgets(buffer, sizeof(buffer), fp)) {
+            fprintf(stderr, "Error: character map '%s' must contain 256 lines\n", path);
+            fclose(fp);
+            exit(1);
+        }
+
+        size_t len = strlen(buffer);
+        while (len > 0 && (buffer[len - 1] == '\n' || buffer[len - 1] == '\r')) {
+            buffer[--len] = '\0';
+        }
+
+        if (len == 0) {
+            fprintf(stderr, "Error: character map '%s' has an empty entry at index %d\n", path, i);
+            fclose(fp);
+            exit(1);
+        }
+
+        encode_table[i] = make_utf8(buffer);
+    }
+
+    fclose(fp);
+    return true;
+}
+
+static void finalize_decode_entries(void) {
+    decode_entry_count = 0;
+    for (int i = 0; i < 256; i++) {
+        utf8_sequence_t seq = encode_table[i];
+        if (seq.length == 0) {
+            fprintf(stderr, "Error: missing character mapping for byte %d\n", i);
+            exit(1);
+        }
+        decode_entries[decode_entry_count].key = make_key(seq.bytes, seq.length);
+        decode_entries[decode_entry_count].value = (uint8_t)i;
+        decode_entry_count++;
+    }
+
+    qsort(decode_entries, decode_entry_count, sizeof(decode_entry_t), compare_decode_entries);
+
+    for (size_t i = 1; i < decode_entry_count; i++) {
+        if (decode_entries[i].key == decode_entries[i - 1].key) {
+            fprintf(stderr, "Error: duplicate character mapping detected\n");
+            exit(1);
+        }
+    }
+}
+
+static void load_character_map(const char *argv0) {
+    const char *env_path = getenv("PRINTABLE_BINARY_MAP");
+    if (env_path && load_map_from_path(env_path)) {
+        finalize_decode_entries();
+        return;
+    }
+
+    if (argv0) {
+        char path_buffer[512];
+        const char *slash = strrchr(argv0, '/');
+#ifdef _WIN32
+        const char *backslash = strrchr(argv0, '\\');
+        if (!slash || (backslash && backslash > slash)) {
+            slash = backslash;
+        }
+#endif
+        if (slash) {
+            size_t dir_len = (size_t)(slash - argv0) + 1;
+            if (dir_len + strlen("character_map.txt") < sizeof(path_buffer)) {
+                memcpy(path_buffer, argv0, dir_len);
+                strcpy(path_buffer + dir_len, "character_map.txt");
+                if (load_map_from_path(path_buffer)) {
+                    finalize_decode_entries();
+                    return;
+                }
+            }
+        }
+    }
+
+    if (load_map_from_path("character_map.txt")) {
+        finalize_decode_entries();
+        return;
+    }
+
+    fprintf(stderr, "Error: Unable to load character_map.txt. Set PRINTABLE_BINARY_MAP or place the file alongside the executable.\n");
+    exit(1);
+}
+
+// Helper function to calculate hash for decode table
+// Initialize encoding and decoding tables
+static void init_tables(const char *argv0) {
+    encode_table = calloc(256, sizeof(utf8_sequence_t));
+    if (!encode_table) {
         fprintf(stderr, "Memory allocation failed for lookup tables\n");
         exit(1);
     }
 
-    // Initialize decode table as invalid (already zeroed by calloc)
-
-    // Define special UTF-8 sequences for control characters
-    const char *special_sequences[256] = {0}; // Initialize all to NULL
-    special_sequences[0] = "\xe2\x88\x85";    // ∅ (U+2205)
-    special_sequences[1] = "\xc2\xaf";        // ¯ (U+00AF)
-    special_sequences[2] = "\xc2\xab";        // « (U+00AB)
-    special_sequences[3] = "\xc2\xbb";        // » (U+00BB)
-    special_sequences[4] = "\xcf\x9f";        // ϟ (U+03DF)
-    special_sequences[5] = "\xc2\xbf";        // ¿ (U+00BF)
-    special_sequences[6] = "\xc2\xa1";        // ¡ (U+00A1)
-    special_sequences[7] = "\xc2\xaa";        // ª (U+00AA)
-    special_sequences[8] = "\xe2\x8c\xab";    // ⌫ (U+232B)
-    special_sequences[9] = "\xe2\x87\xa5";    // ⇥ (U+21E5)
-    special_sequences[10] = "\xe2\x87\xa9";   // ⇩ (U+21E9)
-    special_sequences[11] = "\xe2\x8a\xa7";   // ↧ (U+21A7)
-    special_sequences[12] = "\xc2\xa7";       // § (U+00A7)
-    special_sequences[13] = "\xe2\x8f\x8e";   // ⏎ (U+23CE)
-    special_sequences[14] = "\xc8\xaf";       // ȯ (U+022F)
-    special_sequences[15] = "\xca\x98";       // ʘ (U+0298)
-    special_sequences[16] = "\xc6\x94";       // Ɣ (U+0194)
-    special_sequences[17] = "\xc2\xb9";       // ¹ (U+00B9)
-    special_sequences[18] = "\xc2\xb2";       // ² (U+00B2)
-    special_sequences[19] = "\xc2\xba";       // º (U+00BA)
-    special_sequences[20] = "\xc2\xb3";       // ³ (U+00B3)
-    special_sequences[21] = "\xc2\xb5";       // µ (U+00B5)
-    special_sequences[22] = "\xc9\xa8";       // ɨ (U+0268)
-    special_sequences[23] = "\xc2\xac";       // ¬ (U+00AC)
-    special_sequences[24] = "\xc2\xa9";       // © (U+00A9)
-    special_sequences[25] = "\xc2\xa6";       // ¦ (U+00A6)
-    special_sequences[26] = "\xc6\xb5";       // Ƶ (U+01B5)
-    special_sequences[27] = "\xe2\x8e\x8b";   // ⎋ (U+238B)
-    special_sequences[28] = "\xce\x9e";       // Ξ (U+039E)
-    special_sequences[29] = "\xc7\x81";       // ǁ (U+01C1)
-    special_sequences[30] = "\xc7\x80";       // ǀ (U+01C0)
-    special_sequences[31] = "\xc2\xb6";       // ¶ (U+00B6)
-    special_sequences[32] = "\xe2\x90\xa3";   // ␣ (U+2423)
-    special_sequences[33] = "\xef\xb9\x97";   // ﹗ (U+FE57) Small Exclamation Mark
-    special_sequences[34] = "\xcb\xb5";       // ˵ (U+02F5)
-    special_sequences[35] = "\xe2\x99\xaf";   // ♯ (U+266F) Music Sharp Sign
-    special_sequences[36] = "\xef\xb9\xa9";   // ﹩ (U+FE69) Small Dollar Sign
-    special_sequences[37] = "\xef\xb9\xaa";   // ﹪ (U+FE6A) Small Percent Sign
-    special_sequences[38] = "\xef\xb9\xa0";   // ﹠ (U+FE60) Small Ampersand
-    special_sequences[39] = "\xca\xbc";       // ʼ (U+02BC)
-    special_sequences[40] = "\xe2\x9d\xa8";   // ❨ (U+2768) Medium Left Parenthesis Ornament
-    special_sequences[41] = "\xe2\x9d\xa9";   // ❩ (U+2769) Medium Right Parenthesis Ornament
-    special_sequences[42] = "\xef\xb9\xa1";   // ﹡ (U+FE61) Small Asterisk
-    special_sequences[43] = "\xef\xb9\xa2";   // ﹢ (U+FE62) Small Plus Sign
-    special_sequences[45] = "\xef\xb9\xa3";   // ﹣ (U+FE63) Small Hyphen-Minus
-    special_sequences[47] = "\xe2\x81\x84";   // ⁄ (U+2044) Fraction Slash
-    special_sequences[58] = "\xef\xb9\x95";   // ﹕ (U+FE55) Small Colon
-    special_sequences[59] = "\xef\xb9\x94";   // ﹔ (U+FE54) Small Semicolon
-    special_sequences[61] = "\xef\xb9\xa6";   // ﹦ (U+FE66) Small Equals Sign
-    special_sequences[63] = "\xef\xb9\x96";   // ﹖ (U+FE56) Small Question Mark
-    special_sequences[64] = "\xef\xb9\xab";   // ﹫ (U+FE6B) Small Commercial At
-    special_sequences[91] = "\xe2\x9f\xa6";   // ⟦ (U+27E6) Mathematical Left White Square Bracket
-    special_sequences[92] = "\xe2\xa7\xb9";   // ⧹ (U+29F9) Big Reverse Solidus
-    special_sequences[93] = "\xe2\x9f\xa7";   // ⟧ (U+27E7) Mathematical Right White Square Bracket
-    special_sequences[96] = "\xcb\x8b";       // ˋ (U+02CB) Modifier Letter Grave Accent
-    special_sequences[123] = "\xe2\x9d\xb4";  // ❴ (U+2774) Medium Left Curly Bracket Ornament
-    special_sequences[124] = "\xe2\x88\xa3";  // ∣ (U+2223) Divides
-    special_sequences[125] = "\xe2\x9d\xb5";  // ❵ (U+2775) Medium Right Curly Bracket Ornament
-    special_sequences[126] = "\xcb\x9c";      // ˜ (U+02DC) Small Tilde
-    special_sequences[127] = "\xe2\x8c\xa6";  // ⌦ (U+2326)
-
-    // Build encoding table
-    for (int i = 0; i < 256; i++) {
-        if (special_sequences[i]) {
-            encode_table[i] = make_utf8(special_sequences[i]);
-        } else if (i >= 33 && i <= 126 && !special_sequences[i]) {
-            // Regular ASCII characters
-            char temp[2] = {i, 0};
-            encode_table[i] = make_utf8(temp);
-        } else if (i >= 128 && i < 192) {
-            // Bytes 128-191 → U+0100-U+013F (Latin Extended-A)
-            // This avoids collisions with special chars in U+00A0-U+00BF
-            // UTF-8: C4 80-BF
-            char temp[3] = {0xc4, 0x80 + (i - 128), 0};
-            encode_table[i] = make_utf8(temp);
-        } else if (i >= 192) {
-            // Bytes 192-255 → U+00C0-U+00FF (upper half of Latin-1 Supplement)
-            // No special characters use this range, so no collisions
-            // UTF-8: C3 80-BF
-            char temp[3] = {0xc3, i - 64, 0};
-            encode_table[i] = make_utf8(temp);
-        }
-    }
-
-    // Build decode table
-    for (int i = 0; i < 256; i++) {
-        if (encode_table[i].length > 0) {
-            uint16_t hash = utf8_hash(encode_table[i].bytes, encode_table[i].length);
-            decode_table[hash] = i;
-            decode_table_valid[hash] = true;
-        }
-    }
+    load_character_map(argv0);
 }
 
 // Get UTF-8 sequence length from first byte
@@ -328,22 +336,32 @@ static buffer_t decode_data(const uint8_t *input, size_t input_len) {
 
         bool matched = false;
 
-        // Try from expected length down to 1
-        for (uint8_t len = seq_len; len >= 1 && len <= 3; len--) {
-            if (i + len <= input_len) {
-                uint16_t hash = utf8_hash(input + i, len);
-                if (decode_table_valid[hash]) {
-                    uint8_t decoded_byte = decode_table[hash];
-                    buffer_append_char(&output, decoded_byte);
-                    i += len;
-                    matched = true;
+        for (int len = seq_len; len >= 1; len--) {
+            if (len > MAX_UTF8_BYTES) continue;
+            if (i + (size_t)len <= input_len) {
+                uint64_t key = make_key(input + i, (uint8_t)len);
+                size_t left = 0, right = decode_entry_count;
+                while (left < right) {
+                    size_t mid = left + (right - left) / 2;
+                    if (decode_entries[mid].key == key) {
+                        uint8_t decoded_byte = decode_entries[mid].value;
+                        buffer_append_char(&output, decoded_byte);
+                        i += len;
+                        matched = true;
+                        break;
+                    } else if (decode_entries[mid].key < key) {
+                        left = mid + 1;
+                    } else {
+                        right = mid;
+                    }
+                }
+                if (matched) {
                     break;
                 }
             }
         }
 
         if (!matched) {
-            // Skip unrecognized byte
             i++;
         }
     }
@@ -567,11 +585,11 @@ static options_t parse_options(int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
-    // Initialize encoding/decoding tables
-    init_tables();
-
-    // Parse command line options
+    // Parse command line options first (needed for help/usage)
     options_t opts = parse_options(argc, argv);
+
+    // Initialize encoding/decoding tables (after options so argv[0] is available)
+    init_tables(argv[0]);
 
     if (opts.help_mode) {
         print_usage(argv[0]);
