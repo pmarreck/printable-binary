@@ -27,10 +27,14 @@ SCRIPT="${IMPLEMENTATION_TO_TEST:-$DEFAULT_IMPLEMENTATION}"
 TMP_BINARY=$(mktemp)
 TMP_ENCODED=$(mktemp)
 TMP_DECODED=$(mktemp)
+TMP_MAPPINGS=$(mktemp)
+TMP_MAPPINGS_JSON=$(mktemp)
+TMP_MAPPINGS_CSV=$(mktemp)
 
 # Cleanup function
 cleanup() {
-    rm -f "$TMP_BINARY" "$TMP_ENCODED" "$TMP_DECODED"
+    rm -f "$TMP_BINARY" "$TMP_ENCODED" "$TMP_DECODED" \
+          "$TMP_MAPPINGS" "$TMP_MAPPINGS_JSON" "$TMP_MAPPINGS_CSV"
 }
 trap cleanup EXIT
 
@@ -146,6 +150,70 @@ else
     exit 1
 fi
 
+# Test 8: Mappings table output
+echo -e "${BLUE}Test #8: Mappings table output${NC}"
+$SCRIPT --mappings > "$TMP_MAPPINGS"
+if grep -q "Byte" "$TMP_MAPPINGS" && grep -q "0x00" "$TMP_MAPPINGS"; then
+    if grep -q "NUL" "$TMP_MAPPINGS" && grep -q "∅" "$TMP_MAPPINGS"; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Mappings table missing expected entries"
+        exit 1
+    fi
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Mappings table missing header or first entry"
+    exit 1
+fi
+
+# Test 9: Mappings JSON output
+echo -e "${BLUE}Test #9: Mappings JSON output${NC}"
+if $SCRIPT --mappings-json > "$TMP_MAPPINGS_JSON"; then
+    if python3 - "$TMP_MAPPINGS_JSON" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, 'r', encoding='utf-8') as fh:
+    data = json.load(fh)
+assert isinstance(data, list) and len(data) == 256
+assert data[0]["byte"] == 0
+assert data[0]["ascii"] == "NUL"
+assert data[0]["mapping"] == "\u2205"
+assert data[-1]["byte"] == 255
+PY
+    then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Mappings JSON structure invalid"
+        exit 1
+    fi
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Failed to generate mappings JSON"
+    exit 1
+fi
+
+# Test 10: Mappings CSV output
+echo -e "${BLUE}Test #10: Mappings CSV output${NC}"
+if $SCRIPT --mappings-csv > "$TMP_MAPPINGS_CSV"; then
+    HEADER=$(head -n 1 "$TMP_MAPPINGS_CSV")
+    FIRST_LINE=$(sed -n '2p' "$TMP_MAPPINGS_CSV")
+    if [[ "$HEADER" == "byte,hex,dec,ascii,mapping" ]] && [[ "$FIRST_LINE" == "0,0x00,0,\"NUL\",\"∅\"" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "CSV output unexpected:"
+        echo "Header: $HEADER"
+        echo "First line: $FIRST_LINE"
+        exit 1
+    fi
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Failed to generate mappings CSV"
+    exit 1
+fi
+
 ###############################################################################
 # CHARACTER MAPS TESTS
 ###############################################################################
@@ -158,7 +226,7 @@ ENCODED_FILE=$(mktemp)
 DECODED_FILE=$(mktemp)
 
 # Cleanup for these files
-trap 'rm -f "$TEST_FILE" "$ENCODED_FILE" "$DECODED_FILE"' EXIT
+trap 'cleanup; rm -f "$TEST_FILE" "$ENCODED_FILE" "$DECODED_FILE"' EXIT
 
 # Create file with all 256 byte values
 for i in {0..255}; do

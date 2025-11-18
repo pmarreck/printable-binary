@@ -10,11 +10,67 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        emscriptenFlags = "-O3 -DNDEBUG "
+          + "-s STANDALONE_WASM=1 "
+          + "-s FILESYSTEM=1 "
+          + "-s INITIAL_MEMORY=134217728 "
+          + "-DPRINTABLE_BINARY_HELP_NAME=\\\"printable_binary\\\"";
+
+        printableBinaryNative = pkgs.stdenv.mkDerivation {
+          pname = "printable-binary-c";
+          version = "1.0.0";
+
+          src = ./.;
+
+          buildInputs = [ pkgs.gcc ];
+
+          buildPhase = ''
+            gcc -O3 -march=native -Wall -Wextra -o printable_binary_c printable_binary.c
+          '';
+
+          installPhase = ''
+            mkdir -p $out/bin
+            cp printable_binary_c $out/bin/
+          '';
+
+          meta = with pkgs.lib; {
+            description = "High-performance C implementation of PrintableBinary";
+            license = licenses.mit;
+            platforms = platforms.unix;
+          };
+        };
+
+        printableBinaryWasm = pkgs.stdenv.mkDerivation {
+          pname = "printable-binary-wasm";
+          version = "1.0.0";
+
+          src = ./.;
+
+          nativeBuildInputs = [ pkgs.emscripten ];
+
+          buildPhase = ''
+            export EM_CACHE="$TMPDIR/emscripten_cache"
+            mkdir -p "$EM_CACHE"
+            emcc printable_binary.c ${emscriptenFlags} -o printable_binary.wasm
+          '';
+
+          installPhase = ''
+            mkdir -p $out/bin
+            cp printable_binary.wasm $out/bin/printable_binary.wasm
+            cp character_map.txt $out/bin/character_map.txt
+          '';
+
+          meta = with pkgs.lib; {
+            description = "PrintableBinary compiled to WebAssembly via Emscripten";
+            license = licenses.mit;
+            platforms = platforms.all;
+          };
+        };
       in
       {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
-            # C compilation tools
+            # C compilation/tools
             gcc
             clang
             gdb
@@ -40,12 +96,16 @@
 
             # Benchmarking and testing
             luajit
+            wazero
 
             # JavaScript/TypeScript runtime for web implementation
             deno
             nodejs_20
+
+            # WebAssembly toolchain
+            emscripten
           ];
-          
+
           shellHook = ''
             echo "PrintableBinary Development Environment"
             echo "========================================"
@@ -59,10 +119,13 @@
             echo "  hyperfine (for benchmarking)"
             echo "  deno (for JavaScript/web implementation)"
             echo "  node (for CLI/automation tests)"
+            echo "  emcc (Emscripten) for WebAssembly builds"
+            echo "  wazero (WASI runtime for testing)"
             echo ""
             echo "Example build commands:"
             echo "  gcc -O3 -o printable_binary_c printable_binary.c"
             echo "  clang -O3 -march=native -o printable_binary_c printable_binary.c"
+            echo "  emcc printable_binary.c ${emscriptenFlags} -o printable_binary.wasm"
             echo ""
             echo "Test JavaScript implementation:"
             echo "  deno run --allow-read test_printable_binary.js"
@@ -75,34 +138,17 @@
             echo "  x86_64-w64-mingw32-gcc -O3 -o printable_binary.exe printable_binary.c"
             echo ""
           '';
-          
-          # Set environment variables for cross-compilation
+
           CC = "gcc";
           CXX = "g++";
         };
-        
-        # Package the C version when built
-        packages.default = pkgs.stdenv.mkDerivation {
-          pname = "printable-binary-c";
-          version = "1.0.0";
-          
-          src = ./.;
-          
-          buildInputs = [ pkgs.gcc ];
-          
-          buildPhase = ''
-            gcc -O3 -march=native -Wall -Wextra -o printable_binary_c printable_binary.c
-          '';
-          
-          installPhase = ''
-            mkdir -p $out/bin
-            cp printable_binary_c $out/bin/
-          '';
-          
-          meta = with pkgs.lib; {
-            description = "High-performance C implementation of PrintableBinary";
-            license = licenses.mit;
-            platforms = platforms.unix;
+
+        packages = {
+          printableBinaryNative = printableBinaryNative;
+          printableBinaryWasm = printableBinaryWasm;
+          default = pkgs.symlinkJoin {
+            name = "printable-binary-suite";
+            paths = [ printableBinaryNative printableBinaryWasm ];
           };
         };
       });

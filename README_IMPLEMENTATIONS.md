@@ -145,6 +145,9 @@ Options:
   -d, --decode          Decode mode (default is encode mode)
   -p, --passthrough     Pass input to stdout unchanged, send encoded data to stderr
   -f[=NxM], --format[=NxM]  Format output in groups (default: 8x10)
+  --mappings            Print the active byte-to-Unicode table
+  --mappings-json       Emit the mapping table as JSON
+  --mappings-csv        Emit the mapping table as CSV
   -a, --asm            Disassemble binary (LuaJIT only, requires Capstone)
   --arch ARCH          Specify architecture for disassembly (x64, x32, arm64, arm)
   -h, --help           Show help message
@@ -153,6 +156,8 @@ Input/Output:
   - Reads from file or stdin if no file specified
   - Outputs to stdout (unless --passthrough is used)
   - In passthrough mode: original data → stdout, encoded data → stderr
+
+Both binaries embed the canonical 256-entry map, so the new `--mappings*` flags work even when `character_map.txt` is missing. If you place a custom map alongside the executable (or set `PRINTABLE_BINARY_MAP`), these options will reflect the override automatically.
 ```
 
 ## When to Use Which Implementation

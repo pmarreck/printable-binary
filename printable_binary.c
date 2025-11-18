@@ -15,6 +15,15 @@
 #include <sys/stat.h>
 #include <ctype.h>
 
+#include "character_map_embedded.h"
+
+#ifdef __EMSCRIPTEN__
+// Standalone WASM builds shouldn't depend on host-provided env functions.
+__attribute__((used)) void emscripten_notify_memory_growth(int memory_index) {
+    (void)memory_index;
+}
+#endif
+
 #define MAX_UTF8_BYTES 4
 #define INITIAL_BUFFER_SIZE 8192
 #define BUFFER_GROW_FACTOR 2
@@ -37,6 +46,13 @@ typedef struct {
 static decode_entry_t decode_entries[256];
 static size_t decode_entry_count = 0;
 
+typedef enum {
+    MAPPINGS_NONE = 0,
+    MAPPINGS_TABLE,
+    MAPPINGS_JSON,
+    MAPPINGS_CSV
+} mappings_mode_t;
+
 // Program options
 typedef struct {
     bool decode_mode;
@@ -47,6 +63,7 @@ typedef struct {
     bool help_mode;
     int format_group;
     int format_groups_per_line;
+    mappings_mode_t mappings_mode;
     char *arch;
     char *input_file;
 } options_t;
@@ -149,6 +166,7 @@ static void buffer_prepare_return(buffer_t *buf) {
 }
 
 // Free buffer memory
+#ifndef __EMSCRIPTEN__
 static void buffer_free(buffer_t *buf) {
     if (buf->data && !buf->uses_stack) {
         free(buf->data);
@@ -160,6 +178,7 @@ static void buffer_free(buffer_t *buf) {
     buf->size = 0;
     buf->capacity = 0;
 }
+#endif
 
 // Helper function to create UTF-8 sequence
 static utf8_sequence_t make_utf8(const char *bytes) {
@@ -244,6 +263,18 @@ static void finalize_decode_entries(void) {
     }
 }
 
+static void load_map_from_embedded(void) {
+    for (int i = 0; i < 256; i++) {
+        const char *entry = embedded_character_map[i];
+        if (!entry || entry[0] == '\0') {
+            fprintf(stderr, "Error: embedded character map has an empty entry at index %d\n", i);
+            exit(1);
+        }
+        encode_table[i] = make_utf8(entry);
+    }
+    finalize_decode_entries();
+}
+
 static void load_character_map(const char *argv0) {
     const char *env_path = getenv("PRINTABLE_BINARY_MAP");
     if (env_path && load_map_from_path(env_path)) {
@@ -278,8 +309,156 @@ static void load_character_map(const char *argv0) {
         return;
     }
 
+    load_map_from_embedded();
+    return;
+
     fprintf(stderr, "Error: Unable to load character_map.txt. Set PRINTABLE_BINARY_MAP or place the file alongside the executable.\n");
     exit(1);
+}
+
+static const char *ascii_name_for_byte(uint8_t value, char *buffer, size_t buffer_size) {
+    static const char *control_names[] = {
+        "NUL","SOH","STX","ETX","EOT","ENQ","ACK","BEL",
+        "BS","TAB","LF","VT","FF","CR","SO","SI",
+        "DLE","DC1","DC2","DC3","DC4","NAK","SYN","ETB",
+        "CAN","EM","SUB","ESC","FS","GS","RS","US"
+    };
+
+    if (value <= 0x1F) {
+        return control_names[value];
+    }
+    if (value == 0x20) {
+        return "SPACE";
+    }
+    if (value == 0x7F) {
+        return "DEL";
+    }
+    if (value >= 0x21 && value <= 0x7E) {
+        if (buffer_size < 4) {
+            return "";
+        }
+        size_t idx = 0;
+        buffer[idx++] = '\'';
+        if (value == '\'' || value == '\\') {
+            if (idx + 2 >= buffer_size) {
+                buffer[0] = '\0';
+                return buffer;
+            }
+            buffer[idx++] = '\\';
+        }
+        buffer[idx++] = (char)value;
+        buffer[idx++] = '\'';
+        buffer[idx] = '\0';
+        return buffer;
+    }
+    snprintf(buffer, buffer_size, "0x%02X", value);
+    return buffer;
+}
+
+static void utf8_sequence_to_string(const utf8_sequence_t *seq, char *buffer, size_t buffer_size) {
+    if (buffer_size == 0) {
+        return;
+    }
+    if (!seq || seq->length == 0) {
+        buffer[0] = '\0';
+        return;
+    }
+    size_t copy_len = seq->length;
+    if (copy_len >= buffer_size) {
+        copy_len = buffer_size - 1;
+    }
+    memcpy(buffer, seq->bytes, copy_len);
+    buffer[copy_len] = '\0';
+}
+
+static void json_escape_and_print(FILE *out, const char *str) {
+    for (const unsigned char *p = (const unsigned char *)str; *p; ++p) {
+        if (*p == '"' || *p == '\\') {
+            fputc('\\', out);
+            fputc(*p, out);
+        } else if (*p >= 0x20) {
+            fputc(*p, out);
+        } else {
+            fprintf(out, "\\u%04X", *p);
+        }
+    }
+}
+
+static void csv_escape_and_print(FILE *out, const char *str) {
+    fputc('"', out);
+    for (const unsigned char *p = (const unsigned char *)str; *p; ++p) {
+        if (*p == '"') {
+            fputc('"', out);
+            fputc('"', out);
+        } else {
+            fputc(*p, out);
+        }
+    }
+    fputc('"', out);
+}
+
+static void print_mappings_table(void) {
+    printf("%-6s %-5s %-12s %s\n", "Byte", "Dec", "ASCII", "Mapping");
+    for (int i = 0; i < 256; i++) {
+        char hex_buf[6];
+        snprintf(hex_buf, sizeof(hex_buf), "0x%02X", i);
+        char ascii_buf[16];
+        const char *ascii_name = ascii_name_for_byte((uint8_t)i, ascii_buf, sizeof(ascii_buf));
+        char mapping_buf[32];
+        utf8_sequence_to_string(&encode_table[i], mapping_buf, sizeof(mapping_buf));
+        printf("%-6s %-5d %-12s %s\n", hex_buf, i, ascii_name, mapping_buf[0] ? mapping_buf : "");
+    }
+}
+
+static void print_mappings_json(void) {
+    fputs("[\n", stdout);
+    for (int i = 0; i < 256; i++) {
+        char hex_buf[6];
+        snprintf(hex_buf, sizeof(hex_buf), "0x%02X", i);
+        char ascii_buf[16];
+        const char *ascii_name = ascii_name_for_byte((uint8_t)i, ascii_buf, sizeof(ascii_buf));
+        char mapping_buf[32];
+        utf8_sequence_to_string(&encode_table[i], mapping_buf, sizeof(mapping_buf));
+        printf("  {\"byte\":%d,\"hex\":\"%s\",\"dec\":%d,\"ascii\":\"", i, hex_buf, i);
+        json_escape_and_print(stdout, ascii_name);
+        fputs("\",\"mapping\":\"", stdout);
+        json_escape_and_print(stdout, mapping_buf);
+        fprintf(stdout, "\"}%s\n", (i == 255) ? "" : ",");
+    }
+    fputs("]\n", stdout);
+}
+
+static void print_mappings_csv(void) {
+    fputs("byte,hex,dec,ascii,mapping\n", stdout);
+    for (int i = 0; i < 256; i++) {
+        char hex_buf[6];
+        snprintf(hex_buf, sizeof(hex_buf), "0x%02X", i);
+        char ascii_buf[16];
+        const char *ascii_name = ascii_name_for_byte((uint8_t)i, ascii_buf, sizeof(ascii_buf));
+        char mapping_buf[32];
+        utf8_sequence_to_string(&encode_table[i], mapping_buf, sizeof(mapping_buf));
+        printf("%d,%s,%d,", i, hex_buf, i);
+        csv_escape_and_print(stdout, ascii_name);
+        fputc(',', stdout);
+        csv_escape_and_print(stdout, mapping_buf);
+        fputc('\n', stdout);
+    }
+}
+
+static void print_mappings(mappings_mode_t mode) {
+    switch (mode) {
+        case MAPPINGS_TABLE:
+            print_mappings_table();
+            break;
+        case MAPPINGS_JSON:
+            print_mappings_json();
+            break;
+        case MAPPINGS_CSV:
+            print_mappings_csv();
+            break;
+        default:
+            break;
+    }
 }
 
 // Helper function to calculate hash for decode table
@@ -473,6 +652,18 @@ static buffer_t clean_decode_input(const buffer_t *input) {
     return output;
 }
 
+static const char *resolve_program_name(const char *argv0) {
+#ifdef PRINTABLE_BINARY_HELP_NAME
+    (void)argv0;
+    return PRINTABLE_BINARY_HELP_NAME;
+#else
+    if (argv0 && argv0[0] != '\0') {
+        return argv0;
+    }
+    return "printable_binary";
+#endif
+}
+
 static void print_usage(const char *program_name) {
     fprintf(stderr, "PrintableBinary C - Encode binary data as printable UTF-8 and decode it back\n\n");
     fprintf(stderr, "Usage: %s [options] [file]\n", program_name);
@@ -485,6 +676,9 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  --smart-asm      Smart disassembly (format-aware, uses objdump)\n");
     fprintf(stderr, "  --arch ARCH      Specify architecture for disassembly\n");
     fprintf(stderr, "                    Valid values: x64, x32, arm64, arm\n");
+    fprintf(stderr, "  --mappings       Show the byte-to-character mapping table\n");
+    fprintf(stderr, "  --mappings-json  Output mappings as JSON\n");
+    fprintf(stderr, "  --mappings-csv   Output mappings as CSV\n");
     fprintf(stderr, "  -h, --help       Show this help\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "If no file is specified, input is read from stdin.\n");
@@ -514,6 +708,7 @@ static options_t parse_options(int argc, char *argv[]) {
         .help_mode = false,
         .format_group = 8,
         .format_groups_per_line = 10,
+        .mappings_mode = MAPPINGS_NONE,
         .arch = NULL,
         .input_file = NULL
     };
@@ -525,6 +720,9 @@ static options_t parse_options(int argc, char *argv[]) {
         {"asm", no_argument, 0, 'a'},
         {"smart-asm", no_argument, 0, 1001},
         {"arch", required_argument, 0, 1000},
+        {"mappings", no_argument, 0, 1002},
+        {"mappings-json", no_argument, 0, 1003},
+        {"mappings-csv", no_argument, 0, 1004},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
@@ -566,6 +764,27 @@ static options_t parse_options(int argc, char *argv[]) {
             case 1001: // --smart-asm
                 opts.smart_asm_mode = true;
                 break;
+            case 1002: // --mappings
+                if (opts.mappings_mode != MAPPINGS_NONE && opts.mappings_mode != MAPPINGS_TABLE) {
+                    fprintf(stderr, "Error: Only one mappings output option can be specified\n");
+                    exit(1);
+                }
+                opts.mappings_mode = MAPPINGS_TABLE;
+                break;
+            case 1003: // --mappings-json
+                if (opts.mappings_mode != MAPPINGS_NONE && opts.mappings_mode != MAPPINGS_JSON) {
+                    fprintf(stderr, "Error: Only one mappings output option can be specified\n");
+                    exit(1);
+                }
+                opts.mappings_mode = MAPPINGS_JSON;
+                break;
+            case 1004: // --mappings-csv
+                if (opts.mappings_mode != MAPPINGS_NONE && opts.mappings_mode != MAPPINGS_CSV) {
+                    fprintf(stderr, "Error: Only one mappings output option can be specified\n");
+                    exit(1);
+                }
+                opts.mappings_mode = MAPPINGS_CSV;
+                break;
             case 'h':
                 opts.help_mode = true;
                 break;
@@ -587,12 +806,18 @@ static options_t parse_options(int argc, char *argv[]) {
 int main(int argc, char *argv[]) {
     // Parse command line options first (needed for help/usage)
     options_t opts = parse_options(argc, argv);
+    const char *program_display_name = resolve_program_name(argv[0]);
 
     // Initialize encoding/decoding tables (after options so argv[0] is available)
     init_tables(argv[0]);
 
     if (opts.help_mode) {
-        print_usage(argv[0]);
+        print_usage(program_display_name);
+        return 0;
+    }
+
+    if (opts.mappings_mode != MAPPINGS_NONE) {
+        print_mappings(opts.mappings_mode);
         return 0;
     }
 
@@ -604,7 +829,7 @@ int main(int argc, char *argv[]) {
 
     // Check for terminal input when no file specified
     if (!opts.input_file && isatty(STDIN_FILENO)) {
-        print_usage(argv[0]);
+        print_usage(program_display_name);
         return 0;
     }
 
@@ -637,6 +862,13 @@ int main(int argc, char *argv[]) {
             fwrite(input.data, 1, input.size, stdout);
         }
 
+#ifdef __EMSCRIPTEN__
+        if (opts.smart_asm_mode || opts.asm_mode) {
+            fprintf(stderr, "Error: Disassembly modes are not supported in the WebAssembly build\n");
+            free(input.data);
+            return 1;
+        }
+#else
         // Check for smart disassembly mode first
         if (opts.smart_asm_mode) {
             if (!opts.input_file) {
@@ -858,6 +1090,7 @@ int main(int argc, char *argv[]) {
                 return 0;
             }
         }
+#endif
 
         // Encode the data
         buffer_t encoded = encode_data((uint8_t*)input.data, input.size);

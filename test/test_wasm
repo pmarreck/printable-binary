@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Tests printable_binary.wasm using wazero
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+WASM_BIN="$REPO_ROOT/bin/printable_binary.wasm"
+WAZERO_BIN="$(command -v wazero || true)"
+
+if [[ -z "$WAZERO_BIN" ]]; then
+  echo "wazero is required for WASM tests" >&2
+  exit 1
+fi
+
+if [[ ! -f "$WASM_BIN" ]]; then
+  echo "Missing $WASM_BIN. Build the WASM artifact first." >&2
+  exit 1
+fi
+
+TMP_DIR="$(mktemp -d)"
+cleanup() {
+  rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT
+
+run_wasm() {
+  "$WAZERO_BIN" run "$WASM_BIN" -- "$@"
+}
+
+HELP_OUTPUT=$(run_wasm --help 2>&1 || true)
+if [[ "$HELP_OUTPUT" != *"Usage: printable_binary"* ]]; then
+  echo "Help output did not mention printable_binary" >&2
+  exit 1
+fi
+
+printf 'Hello WASM!' > "$TMP_DIR/input.bin"
+ENCODED_OUTPUT=$(cat "$TMP_DIR/input.bin" | run_wasm 2>/dev/null)
+printf "%s" "$ENCODED_OUTPUT" > "$TMP_DIR/encoded.txt"
+printf "%s" "$ENCODED_OUTPUT" | run_wasm -d > "$TMP_DIR/decoded.bin" 2>/dev/null
+
+if ! cmp -s "$TMP_DIR/input.bin" "$TMP_DIR/decoded.bin"; then
+  echo "Roundtrip via WASM failed" >&2
+  exit 1
+fi
+
+echo "WASM tests passed"

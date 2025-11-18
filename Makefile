@@ -8,6 +8,8 @@ LDFLAGS =
 BIN_DIR = bin
 TARGET = printable_binary_c
 SOURCE = printable_binary.c
+WASM_TARGET = printable_binary.wasm
+MAP_COPY = $(BIN_DIR)/character_map.txt
 
 # Optimization levels
 CFLAGS_DEBUG = $(CFLAGS) -g -O0 -DDEBUG
@@ -25,6 +27,16 @@ ifeq ($(UNAME_S),Linux)
     LDFLAGS += -static-libgcc
 endif
 
+# Emscripten configuration
+EMCC ?= emcc
+EMCFLAGS = $(CFLAGS)
+EMFLAGS = -O3 -DNDEBUG \
+	-s STANDALONE_WASM=1 \
+	-s FILESYSTEM=1 \
+	-s INITIAL_MEMORY=134217728 \
+	-DPRINTABLE_BINARY_HELP_NAME=\"printable_binary\"
+EM_CACHE_DIR ?= $(CURDIR)/.emscripten_cache
+
 # Default target
 .PHONY: all
 all: release
@@ -33,21 +45,21 @@ all: release
 .PHONY: release
 release: $(TARGET)
 
-$(TARGET): $(SOURCE) | $(BIN_DIR)
+$(TARGET): $(SOURCE) $(MAP_COPY) | $(BIN_DIR)
 	$(CC) $(CFLAGS_RELEASE) $(LDFLAGS) -o $(BIN_DIR)/$@ $<
 
 # Debug build
 .PHONY: debug
 debug: $(TARGET)_debug
 
-$(TARGET)_debug: $(SOURCE) | $(BIN_DIR)
+$(TARGET)_debug: $(SOURCE) $(MAP_COPY) | $(BIN_DIR)
 	$(CC) $(CFLAGS_DEBUG) $(LDFLAGS) -o $(BIN_DIR)/$@ $<
 
 # Size-optimized build
 .PHONY: size
 size: $(TARGET)_size
 
-$(TARGET)_size: $(SOURCE) | $(BIN_DIR)
+$(TARGET)_size: $(SOURCE) $(MAP_COPY) | $(BIN_DIR)
 	$(CC) $(CFLAGS_SIZE) $(LDFLAGS) -o $(BIN_DIR)/$@ $<
 
 # Compiler-specific builds
@@ -96,6 +108,17 @@ $(TARGET)_msan: $(SOURCE) | $(BIN_DIR)
 # Create bin directory
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
+
+$(MAP_COPY): character_map.txt | $(BIN_DIR)
+	cp $< $@
+
+# WASM target (requires emscripten)
+.PHONY: wasm
+wasm: $(BIN_DIR)/$(WASM_TARGET)
+
+$(BIN_DIR)/$(WASM_TARGET): $(SOURCE) $(MAP_COPY) | $(BIN_DIR)
+	mkdir -p $(EM_CACHE_DIR)
+	EM_CACHE=$(EM_CACHE_DIR) $(EMCC) $(EMCFLAGS) $(EMFLAGS) -o $@ $<
 
 # Test targets
 .PHONY: test

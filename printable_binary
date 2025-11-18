@@ -7,6 +7,97 @@ local PrintableBinary = {}
 local encode_map = {} -- number (0-255) -> string (UTF-8 bytes)
 local decode_map = {} -- string (UTF-8 bytes) -> number (0-255)
 
+local control_names = {
+  "NUL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK", "BEL",
+  "BS", "TAB", "LF", "VT", "FF", "CR", "SO", "SI",
+  "DLE", "DC1", "DC2", "DC3", "DC4", "NAK", "SYN", "ETB",
+  "CAN", "EM", "SUB", "ESC", "FS", "GS", "RS", "US"
+}
+
+local function ascii_name(byte_val)
+  if byte_val <= 31 then
+    return control_names[byte_val + 1]
+  elseif byte_val == 32 then
+    return "SPACE"
+  elseif byte_val == 127 then
+    return "DEL"
+  elseif byte_val >= 33 and byte_val <= 126 then
+    local ch = string.char(byte_val)
+    if ch == "\\" or ch == "'" then
+      ch = "\\" .. ch
+    end
+    return "'" .. ch .. "'"
+  else
+    return string.format("0x%02X", byte_val)
+  end
+end
+
+local function json_escape(str)
+  local escaped = str:gsub('[\\"]', { ['\\'] = '\\\\', ['"'] = '\\"' })
+  escaped = escaped:gsub("[%z\1-\31]", function(c)
+    return string.format("\\u%04X", string.byte(c))
+  end)
+  return escaped
+end
+
+local function csv_escape(str)
+  return '"' .. str:gsub('"', '""') .. '"'
+end
+
+local function build_mapping_entries()
+  local entries = {}
+  for byte_val = 0, 255 do
+    local mapping = encode_map[byte_val] or ""
+    entries[#entries + 1] = {
+      byte = byte_val,
+      hex = string.format("0x%02X", byte_val),
+      dec = byte_val,
+      ascii = ascii_name(byte_val),
+      mapping = mapping
+    }
+  end
+  return entries
+end
+
+function PrintableBinary.get_mappings()
+  return build_mapping_entries()
+end
+
+local function output_mappings(format)
+  local entries = PrintableBinary.get_mappings()
+  if format == "json" then
+    local fragments = {}
+    for _, entry in ipairs(entries) do
+      fragments[#fragments + 1] = string.format(
+        '{"byte":%d,"hex":"%s","dec":%d,"ascii":"%s","mapping":"%s"}',
+        entry.byte,
+        entry.hex,
+        entry.dec,
+        json_escape(entry.ascii),
+        json_escape(entry.mapping)
+      )
+    end
+    io.write("[" .. table.concat(fragments, ",") .. "]\n")
+  elseif format == "csv" then
+    io.write("byte,hex,dec,ascii,mapping\n")
+    for _, entry in ipairs(entries) do
+      io.write(string.format(
+        "%d,%s,%d,%s,%s\n",
+        entry.byte,
+        entry.hex,
+        entry.dec,
+        csv_escape(entry.ascii),
+        csv_escape(entry.mapping)
+      ))
+    end
+  else
+    io.write(string.format("%-6s %-5s %-12s %s\n", "Byte", "Dec", "ASCII", "Mapping"))
+    for _, entry in ipairs(entries) do
+      io.write(string.format("%-6s %-5d %-12s %s\n", entry.hex, entry.dec, entry.ascii, entry.mapping))
+    end
+  end
+end
+
 -- Helper to define an encoding and its reverse mapping
 local function def_char(byte_val, utf8_str)
   encode_map[byte_val] = utf8_str
@@ -222,6 +313,9 @@ if arg then
     io.stderr:write("  --smart-asm      Smart disassembly (format-aware, uses objdump)\n")
     io.stderr:write("  --arch ARCH      Specify architecture for disassembly\n")
     io.stderr:write("                    Valid values: x64, x32, arm64, arm\n")
+    io.stderr:write("  --mappings       Show the current byte-to-character mapping table\n")
+    io.stderr:write("  --mappings-json  Output mappings as JSON\n")
+    io.stderr:write("  --mappings-csv   Output mappings as CSV\n")
     io.stderr:write("  -h, --help       Show this help\n")
     io.stderr:write("\n")
     io.stderr:write("If no file is specified, input is read from stdin.\n")
@@ -292,6 +386,7 @@ if arg then
   -- Default formatting groups
   local format_group = 8
   local format_groups_per_line = 10
+  local mappings_mode = nil
 
   local i = 1
   while i <= #arg do
@@ -343,6 +438,24 @@ if arg then
           os.exit(1)
         end
       end
+    elseif arg[i] == "--mappings" then
+      if mappings_mode and mappings_mode ~= "table" then
+        io.stderr:write("Only one mappings output mode can be specified\n")
+        os.exit(1)
+      end
+      mappings_mode = "table"
+    elseif arg[i] == "--mappings-json" then
+      if mappings_mode and mappings_mode ~= "json" then
+        io.stderr:write("Only one mappings output mode can be specified\n")
+        os.exit(1)
+      end
+      mappings_mode = "json"
+    elseif arg[i] == "--mappings-csv" then
+      if mappings_mode and mappings_mode ~= "csv" then
+        io.stderr:write("Only one mappings output mode can be specified\n")
+        os.exit(1)
+      end
+      mappings_mode = "csv"
     elseif not file_path and not arg[i]:match("^%-") then
       file_path = arg[i]
     else
@@ -351,6 +464,11 @@ if arg then
       os.exit(1)
     end
     i = i + 1
+  end
+
+  if mappings_mode then
+    output_mappings(mappings_mode)
+    os.exit(0)
   end
 
   -- Read input data

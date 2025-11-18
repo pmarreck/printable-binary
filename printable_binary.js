@@ -8,6 +8,31 @@
 
 const isNodeEnv = typeof process !== 'undefined' && !!process.versions?.node;
 
+const CONTROL_NAMES = [
+  'NUL','SOH','STX','ETX','EOT','ENQ','ACK','BEL',
+  'BS','TAB','LF','VT','FF','CR','SO','SI',
+  'DLE','DC1','DC2','DC3','DC4','NAK','SYN','ETB',
+  'CAN','EM','SUB','ESC','FS','GS','RS','US'
+];
+
+function asciiName(byte) {
+  if (byte <= 0x1F) {
+    return CONTROL_NAMES[byte];
+  }
+  if (byte === 0x20) {
+    return 'SPACE';
+  }
+  if (byte === 0x7F) {
+    return 'DEL';
+  }
+  if (byte >= 0x21 && byte <= 0x7E) {
+    const ch = String.fromCharCode(byte);
+    const sanitized = ch === '\\' || ch === "'" ? '\\' + ch : ch;
+    return `'${sanitized}'`;
+  }
+  return `0x${byte.toString(16).toUpperCase().padStart(2, '0')}`;
+}
+
 function parseCharacterMap(text) {
   if (typeof text !== 'string') {
     throw new Error('Character map must be provided as text');
@@ -131,6 +156,21 @@ class PrintableBinary {
     }
 
     return output;
+  }
+
+  getMappings() {
+    const entries = [];
+    for (let i = 0; i < 256; i++) {
+      const mapping = this.encodeMap.get(i) ?? '';
+      entries.push({
+        byte: i,
+        hex: `0x${i.toString(16).toUpperCase().padStart(2, '0')}`,
+        dec: i,
+        ascii: asciiName(i),
+        mapping
+      });
+    }
+    return entries;
   }
 
   /**

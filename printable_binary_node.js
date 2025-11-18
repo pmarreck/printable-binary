@@ -23,6 +23,9 @@ Options:
   -d, --decode          Decode mode (default is encode mode)
   -f, --format NxM      Format output in groups (e.g. 75x1)
   -f=NXM, --format=NXM  Alternate syntax for specifying formatting
+  --mappings            Show the byte-to-character mapping table
+  --mappings-json       Output the mappings as JSON
+  --mappings-csv        Output the mappings as CSV
   -h, --help            Show this help
 
 If no file is specified, input is read from stdin.
@@ -31,10 +34,52 @@ Output is written to stdout.
   process.stderr.write(usage);
 }
 
+function csvEscape(value) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function outputMappings(entries, format) {
+  if (format === 'json') {
+    process.stdout.write(JSON.stringify(entries, null, 2) + '\n');
+    return;
+  }
+
+  if (format === 'csv') {
+    const lines = ['byte,hex,dec,ascii,mapping'];
+    for (const entry of entries) {
+      lines.push([
+        entry.byte,
+        entry.hex,
+        entry.dec,
+        csvEscape(entry.ascii),
+        csvEscape(entry.mapping)
+      ].join(','));
+    }
+    process.stdout.write(lines.join('\n') + '\n');
+    return;
+  }
+
+  const header = `${'Byte'.padEnd(6)} ${'Dec'.padEnd(5)} ${'ASCII'.padEnd(12)} Mapping`;
+  process.stdout.write(header + '\n');
+  for (const entry of entries) {
+    const line = `${entry.hex.padEnd(6)} ${String(entry.dec).padEnd(5)} ${entry.ascii.padEnd(12)} ${entry.mapping}`;
+    process.stdout.write(line + '\n');
+  }
+}
+
 function parseArgs(argv) {
   let decodeMode = false;
   let formatSpec = null;
   let filePath = null;
+  let mappingsFormat = null;
+
+  const setMappingsFormat = (mode) => {
+    if (mappingsFormat && mappingsFormat !== mode) {
+      process.stderr.write('Error: Only one mappings output option can be specified\n');
+      process.exit(1);
+    }
+    mappingsFormat = mode;
+  };
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -54,6 +99,12 @@ function parseArgs(argv) {
       formatSpec = arg.slice(3);
     } else if (arg.startsWith('--format=')) {
       formatSpec = arg.slice(9);
+    } else if (arg === '--mappings') {
+      setMappingsFormat('table');
+    } else if (arg === '--mappings-json') {
+      setMappingsFormat('json');
+    } else if (arg === '--mappings-csv') {
+      setMappingsFormat('csv');
     } else if (arg.startsWith('-')) {
       process.stderr.write(`Error: Unknown option ${arg}\n`);
       printUsage();
@@ -66,7 +117,7 @@ function parseArgs(argv) {
     }
   }
 
-  return { decodeMode, formatSpec, filePath };
+  return { decodeMode, formatSpec, filePath, mappingsFormat };
 }
 
 async function readInput(filePath) {
@@ -83,10 +134,16 @@ async function readInput(filePath) {
 }
 
 async function main() {
-  const { decodeMode, formatSpec, filePath } = parseArgs(process.argv.slice(2));
+  const { decodeMode, formatSpec, filePath, mappingsFormat } = parseArgs(process.argv.slice(2));
   const pb = new PrintableBinary();
 
   try {
+    if (mappingsFormat) {
+      const entries = pb.getMappings();
+      outputMappings(entries, mappingsFormat);
+      return;
+    }
+
     const input = await readInput(filePath);
 
     if (decodeMode) {

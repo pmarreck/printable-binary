@@ -189,13 +189,27 @@ console.log('\n--- Known Mapping Verification Tests ---');
 {
   const byte92 = new Uint8Array([92]);
   const encoded92 = encoder.encode(byte92);
-  assertEquals(encoded92, "\u29F9", 'Byte 92 (\\) maps to ⧹ (U+29F9)');
+  assertEquals(encoded92, "\u29F7", 'Byte 92 (\\) maps to ⧷ (U+29F7)');
 }
 
 {
   const byte127 = new Uint8Array([127]);
   const encoded127 = encoder.encode(byte127);
   assertEquals(encoded127, "\u2326", 'Byte 127 (DEL) maps to ⌦ (U+2326)');
+}
+
+// Test 13: Mapping export metadata
+console.log('\n--- Mapping Export Tests ---');
+{
+  const mappings = encoder.getMappings();
+  assert(Array.isArray(mappings) && mappings.length === 256, 'getMappings returns 256 entries');
+  const first = mappings[0];
+  assertEquals(first.byte, 0, 'First mapping byte index');
+  assertEquals(first.ascii, 'NUL', 'First mapping ASCII name');
+  assertEquals(first.mapping, "\u2205", 'First mapping character');
+  const last = mappings[255];
+  assertEquals(last.byte, 255, 'Last mapping byte index');
+  assert(typeof last.mapping === 'string' && last.mapping.length > 0, 'Last mapping has glyph');
 }
 
 // Note: Bytes 152 and 184 previously had special mappings (U+014C and U+014F)

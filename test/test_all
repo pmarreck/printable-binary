@@ -76,6 +76,15 @@ else
   echo -e "${YELLOW}JavaScript tests: SKIPPED (Deno not found)${NC}"
 fi
 
+# Run WASM tests (requires wazero and printable_binary.wasm)
+echo -e "\n${YELLOW}Running WASM tests...${NC}"
+if "$SCRIPT_DIR/test_wasm"; then
+  echo -e "${GREEN}WASM tests: PASSED${NC}"
+else
+  echo -e "${RED}WASM tests: FAILED${NC}"
+  FAILED=1
+fi
+
 # Summary
 echo -e "\n${BLUE}=== Test Suite Summary ===${NC}"
 if [ $FAILED -eq 0 ]; then

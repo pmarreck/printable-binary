@@ -78,6 +78,11 @@ echo -n "Hello, World!" | ./printable_binary
 # For universal binaries, it will only show one architecture
 ./printable_binary universal_binary.bin > full_binary.txt  # Use this for full binary preservation
 
+# Inspect the active character map (table/JSON/CSV)
+./printable_binary --mappings | head
+./bin/printable_binary_c --mappings-json > mapping.json
+./printable_binary_node.js --mappings-csv > mapping.csv
+
 # Decode data (spaces and newlines are automatically ignored during decoding)
 echo -n "Hello,␣World﹗" | ./printable_binary -d
 # Output: Hello, World!
@@ -155,19 +160,30 @@ For command-line parity with the LuaJIT/C tools, use the Node-based wrapper:
 
 # Pipe data through stdin
 cat input.bin | ./printable_binary_node.js -f=8x10 > encoded.txt
+
+# Dump the current character map
+./printable_binary_node.js --mappings-json > map.json
 ```
 
-Supported flags: `-d/--decode`, `-f/--format NxM`, `-h/--help`. The CLI shares the exact encode/decode implementation with the browser UI. Disassembly options (`-a`, `--smart-asm`, etc.) are not available in the Node wrapper; use the LuaJIT or C binaries when you need Capstone/objdump features.
+Supported flags: `-d/--decode`, `-f/--format NxM`, `--mappings*`, `-h/--help`. The CLI shares the exact encode/decode implementation with the browser UI. Disassembly options (`-a`, `--smart-asm`, etc.) are not available in the Node wrapper; use the LuaJIT or C binaries when you need Capstone/objdump features.
 
 ### Character Map
 
-All implementations share the same mapping table stored in `character_map.txt` (256 lines, one glyph per byte). The binaries look for this file in the following order:
+Every CLI and the WASM build ships with the canonical 256-entry table embedded, so you can always inspect it:
 
-- `PRINTABLE_BINARY_MAP` environment variable (path to the file)
-- alongside the executable/module (`printable_binary`, `printable_binary.js`, `printable_binary_c`)
-- the current working directory
+```bash
+./printable_binary --mappings          # human-readable table
+./printable_binary --mappings-json     # machine-readable JSON
+./printable_binary --mappings-csv      # spreadsheet-friendly CSV
+```
 
-Edit the file to experiment with alternative glyphs and the LuaJIT, Node.js, and C CLIs will all pick up the changes automatically.
+Those commands show whichever map is active. To override the defaults, place a `character_map.txt` next to the executable (or set `PRINTABLE_BINARY_MAP`) and rerun the same flags to confirm your changes. The lookup order is:
+
+1. `PRINTABLE_BINARY_MAP` environment variable (path to the file)
+2. A `character_map.txt` sitting next to the executable/module (`printable_binary`, `printable_binary.js`, `printable_binary_c`, or the WASM dir)
+3. The current working directory
+
+If none of those locations exist, the embedded table is used automatically. Edit the file to experiment with alternative glyphs—the LuaJIT, C, Node.js, and WebAssembly implementations will all honor the override on their next run.
 
 ### Inspecting Streams (Passthrough Mode)
 
