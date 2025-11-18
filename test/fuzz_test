@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Fuzz test for printable_binary
 # Tests encoding/decoding of large random binary data with seeded reproducibility
 #

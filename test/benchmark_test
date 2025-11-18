@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Benchmark script for printable_binary performance
 
 # Colors for output
