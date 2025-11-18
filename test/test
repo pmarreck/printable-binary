@@ -30,11 +30,13 @@ TMP_DECODED=$(mktemp)
 TMP_MAPPINGS=$(mktemp)
 TMP_MAPPINGS_JSON=$(mktemp)
 TMP_MAPPINGS_CSV=$(mktemp)
+TMP_STATS_STDERR=$(mktemp)
 
 # Cleanup function
 cleanup() {
     rm -f "$TMP_BINARY" "$TMP_ENCODED" "$TMP_DECODED" \
-          "$TMP_MAPPINGS" "$TMP_MAPPINGS_JSON" "$TMP_MAPPINGS_CSV"
+          "$TMP_MAPPINGS" "$TMP_MAPPINGS_JSON" "$TMP_MAPPINGS_CSV" \
+          "$TMP_STATS_STDERR"
 }
 trap cleanup EXIT
 
@@ -211,6 +213,34 @@ if $SCRIPT --mappings-csv > "$TMP_MAPPINGS_CSV"; then
 else
     echo -e "${RED}FAIL${NC}"
     echo "Failed to generate mappings CSV"
+    exit 1
+fi
+
+# Test 11: Stats muted via PRINTABLE_BINARY_MUTE_STATS
+echo -e "${BLUE}Test #11: Stats muted via PRINTABLE_BINARY_MUTE_STATS${NC}"
+printf 'Mute stats test' > "$TMP_BINARY"
+
+PRINTABLE_BINARY_MUTE_STATS=1 $SCRIPT "$TMP_BINARY" > "$TMP_ENCODED" 2> "$TMP_STATS_STDERR"
+if [[ -s "$TMP_STATS_STDERR" ]]; then
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected no stats in stderr when encoding with PRINTABLE_BINARY_MUTE_STATS=1"
+    cat "$TMP_STATS_STDERR"
+    exit 1
+fi
+
+PRINTABLE_BINARY_MUTE_STATS=1 $SCRIPT -d "$TMP_ENCODED" > "$TMP_DECODED" 2> "$TMP_STATS_STDERR"
+if [[ -s "$TMP_STATS_STDERR" ]]; then
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected no stats in stderr when decoding with PRINTABLE_BINARY_MUTE_STATS=1"
+    cat "$TMP_STATS_STDERR"
+    exit 1
+fi
+
+if cmp -s "$TMP_BINARY" "$TMP_DECODED"; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Roundtrip data mismatch under muted stats"
     exit 1
 fi
 

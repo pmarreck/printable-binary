@@ -75,7 +75,7 @@ const decoded2 = encoder.decodeToString(encoded2);
 Run the test suite with Deno:
 
 ```bash
-deno run --allow-read test_printable_binary.js
+deno run --allow-read --allow-env test_printable_binary.js
 ```
 
 Test cross-compatibility with the Lua implementation:

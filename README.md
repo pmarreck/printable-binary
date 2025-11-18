@@ -185,6 +185,13 @@ Those commands show whichever map is active. To override the defaults, place a `
 
 If none of those locations exist, the embedded table is used automatically. Edit the file to experiment with alternative glyphs—the LuaJIT, C, Node.js, and WebAssembly implementations will all honor the override on their next run.
 
+### Environment Variables
+
+PrintableBinary respects a couple of environment variables across every implementation (LuaJIT, C, WASM, Node, and tests):
+
+- `PRINTABLE_BINARY_MAP` – absolute or relative path to a `character_map.txt` that overrides the embedded table. The lookup order is described above.
+- `PRINTABLE_BINARY_MUTE_STATS` – set to `1`, `true`, or `yes` to suppress the usual "Encoded …" / "Decoding mode …" statistics that are normally written to stderr. This is handy for scripts that expect clean stderr output while still reusing the default behavior interactively.
+
 ### Inspecting Streams (Passthrough Mode)
 
 One powerful trick is to drop PrintableBinary into a pipeline so you can watch the encoded stream on stderr while the raw bytes continue downstream untouched:

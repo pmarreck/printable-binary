@@ -158,6 +158,11 @@ Input/Output:
   - In passthrough mode: original data → stdout, encoded data → stderr
 
 Both binaries embed the canonical 256-entry map, so the new `--mappings*` flags work even when `character_map.txt` is missing. If you place a custom map alongside the executable (or set `PRINTABLE_BINARY_MAP`), these options will reflect the override automatically.
+
+### Environment Variables (All Implementations)
+
+- `PRINTABLE_BINARY_MAP` – points to an alternate `character_map.txt`. Handy when you keep multiple glyph sets around.
+- `PRINTABLE_BINARY_MUTE_STATS` – set to `1`, `true`, or `yes` to suppress the usual encode/decode statistics on stderr. Ideal for scripts that treat stderr as a data channel.
 ```
 
 ## When to Use Which Implementation

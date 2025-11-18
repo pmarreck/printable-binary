@@ -24,6 +24,41 @@ __attribute__((used)) void emscripten_notify_memory_growth(int memory_index) {
 }
 #endif
 
+static bool env_var_truthy(const char *value) {
+    if (!value) {
+        return false;
+    }
+
+    while (*value && isspace((unsigned char)*value)) {
+        value++;
+    }
+
+    size_t len = strlen(value);
+    while (len > 0 && isspace((unsigned char)value[len - 1])) {
+        len--;
+    }
+
+    if (len == 0) {
+        return false;
+    }
+
+    if (len == 1 && value[0] == '1') {
+        return true;
+    }
+
+    if (len >= 8) {
+        return false;
+    }
+
+    char lowered[8];
+    for (size_t i = 0; i < len; i++) {
+        lowered[i] = (char)tolower((unsigned char)value[i]);
+    }
+    lowered[len] = '\0';
+
+    return (strcmp(lowered, "true") == 0 || strcmp(lowered, "yes") == 0);
+}
+
 #define MAX_UTF8_BYTES 4
 #define INITIAL_BUFFER_SIZE 8192
 #define BUFFER_GROW_FACTOR 2
@@ -807,6 +842,7 @@ int main(int argc, char *argv[]) {
     // Parse command line options first (needed for help/usage)
     options_t opts = parse_options(argc, argv);
     const char *program_display_name = resolve_program_name(argv[0]);
+    bool stats_enabled = !env_var_truthy(getenv("PRINTABLE_BINARY_MUTE_STATS"));
 
     // Initialize encoding/decoding tables (after options so argv[0] is available)
     init_tables(argv[0]);
@@ -841,14 +877,20 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Warning: --passthrough ignored in decode mode\n");
         }
 
-        fprintf(stderr, "Decoding mode: Input size is %zu bytes\n", input.size);
+        if (stats_enabled) {
+            fprintf(stderr, "Decoding mode: Input size is %zu bytes\n", input.size);
+        }
 
         // Clean input and decode
         buffer_t cleaned = clean_decode_input(&input);
-        fprintf(stderr, "After whitespace removal: %zu bytes\n", cleaned.size);
+        if (stats_enabled) {
+            fprintf(stderr, "After whitespace removal: %zu bytes\n", cleaned.size);
+        }
 
         buffer_t decoded = decode_data((uint8_t*)cleaned.data, cleaned.size);
-        fprintf(stderr, "Decoded result size: %zu bytes\n", decoded.size);
+        if (stats_enabled) {
+            fprintf(stderr, "Decoded result size: %zu bytes\n", decoded.size);
+        }
 
         // Write decoded data to stdout
         fwrite(decoded.data, 1, decoded.size, stdout);
@@ -1094,7 +1136,9 @@ int main(int argc, char *argv[]) {
 
         // Encode the data
         buffer_t encoded = encode_data((uint8_t*)input.data, input.size);
-        fprintf(stderr, "Encoded %zu bytes of input to %zu bytes\n", input.size, encoded.size);
+        if (stats_enabled) {
+            fprintf(stderr, "Encoded %zu bytes of input to %zu bytes\n", input.size, encoded.size);
+        }
 
         buffer_t *output = &encoded;
         buffer_t formatted;

@@ -357,6 +357,28 @@ if arg then
     return io.read("*a")
   end
 
+  local function env_value_truthy(value)
+    if not value then
+      return false
+    end
+
+    local trimmed = value:match("^%s*(.-)%s*$") or value
+    if trimmed == "" then
+      return false
+    end
+
+    local lower = trimmed:lower()
+    return lower == "1" or lower == "true" or lower == "yes"
+  end
+
+  local mute_stats = env_value_truthy(os.getenv("PRINTABLE_BINARY_MUTE_STATS"))
+
+  local function stats_write(message)
+    if not mute_stats then
+      io.stderr:write(message)
+    end
+  end
+
   -- Main program
   if #arg == 0 then
     -- Check if stdin is a terminal
@@ -495,7 +517,7 @@ if arg then
       passthrough_mode = false
     end
 
-    io.stderr:write("Decoding mode: Input size is " .. #input_data .. " bytes\n")
+    stats_write("Decoding mode: Input size is " .. #input_data .. " bytes\n")
 
     -- Check if this is likely disassembly output (contains space + receipt emoji + space pattern)
     local receipt_emoji = "\240\159\167\190"  -- Raw bytes for 🧾 emoji
@@ -510,11 +532,11 @@ if arg then
 
     -- Simple whitespace removal - we need to preserve all other characters
     local cleaned_input = input_data:gsub("[\r\n\t ]", "")
-    io.stderr:write("After whitespace removal: " .. #cleaned_input .. " bytes\n")
+    stats_write("After whitespace removal: " .. #cleaned_input .. " bytes\n")
 
     -- Decode directly
     output = PrintableBinary.decode(cleaned_input)
-    io.stderr:write("Decoded result size: " .. #output .. " bytes\n")
+    stats_write("Decoded result size: " .. #output .. " bytes\n")
 
     -- Always output decoded data to stdout in decode mode
     -- Passthrough mode doesn't apply to decode mode, as noted in the warning above
@@ -528,7 +550,7 @@ if arg then
       io.stdout:write(input_data)
     end
     output = PrintableBinary.encode(input_data)
-    io.stderr:write("Encoded " .. #input_data .. " bytes of input to " .. #output .. " bytes\n")
+    stats_write("Encoded " .. #input_data .. " bytes of input to " .. #output .. " bytes\n")
 
     -- Apply formatting if requested
     if format_mode and not decode_mode then

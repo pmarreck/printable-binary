@@ -1,8 +1,8 @@
-#!/usr/bin/env -S deno run --allow-read
+#!/usr/bin/env -S deno run --allow-read --allow-env
 
 /**
  * Test harness for PrintableBinary JavaScript implementation
- * Can be run with Deno: deno run --allow-read test_printable_binary.js
+ * Can be run with Deno: deno run --allow-read --allow-env test_printable_binary.js
  * Or with Node.js: node test_printable_binary.js
  */
 
