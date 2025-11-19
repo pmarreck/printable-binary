@@ -28,6 +28,8 @@ Options:
   --mappings-csv        Output the mappings as CSV
   -h, --help            Show this help
 
+Encoded output is whitespace-agnostic: you can reflow, indent, or wrap it freely because the decoder ignores real whitespace while rendering quotes, backslashes, tabs, and control bytes as distinct glyphs for easy recognition.
+
 If no file is specified, input is read from stdin.
 Output is written to stdout.
 `;
