@@ -20,7 +20,7 @@ This directory contains a web-based implementation of the PrintableBinary encode
   - 25 tests covering all edge cases
   - Can be run with Deno or Node.js
 
-- **`test_cross_compat.js`** - Cross-implementation compatibility test
+- **`test/js/test_cross_compat.js`** - Cross-implementation compatibility test
   - Verifies that JavaScript and Lua implementations produce identical output
 
 ## Usage
@@ -81,7 +81,7 @@ deno run --allow-read --allow-env test/js/test_printable_binary.js
 Test cross-compatibility with the Lua implementation:
 
 ```bash
-deno run --allow-read --allow-run test_cross_compat.js
+deno run --allow-read --allow-run test/js/test_cross_compat.js
 ```
 
 ## Features

@@ -53,9 +53,9 @@ PrintableBinary is available in multiple high-performance implementations:
 make release
 
 # Use exactly like the LuaJIT version
-./printable_binary_c file.bin
-./printable_binary_c -d encoded_file.txt
-./printable_binary_c --passthrough file.bin | other_tool
+./bin/printable_binary_c file.bin
+./bin/printable_binary_c -d encoded_file.txt
+./bin/printable_binary_c --passthrough file.bin | other_tool
 
 # Install (optional)
 ./install_c_version.sh
@@ -373,30 +373,30 @@ make memcheck
 ### Automated Test Suites
 
 ```bash
-# LuaJIT implementation
-./test                    # Comprehensive test suite
-./test_all               # All tests including fuzz tests
+# LuaJIT implementation (from repo root)
+./test/test                 # Deterministic suite
+./test/test_all             # Full runner (fuzz, WASM, JS, etc.)
 
-# C implementation  
-make test                # Basic functionality tests
-./test_optimized         # Full test suite (same as LuaJIT)
+# C implementation
+make test                   # Builds bin/printable_binary_c and runs ./test/test_all against it
+cd test && IMPLEMENTATION_TO_TEST=../bin/printable_binary_c ./test_all
 
 # Compatibility verification
-./bm/benchmark_c_vs_lua.sh  # Performance + compatibility
+./bm/benchmark_c_vs_lua.sh  # Performance + encode/decode parity
 ```
 
 ### Manual Testing
 
 ```bash
 # Quick round-trip test
-echo "Hello, World! 🌍" | ./printable_binary_c | ./printable_binary_c -d
+echo "Hello, World! 🌍" | ./bin/printable_binary_c | ./bin/printable_binary_c -d
 
 # Large file test
 dd if=/dev/urandom of=test.bin bs=1M count=1
-./printable_binary_c test.bin | ./printable_binary_c -d | cmp test.bin -
+./bin/printable_binary_c test.bin | ./bin/printable_binary_c -d | cmp test.bin -
 
 # Binary compatibility test
-./printable_binary_c test.bin > c_output.txt
+./bin/printable_binary_c test.bin > c_output.txt
 ./printable_binary test.bin > lua_output.txt
 cmp c_output.txt lua_output.txt && echo "✓ Outputs identical"
 ```
@@ -413,19 +413,19 @@ xcode-select --install                # macOS
 
 # Permission errors
 chmod +x install_c_version.sh
-chmod +x printable_binary_c
+chmod +x bin/printable_binary_c
 ```
 
 **Runtime Issues:**
 ```bash
 # Test basic functionality
-echo "test" | ./printable_binary_c
+echo "test" | ./bin/printable_binary_c
 
 # Check file permissions
-ls -la printable_binary_c
+ls -la bin/printable_binary_c
 
 # Verify binary works
-./printable_binary_c --help
+./bin/printable_binary_c --help
 ```
 
 **Performance Issues:**

@@ -129,7 +129,7 @@ print(decoded)  -- Output: Hello, World!
 ### As a JavaScript Module
 
 ```js
-import PrintableBinary from './printable_binary.js';
+import PrintableBinary from './js/printable_binary.js';
 
 const pb = new PrintableBinary();
 const input = new Uint8Array([0x00, 0xFF, 0x41]);
@@ -181,7 +181,7 @@ Every CLI and the WASM build ships with the canonical 256-entry table embedded, 
 Those commands show whichever map is active. To override the defaults, place a `character_map.txt` next to the executable (or set `PRINTABLE_BINARY_MAP`) and rerun the same flags to confirm your changes. The lookup order is:
 
 1. `PRINTABLE_BINARY_MAP` environment variable (path to the file)
-2. A `character_map.txt` sitting next to the executable/module (`printable_binary`, `printable_binary.js`, `printable_binary_c`, or the WASM dir)
+2. A `character_map.txt` sitting next to the executable/module (`printable_binary`, `js/printable_binary.js`, `bin/printable_binary_c`, or the WASM dir)
 3. The current working directory
 
 If none of those locations exist, the embedded table is used automatically. Edit the file to experiment with alternative glyphs—the LuaJIT, C, Node.js, and WebAssembly implementations will all honor the override on their next run.
@@ -645,7 +645,7 @@ The project includes three types of test suites:
 These tests validate basic functionality and expected behavior:
 
 ```bash
-./test
+./test/test
 ```
 
 ### Non-deterministic Fuzz Tests
@@ -653,7 +653,7 @@ These tests validate basic functionality and expected behavior:
 These tests run randomized inputs to verify robustness:
 
 ```bash
-./fuzz_test
+./test/fuzz_test
 ```
 
 ### Performance Benchmark Tests
@@ -661,7 +661,7 @@ These tests run randomized inputs to verify robustness:
 These tests measure encoding and decoding performance:
 
 ```bash
-./benchmark_test
+./test/benchmark_test
 ```
 
 ### Running All Tests
@@ -669,7 +669,7 @@ These tests measure encoding and decoding performance:
 To run all test suites at once:
 
 ```bash
-./test_all
+./test/test_all
 ```
 
 ## Utilities
