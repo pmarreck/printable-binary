@@ -66,7 +66,7 @@ fi
 # Run JavaScript implementation tests (if Deno is available)
 echo -e "\n${YELLOW}Running JavaScript implementation tests...${NC}"
 if command -v deno &> /dev/null; then
-if deno run --allow-read --allow-env "$SCRIPT_DIR/../test_printable_binary.js"; then
+if deno run --allow-read --allow-env "$SCRIPT_DIR/../test/js/test_printable_binary.js"; then
     echo -e "${GREEN}JavaScript tests: PASSED${NC}"
   else
     echo -e "${RED}JavaScript tests: FAILED${NC}"

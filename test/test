@@ -244,6 +244,22 @@ else
     exit 1
 fi
 
+# Test 12: ANSI escape sequences decode correctly (regression test)
+echo -e "${BLUE}Test #12: ANSI escape decode preserves bytes${NC}"
+COLOR_ENCODED=$'⎋⟦38;5;208mhi⎋⟦0;39m⇩'
+printf "%s" "$COLOR_ENCODED" > "$TMP_ENCODED"
+$SCRIPT -d "$TMP_ENCODED" > "$TMP_DECODED"
+RESULT_HEX=$(xxd -p "$TMP_DECODED" | tr -d '\n')
+EXPECTED_HEX="1b5b33383b353b3230386d68691b5b303b33396d0a"
+if [[ "$RESULT_HEX" == "$EXPECTED_HEX" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected hex: $EXPECTED_HEX"
+    echo "Got:         $RESULT_HEX"
+    exit 1
+fi
+
 ###############################################################################
 # CHARACTER MAPS TESTS
 ###############################################################################

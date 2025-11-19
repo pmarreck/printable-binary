@@ -5,11 +5,11 @@
    - Confirm ampersand (⅋) and other updated glyphs look acceptable across common monospace fonts (Berkeley Mono, Fira Code, JetBrains Mono, etc.).
 
 2. **Document Character Map Workflow**
-   - Expand README with brief instructions on editing `character_map.txt`, running `utils/audit_character_map.py`, and regenerating `CHARACTER_WIDTHS.md`.
+   - Expand README with brief instructions on editing `character_map.txt`, running `utils/audit_character_map.lua`, and regenerating `CHARACTER_WIDTHS.md`.
    - Mention how the C, Lua, and JS implementations load the shared map (and where to set `PRINTABLE_BINARY_MAP`).
 
 3. **CI / Automation Follow-up**
-   - Integrate `utils/audit_character_map.py` (and possibly the width report regeneration) into a pre-commit or CI step to prevent invalid maps from landing.
+   - Integrate `utils/audit_character_map.lua` (and possibly the width report regeneration) into a pre-commit or CI step to prevent invalid maps from landing.
    - Consider adding a regression test that asserts cross-implementation encode size remains ≤ ~1.9× for representative binaries.
 
 4. **Browser UX Polish**

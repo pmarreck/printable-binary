@@ -6,15 +6,25 @@ This document describes the organization of the PrintableBinary project after th
 
 ```
 printable-binary/
-├── bin/                    # Compiled binaries
-│   └── printable_binary_c  # C implementation (compiled)
-├── test/                   # All test files
-│   ├── test               # Main unit test suite
-│   ├── test_all           # Master test runner
-│   ├── fuzz_test          # Randomized testing
-│   ├── benchmark_test     # Performance benchmarks
-│   └── test_binary.bin    # Test data file
-├── utils/                  # Utility scripts
+├── bin/                    # Runtime-ready executables (C, APE, Node CLI, WASM)
+│   ├── printable_binary_c
+│   ├── printable_binary_ape.com
+│   ├── printable_binary_node.js
+│   └── printable_binary.wasm
+├── js/                     # Shared JavaScript module used by CLI/browser
+├── bm/                     # Benchmark helpers and comparison scripts
+├── test/                   # All tests (Lua + JS + WASM + fuzz)
+│   ├── test                # Main unit test suite
+│   ├── test_all            # Master test runner
+│   ├── fuzz_test           # Randomized testing
+│   ├── benchmark_test      # Performance benchmarks
+│   ├── test_wasm           # WASM validation
+│   ├── test_cross_implementation.sh
+│   └── js/                 # Deno/Node-based harnesses
+├── utils/                  # Utility scripts (Lua + supporting data)
+│   ├── audit_character_map.lua
+│   ├── generate_embedded_map.lua
+│   └── js/                 # Mapping/diagnostic helpers used by Node tooling
 ├── printable_binary        # LuaJIT implementation (main script)
 ├── printable_binary.c      # C source code
 ├── Makefile               # Build system

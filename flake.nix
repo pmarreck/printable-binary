@@ -158,7 +158,7 @@
             echo "  cosmocc -O3 -o printable_binary_ape.com printable_binary.c"
             echo ""
             echo "Test JavaScript implementation:"
-            echo "  deno run --allow-read --allow-env test_printable_binary.js"
+            echo "  deno run --allow-read --allow-env test/js/test_printable_binary.js"
             echo ""
             echo "Serve web interface (requires simple http server):"
             echo "  python3 -m http.server 8000"

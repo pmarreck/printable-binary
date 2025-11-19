@@ -7,7 +7,7 @@
  */
 
 import fs from 'fs';
-import PrintableBinary from './printable_binary.js';
+import PrintableBinary from '../js/printable_binary.js';
 
 function printUsage() {
   const progname = process.argv[1]

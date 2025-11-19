@@ -6,7 +6,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$SCRIPT_DIR"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo "=== Cross-Implementation Compatibility Test ==="
 echo
@@ -26,14 +26,15 @@ echo "=== Test 1: JavaScript encode -> Lua decode ==="
 JS_ENCODED="/tmp/pb_js_encoded.txt"
 LUA_DECODED="/tmp/pb_lua_decoded.bin"
 
-JS_CLI="./printable_binary_node.js"
+JS_CLI="$REPO_ROOT/bin/printable_binary_node.js"
+LUA_CLI="$REPO_ROOT/printable_binary"
 
 echo "Encoding with JavaScript..."
 "$JS_CLI" "$TEST_DATA" > "$JS_ENCODED"
 echo "JS encoded size: $(wc -c < "$JS_ENCODED") bytes"
 
 echo "Decoding with Lua..."
-./printable_binary -d "$JS_ENCODED" > "$LUA_DECODED" 2>/dev/null
+"$LUA_CLI" -d "$JS_ENCODED" > "$LUA_DECODED" 2>/dev/null
 echo "Lua decoded size: $(wc -c < "$LUA_DECODED") bytes"
 
 echo "Comparing original and decoded..."
@@ -53,7 +54,7 @@ LUA_ENCODED="/tmp/pb_lua_encoded.txt"
 JS_DECODED="/tmp/pb_js_decoded.bin"
 
 echo "Encoding with Lua..."
-./printable_binary "$TEST_DATA" > "$LUA_ENCODED" 2>/dev/null
+"$LUA_CLI" "$TEST_DATA" > "$LUA_ENCODED" 2>/dev/null
 echo "Lua encoded size: $(wc -c < "$LUA_ENCODED") bytes"
 
 echo "Decoding with JavaScript..."
@@ -86,7 +87,7 @@ echo
 # Test 4: Round-trip Lua
 echo "=== Test 4: Lua round-trip ==="
 LUA_ROUNDTRIP="/tmp/pb_lua_roundtrip.bin"
-./printable_binary -d "$LUA_ENCODED" > "$LUA_ROUNDTRIP" 2>/dev/null
+"$LUA_CLI" -d "$LUA_ENCODED" > "$LUA_ROUNDTRIP" 2>/dev/null
 if cmp -s "$TEST_DATA" "$LUA_ROUNDTRIP"; then
     echo "✓ Test 4 PASSED: Lua encode -> Lua decode round-trip works"
 else
@@ -100,7 +101,7 @@ echo "=== Test 5: Formatted output parity (75x1) ==="
 LUA_FORMATTED="/tmp/pb_lua_formatted.txt"
 JS_FORMATTED="/tmp/pb_js_formatted.txt"
 
-./printable_binary -f=75x1 "$TEST_DATA" > "$LUA_FORMATTED" 2>/dev/null
+"$LUA_CLI" -f=75x1 "$TEST_DATA" > "$LUA_FORMATTED" 2>/dev/null
 
 "$JS_CLI" -f=75x1 "$TEST_DATA" > "$JS_FORMATTED"
 

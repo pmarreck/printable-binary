@@ -42,7 +42,7 @@ This implementation allows you to view binary data directly in a terminal (it ev
 # LuaJIT version:     ./printable_binary
 # C version (ELF/Mach): ./bin/printable_binary_c
 # C APE (Cosmopolitan): ./bin/printable_binary_ape.com
-# Node.js CLI:         ./printable_binary_node.js
+# Node.js CLI:         ./bin/printable_binary_node.js
 # (Examples below use the LuaJIT version; the others accept the same flags.)
 
 # Encode binary data
@@ -82,7 +82,7 @@ echo -n "Hello, World!" | ./printable_binary
 # Inspect the active character map (table/JSON/CSV)
 ./printable_binary --mappings | head
 ./bin/printable_binary_c --mappings-json > mapping.json
-./printable_binary_node.js --mappings-csv > mapping.csv
+./bin/printable_binary_node.js --mappings-csv > mapping.csv
 
 # Decode data (spaces and newlines are automatically ignored during decoding)
 echo -n "Hello,␣World﹗" | ./printable_binary -d
@@ -151,19 +151,19 @@ For command-line parity with the LuaJIT/C tools, use the Node-based wrapper:
 
 ```bash
 # Encode (auto-detects stdin vs. file)
-./printable_binary_node.js input.bin > encoded.pbt
+./bin/printable_binary_node.js input.bin > encoded.pbt
 
 # Decode (whitespace is ignored automatically)
-./printable_binary_node.js --decode encoded.pbt > restored.bin
+./bin/printable_binary_node.js --decode encoded.pbt > restored.bin
 
 # Apply formatting (e.g., 75 characters per line)
-./printable_binary_node.js --format 75x1 input.bin > formatted.pbt
+./bin/printable_binary_node.js --format 75x1 input.bin > formatted.pbt
 
 # Pipe data through stdin
-cat input.bin | ./printable_binary_node.js -f=8x10 > encoded.txt
+cat input.bin | ./bin/printable_binary_node.js -f=8x10 > encoded.txt
 
 # Dump the current character map
-./printable_binary_node.js --mappings-json > map.json
+./bin/printable_binary_node.js --mappings-json > map.json
 ```
 
 Supported flags: `-d/--decode`, `-f/--format NxM`, `--mappings*`, `-h/--help`. The CLI shares the exact encode/decode implementation with the browser UI. Disassembly options (`-a`, `--smart-asm`, etc.) are not available in the Node wrapper; use the LuaJIT or C binaries when you need Capstone/objdump features.
@@ -634,7 +634,7 @@ Bytes 33-126 (printable ASCII, except 34, 39, and 92) reuse their literal glyphs
 
 The canonical list for bytes 128-255 lives in `character_map.txt`; the web UI mirrors it in `docs/character_map.txt`.
 We order the high bytes alphabetically (all A/a glyphs, then B/b, and so on) so neighbouring values are visually related.
-After editing the map, run `python3 utils/audit_character_map.py character_map.txt` and regenerate `CHARACTER_WIDTHS.md` to keep these docs fresh.
+After editing the map, run `./utils/audit_character_map.lua character_map.txt` and regenerate `CHARACTER_WIDTHS.md` to keep these docs fresh. If/when Unicode updates its East Asian width tables, refresh the local copy with `./utils/update_eaw_data.sh` before auditing.
 
 ## Running Tests
 

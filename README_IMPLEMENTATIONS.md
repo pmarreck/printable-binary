@@ -243,7 +243,7 @@ Both implementations produce **byte-for-byte identical** outputs:
 # Run comprehensive compatibility tests
 ./test                    # LuaJIT test suite
 ./test_optimized          # C test suite (uses same test cases)
-./benchmark_c_vs_lua.sh   # Performance + compatibility verification
+./bm/benchmark_c_vs_lua.sh   # Performance + compatibility verification
 ```
 
 **Test Results**: 24/24 compatibility tests passed ✅
@@ -382,7 +382,7 @@ make test                # Basic functionality tests
 ./test_optimized         # Full test suite (same as LuaJIT)
 
 # Compatibility verification
-./benchmark_c_vs_lua.sh  # Performance + compatibility
+./bm/benchmark_c_vs_lua.sh  # Performance + compatibility
 ```
 
 ### Manual Testing
