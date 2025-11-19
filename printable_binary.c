@@ -722,6 +722,9 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  - Original binary data is passed unchanged to stdout\n");
     fprintf(stderr, "  - Encoded representation is sent to stderr\n");
     fprintf(stderr, "  - This allows using the tool in pipelines to monitor binary data\n\n");
+    fprintf(stderr, "Environment variables:\n");
+    fprintf(stderr, "  PRINTABLE_BINARY_MAP        Override character map lookup path\n");
+    fprintf(stderr, "  PRINTABLE_BINARY_MUTE_STATS Set to 1/true/yes to suppress stderr stats\n\n");
     fprintf(stderr, "Examples:\n");
     fprintf(stderr, "  %s binary_file               # Encode binary to UTF-8\n", program_name);
     fprintf(stderr, "  %s -d encoded_file           # Decode UTF-8 to binary\n", program_name);
