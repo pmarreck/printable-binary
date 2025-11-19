@@ -718,8 +718,9 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "\n");
     fprintf(stderr, "If no file is specified, input is read from stdin.\n");
     fprintf(stderr, "Output is written to stdout, unless --passthrough is used.\n\n");
-    fprintf(stderr, "PrintableBinary encodes every byte (quotes, backslashes, tabs, CR/LF, etc.) into visible glyphs.\n");
+    fprintf(stderr, "PrintableBinary encodes every byte (quotes, backslashes, tabs, CR/LF, etc.) into visible, but clearly related, glyphs.\n");
     fprintf(stderr, "You can format the encoded text freely—spaces, newlines, indentation—because the decoder ignores real whitespace.\n");
+    fprintf(stderr, "Examples: SPACE→␣, TAB→⇥, CR→⏎, LF→↧, single quote→ʼ, double quote→˵, backslash→⧷.\n");
     fprintf(stderr, "This avoids shell-escaping surprises while keeping context obvious.\n\n");
     fprintf(stderr, "When --passthrough is used:\n");
     fprintf(stderr, "  - Original binary data is passed unchanged to stdout\n");
