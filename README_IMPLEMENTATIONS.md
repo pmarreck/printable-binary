@@ -4,13 +4,19 @@ A comprehensive guide to the LuaJIT and C implementations of PrintableBinary - a
 
 ## Overview
 
-PrintableBinary is available in two high-performance implementations:
+PrintableBinary is available in multiple high-performance implementations:
 
 ### 🔥 **C Implementation** (Recommended for Production)
 - **Ultra-fast**: Up to 6x faster than LuaJIT for large files
 - **Memory efficient**: Optimized memory usage and allocation
 - **Cross-platform**: Compiles on Linux, macOS, Windows
 - **Drop-in replacement**: Identical command-line interface
+
+### 🌍 **Cosmopolitan APE Binary** (Runs Anywhere)
+- **Actually Portable Executable**: Single binary that runs on Linux, macOS, *and* Windows
+- **Zero dependencies**: Bundles Cosmopolitan libc, so it works even on stripped-down hosts
+- **CLI parity**: Same flags, environment variables, and character map behavior as the ELF build
+- **Great for distribution**: Ship one file (`printable_binary_ape.com`) and it just works
 
 ### ⚡ **LuaJIT Implementation** (Original)
 - **Feature-complete**: Full disassembly support with Capstone
@@ -55,6 +61,20 @@ make release
 ./install_c_version.sh
 ```
 
+### Cosmopolitan APE Build
+
+```bash
+# Build the APE binary (requires cosmocc / Cosmopolitan toolchain)
+make ape
+
+# Run it directly (works on Linux/macOS/Windows)
+./bin/printable_binary_ape.com file.bin
+./bin/printable_binary_ape.com -d encoded.txt > decoded.bin
+
+# Run the full automated test suite against the APE binary
+make test-ape
+```
+
 ### LuaJIT Implementation
 
 ```bash
@@ -91,6 +111,8 @@ make debug
 make CC=clang release     # Use Clang
 make windows             # Cross-compile for Windows
 make CC=gcc CFLAGS="-O3 -static" release  # Static build
+# Cosmopolitan APE (runs on Linux/macOS/Windows)
+make ape
 ```
 
 ### Option 3: Nix Build
@@ -100,12 +122,14 @@ make CC=gcc CFLAGS="-O3 -static" release  # Static build
 nix develop
 
 # Build with Nix
-nix build
+nix build .#printableBinaryNative   # ELF/Mach-O binary
+nix build .#printableBinaryApe      # Cosmopolitan APE binary
+nix build .#printableBinaryWasm     # WebAssembly module
 ```
 
 ## Command-Line Usage
 
-Both implementations share **identical** command-line interfaces:
+All compiled variants (ELF, APE, WASM via wazero) share **identical** command-line interfaces. Use whichever binary suits your platform (`./bin/printable_binary_c`, `./bin/printable_binary_ape.com`, etc.).
 
 ### Basic Operations
 

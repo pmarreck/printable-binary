@@ -11,7 +11,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <unistd.h>
-#include <getopt.h>
 #include <sys/stat.h>
 #include <ctype.h>
 
@@ -102,6 +101,48 @@ typedef struct {
     char *arch;
     char *input_file;
 } options_t;
+
+static void parse_format_spec(options_t *opts, const char *format_str) {
+    if (!format_str || format_str[0] == '\0') {
+        fprintf(stderr, "Error: --format requires a value like 8x10\n");
+        exit(1);
+    }
+
+    while (*format_str == '=' || isspace((unsigned char)*format_str)) {
+        format_str++;
+    }
+
+    if (*format_str == '\0') {
+        fprintf(stderr, "Error: --format requires a value like 8x10\n");
+        exit(1);
+    }
+
+    int group = 0;
+    int groups_per_line = 0;
+    if (sscanf(format_str, "%dx%d", &group, &groups_per_line) != 2 ||
+        group <= 0 || groups_per_line <= 0) {
+        fprintf(stderr, "Invalid format specification: %s\n", format_str);
+        fprintf(stderr, "Expected format like: -f=8x10\n");
+        exit(1);
+    }
+
+    opts->format_mode = true;
+    opts->format_group = group;
+    opts->format_groups_per_line = groups_per_line;
+}
+
+static void set_mappings_mode(options_t *opts, mappings_mode_t new_mode) {
+    if (opts->mappings_mode != MAPPINGS_NONE && opts->mappings_mode != new_mode) {
+        fprintf(stderr, "Error: Only one mappings output option can be specified\n");
+        exit(1);
+    }
+    opts->mappings_mode = new_mode;
+}
+
+static bool long_option_equals(const char *name, size_t len, const char *option) {
+    size_t option_len = strlen(option);
+    return len == option_len && strncmp(name, option, option_len) == 0;
+}
 
 // Dynamic growing buffer for string building
 typedef struct {
@@ -755,95 +796,114 @@ static options_t parse_options(int argc, char *argv[]) {
         .input_file = NULL
     };
 
-    static struct option long_options[] = {
-        {"decode", no_argument, 0, 'd'},
-        {"passthrough", no_argument, 0, 'p'},
-        {"format", optional_argument, 0, 'f'},
-        {"asm", no_argument, 0, 'a'},
-        {"smart-asm", no_argument, 0, 1001},
-        {"arch", required_argument, 0, 1000},
-        {"mappings", no_argument, 0, 1002},
-        {"mappings-json", no_argument, 0, 1003},
-        {"mappings-csv", no_argument, 0, 1004},
-        {"help", no_argument, 0, 'h'},
-        {0, 0, 0, 0}
-    };
+    for (int i = 1; i < argc; i++) {
+        char *arg = argv[i];
 
-    int c;
-    while ((c = getopt_long(argc, argv, "dpf::ah", long_options, NULL)) != -1) {
-        switch (c) {
-            case 'd':
+        if (strcmp(arg, "--") == 0) {
+            if (i + 1 < argc) {
+                if (opts.input_file) {
+                    fprintf(stderr, "Error: Multiple input files specified\n");
+                    exit(1);
+                }
+                opts.input_file = argv[++i];
+            }
+            break;
+        }
+
+        if (arg[0] != '-' || strcmp(arg, "-") == 0) {
+            if (opts.input_file) {
+                fprintf(stderr, "Error: Multiple input files specified (%s)\n", arg);
+                exit(1);
+            }
+            opts.input_file = arg;
+            continue;
+        }
+
+        if (arg[1] == '-') {
+            const char *name = arg + 2;
+            const char *eq = strchr(name, '=');
+            size_t name_len = eq ? (size_t)(eq - name) : strlen(name);
+            const char *value = eq ? eq + 1 : NULL;
+
+            if (long_option_equals(name, name_len, "decode")) {
                 opts.decode_mode = true;
-                break;
-            case 'p':
+            } else if (long_option_equals(name, name_len, "passthrough")) {
                 opts.passthrough_mode = true;
-                break;
-            case 'f':
-                opts.format_mode = true;
-                if (optarg) {
-                    char *format_str = optarg;
-                    // Skip leading '=' if present (from -f=NxM syntax)
-                    if (format_str[0] == '=') {
-                        format_str++;
-                    }
-                    int group, groups_per_line;
-                    if (sscanf(format_str, "%dx%d", &group, &groups_per_line) == 2) {
-                        opts.format_group = group;
-                        opts.format_groups_per_line = groups_per_line;
-                    } else {
-                        fprintf(stderr, "Invalid format specification: %s\n", optarg);
-                        fprintf(stderr, "Expected format like: -f=8x10\n");
+            } else if (long_option_equals(name, name_len, "format")) {
+                if (value && value[0] != '\0') {
+                    parse_format_spec(&opts, value);
+                } else {
+                    opts.format_mode = true;
+                }
+            } else if (long_option_equals(name, name_len, "asm")) {
+                opts.asm_mode = true;
+            } else if (long_option_equals(name, name_len, "smart-asm")) {
+                opts.smart_asm_mode = true;
+            } else if (long_option_equals(name, name_len, "arch")) {
+                if (!value) {
+                    if (i + 1 >= argc) {
+                        fprintf(stderr, "Error: --arch requires a value\n");
                         exit(1);
                     }
+                    value = argv[++i];
                 }
-                break;
-            case 'a':
-                opts.asm_mode = true;
-                break;
-            case 1000: // --arch
-                opts.arch = optarg;
-                break;
-            case 1001: // --smart-asm
-                opts.smart_asm_mode = true;
-                break;
-            case 1002: // --mappings
-                if (opts.mappings_mode != MAPPINGS_NONE && opts.mappings_mode != MAPPINGS_TABLE) {
-                    fprintf(stderr, "Error: Only one mappings output option can be specified\n");
-                    exit(1);
-                }
-                opts.mappings_mode = MAPPINGS_TABLE;
-                break;
-            case 1003: // --mappings-json
-                if (opts.mappings_mode != MAPPINGS_NONE && opts.mappings_mode != MAPPINGS_JSON) {
-                    fprintf(stderr, "Error: Only one mappings output option can be specified\n");
-                    exit(1);
-                }
-                opts.mappings_mode = MAPPINGS_JSON;
-                break;
-            case 1004: // --mappings-csv
-                if (opts.mappings_mode != MAPPINGS_NONE && opts.mappings_mode != MAPPINGS_CSV) {
-                    fprintf(stderr, "Error: Only one mappings output option can be specified\n");
-                    exit(1);
-                }
-                opts.mappings_mode = MAPPINGS_CSV;
-                break;
-            case 'h':
+                opts.arch = (char*)value;
+            } else if (long_option_equals(name, name_len, "mappings")) {
+                set_mappings_mode(&opts, MAPPINGS_TABLE);
+            } else if (long_option_equals(name, name_len, "mappings-json")) {
+                set_mappings_mode(&opts, MAPPINGS_JSON);
+            } else if (long_option_equals(name, name_len, "mappings-csv")) {
+                set_mappings_mode(&opts, MAPPINGS_CSV);
+            } else if (long_option_equals(name, name_len, "help")) {
                 opts.help_mode = true;
-                break;
-            case '?':
+            } else {
+                fprintf(stderr, "Unknown option: --%.*s\n", (int)name_len, name);
                 exit(1);
-            default:
-                abort();
+            }
+            continue;
         }
-    }
 
-    // Get input file if specified
-    if (optind < argc) {
-        opts.input_file = argv[optind];
+        size_t pos = 1;
+        while (arg[pos] != '\0') {
+            char opt = arg[pos];
+            switch (opt) {
+                case 'd':
+                    opts.decode_mode = true;
+                    pos++;
+                    break;
+                case 'p':
+                    opts.passthrough_mode = true;
+                    pos++;
+                    break;
+                case 'a':
+                    opts.asm_mode = true;
+                    pos++;
+                    break;
+                case 'h':
+                    opts.help_mode = true;
+                    pos++;
+                    break;
+                case 'f': {
+                    if (arg[pos + 1] != '\0') {
+                        const char *value = &arg[pos + 1];
+                        pos = strlen(arg);
+                        parse_format_spec(&opts, value);
+                    } else {
+                        opts.format_mode = true;
+                        pos++;
+                    }
+                    break;
+                }
+                default:
+                    fprintf(stderr, "Unknown option: -%c\n", opt);
+                    exit(1);
+            }
+        }
     }
 
     return opts;
 }
+
 
 int main(int argc, char *argv[]) {
     // Parse command line options first (needed for help/usage)

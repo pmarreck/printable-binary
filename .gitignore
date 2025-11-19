@@ -4,6 +4,7 @@
 
 # Compiled binaries
 bin/printable_binary_c
+bin/printable_binary_ape.com
 bin/printable_binary
 /bin/character_map.txt
 /.emscripten_cache/

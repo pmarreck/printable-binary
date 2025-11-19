@@ -39,9 +39,10 @@ This implementation allows you to view binary data directly in a terminal (it ev
 
 ```bash
 # Use any implementation:
-# LuaJIT version: ./printable_binary
-# C version:     ./bin/printable_binary_c
-# Node.js CLI:   ./printable_binary_node.js
+# LuaJIT version:     ./printable_binary
+# C version (ELF/Mach): ./bin/printable_binary_c
+# C APE (Cosmopolitan): ./bin/printable_binary_ape.com
+# Node.js CLI:         ./printable_binary_node.js
 # (Examples below use the LuaJIT version; the others accept the same flags.)
 
 # Encode binary data
@@ -688,6 +689,7 @@ The project includes several utility scripts in the `utils/` directory:
 
 - C99-compatible compiler (GCC, Clang)
 - Standard C library
+- Cosmopolitan SDK (`cosmocc`) if you want the APE build
 
 ### Optional Dependencies (for disassembly features)
 
@@ -697,12 +699,20 @@ The project includes several utility scripts in the `utils/` directory:
 ### Build
 
 ```bash
-# Build C implementation
+# Build the optimized ELF/Mach-O C binary
 make
 
-# Both implementations are included:
-# ./printable_binary (LuaJIT script)
-# ./bin/printable_binary_c (compiled C binary)
+# Build the WebAssembly module
+make wasm
+
+# Build the Cosmopolitan APE binary (runs on Linux/macOS/Windows without deps)
+make ape
+
+# Resulting executables live in ./bin:
+#   ./printable_binary                 (LuaJIT script)
+#   ./bin/printable_binary_c           (native ELF/Mach-O)
+#   ./bin/printable_binary_ape.com     (Actually Portable Executable)
+#   ./bin/printable_binary.wasm        (WASM for wazero/browsers)
 ```
 
 ### Nix Development Environment
@@ -710,8 +720,11 @@ make
 If you're using Nix, the included `flake.nix` provides a full development shell:
 
 ```bash
-nix develop        # drops you into a shell with gcc/clang, LuaJIT, Deno, etc.
-nix build          # builds the optimized C binary via the default package output
+nix develop             # drops you into a shell with gcc/clang, cosmocc, LuaJIT, Deno, etc.
+nix build .#printableBinaryNative   # C binary (ELF/Mach-O)
+nix build .#printableBinaryWasm     # WebAssembly artifact
+nix build .#printableBinaryApe      # Actually Portable Executable via cosmocc
+nix build                          # Symlink package containing all of the above
 ```
 
 The shell hook lists the major tools (compilers, debuggers, benchmarking utilities) that are available. This is the easiest way to ensure all optional dependencies—such as LuaJIT for the script version and Deno/Node tooling for the JS implementation—are present.

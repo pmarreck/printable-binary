@@ -66,6 +66,31 @@
             platforms = platforms.all;
           };
         };
+
+        printableBinaryApe = pkgs.stdenv.mkDerivation {
+          pname = "printable-binary-ape";
+          version = "1.0.0";
+
+          src = ./.;
+
+          nativeBuildInputs = [ pkgs.cosmopolitan ];
+
+          buildPhase = ''
+            cosmocc -O3 -DNDEBUG -o printable_binary_ape.com printable_binary.c
+          '';
+
+          installPhase = ''
+            mkdir -p $out/bin
+            cp printable_binary_ape.com $out/bin/printable_binary_ape.com
+            cp character_map.txt $out/bin/character_map.txt
+          '';
+
+          meta = with pkgs.lib; {
+            description = "PrintableBinary built as an Actually Portable Executable (Cosmopolitan)";
+            license = licenses.mit;
+            platforms = platforms.all;
+          };
+        };
       in
       {
         devShells.default = pkgs.mkShell {
@@ -88,6 +113,9 @@
 
             # Cross-compilation targets (optional)
             pkgsCross.mingwW64.buildPackages.gcc
+
+            # Actually Portable Executable (cosmopolitan)
+            cosmopolitan
 
             # Development utilities
             xxd
@@ -120,12 +148,14 @@
             echo "  deno (for JavaScript/web implementation)"
             echo "  node (for CLI/automation tests)"
             echo "  emcc (Emscripten) for WebAssembly builds"
+            echo "  cosmocc (Cosmopolitan) for APE builds"
             echo "  wazero (WASI runtime for testing)"
             echo ""
             echo "Example build commands:"
             echo "  gcc -O3 -o printable_binary_c printable_binary.c"
             echo "  clang -O3 -march=native -o printable_binary_c printable_binary.c"
             echo "  emcc printable_binary.c ${emscriptenFlags} -o printable_binary.wasm"
+            echo "  cosmocc -O3 -o printable_binary_ape.com printable_binary.c"
             echo ""
             echo "Test JavaScript implementation:"
             echo "  deno run --allow-read --allow-env test_printable_binary.js"
@@ -148,7 +178,7 @@
           printableBinaryWasm = printableBinaryWasm;
           default = pkgs.symlinkJoin {
             name = "printable-binary-suite";
-            paths = [ printableBinaryNative printableBinaryWasm ];
+            paths = [ printableBinaryNative printableBinaryWasm printableBinaryApe ];
           };
         };
       });

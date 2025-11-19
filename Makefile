@@ -9,7 +9,11 @@ BIN_DIR = bin
 TARGET = printable_binary_c
 SOURCE = printable_binary.c
 WASM_TARGET = printable_binary.wasm
+APE_TARGET = printable_binary_ape.com
 MAP_COPY = $(BIN_DIR)/character_map.txt
+
+APE_CC ?= cosmocc
+APE_FLAGS = -O3 -DNDEBUG
 
 # Optimization levels
 CFLAGS_DEBUG = $(CFLAGS) -g -O0 -DDEBUG
@@ -120,10 +124,22 @@ $(BIN_DIR)/$(WASM_TARGET): $(SOURCE) $(MAP_COPY) | $(BIN_DIR)
 	mkdir -p $(EM_CACHE_DIR)
 	EM_CACHE=$(EM_CACHE_DIR) $(EMCC) $(EMCFLAGS) $(EMFLAGS) -o $@ $<
 
+# Cosmopolitan APE target
+.PHONY: ape
+ape: $(BIN_DIR)/$(APE_TARGET)
+
+$(BIN_DIR)/$(APE_TARGET): $(SOURCE) $(MAP_COPY) | $(BIN_DIR)
+	$(APE_CC) $(APE_FLAGS) -o $@ $<
+	chmod +x $@
+
 # Test targets
 .PHONY: test
 test: $(TARGET)
 	cd test && IMPLEMENTATION_TO_TEST=../$(BIN_DIR)/$(TARGET) ./test_all
+
+.PHONY: test-ape
+test-ape: $(BIN_DIR)/$(APE_TARGET)
+	cd test && IMPLEMENTATION_TO_TEST=../$(BIN_DIR)/$(APE_TARGET) ./test_all
 
 # Performance comparison test
 .PHONY: benchmark
@@ -253,6 +269,8 @@ help:
 	@echo "  release       Build optimized release version"
 	@echo "  debug         Build debug version with symbols"
 	@echo "  size          Build size-optimized version"
+	@echo "  wasm          Build WebAssembly module"
+	@echo "  ape           Build Actually Portable Executable via cosmocc"
 	@echo "  gcc           Build with GCC"
 	@echo "  clang         Build with Clang"
 	@echo "  windows       Cross-compile for Windows"
@@ -266,6 +284,7 @@ help:
 	@echo ""
 	@echo "Test targets:"
 	@echo "  test          Run basic functionality tests"
+	@echo "  test-ape      Run full suite against the APE binary"
 	@echo "  benchmark     Run performance benchmark"
 	@echo "  compare       Compare with LuaJIT version"
 	@echo "  hyperfine     Detailed benchmark with hyperfine"
