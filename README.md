@@ -109,7 +109,7 @@ echo -n "Hello, World!" | ./bin/printable_binary --passthrough 2>encoded.txt | w
 - Drag-and-drop or browse to encode any file; `.pbt` uploads are automatically decoded back to their original binary.
 - Large outputs (>1 MB) skip the textarea to avoid browser jank—use the Download button to grab the UTF-8 text.
 - Default wrapping is 75 characters per line to balance readability and density; copy/download buttons reuse the exact bytes produced by the CLI and Node implementations.
-- To hack locally, open `docs/index.html` (or `index.html`) in any modern browser; the page loads the shared `printable_binary.js` module with no build step required.
+- To hack locally, open `docs/index.html` (or `index.html`) in any modern browser; the page loads the shared `js/printable_binary.js` module with no build step required.
 
 ### As a Lua Library
 
@@ -178,7 +178,9 @@ Every CLI and the WASM build ships with the canonical 256-entry table embedded, 
 ./bin/printable_binary --mappings-csv      # spreadsheet-friendly CSV
 ```
 
-Those commands show whichever map is active. To override the defaults, place a `character_map.txt` next to the executable (or set `PRINTABLE_BINARY_MAP`) and rerun the same flags to confirm your changes. The file format is simple: **256 lines of UTF-8, one glyph per byte value starting at 0x00**. No commas, spaces, or indexes—just the literal characters in order. The lookup order is:
+Those commands show whichever map is active. To override the defaults, place a `character_map.txt` next to the executable (or set `PRINTABLE_BINARY_MAP`) and rerun the same flags to confirm your changes. The file format is simple: **256 lines of UTF-8, one glyph per byte value starting at 0x00**. No commas, spaces, or indexes—just the literal characters in order. After editing, run `./utils/audit_character_map.lua character_map.txt` (and `./utils/update_eaw_data.sh` when Unicode publishes a new width table) plus `./utils/generate_embedded_map.lua` so the embedded headers stay in sync.
+
+The runtime lookup order is:
 
 1. `PRINTABLE_BINARY_MAP` environment variable (path to the file)
 2. A `character_map.txt` sitting next to the executable/module (`bin/printable_binary`, `js/printable_binary.js`, `bin/printable_binary_c`, or the WASM dir)

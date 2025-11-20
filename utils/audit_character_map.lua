@@ -19,7 +19,8 @@ local function script_dir()
   local info = debug.getinfo(1, 'S')
   local src = info.source
   if src:sub(1,1) == '@' then
-    return src:match('^@(.*/)[^/]*$') or './'
+    local dir = src:match('^@(.*/)[^/]*$') or './'
+    return dir
   end
   return './'
 end
