@@ -100,6 +100,7 @@
             clang
             gdb
             valgrind
+            capstone # provides cstool for disassembly tests
 
             # Build systems
             gnumake

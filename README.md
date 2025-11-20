@@ -700,6 +700,17 @@ The project includes several utility scripts in the `utils/` directory:
 - `cstool` (Capstone disassembly engine) for raw disassembly (`-a/--asm`)
 - `objdump` for smart disassembly (`--smart-asm`)
 
+### Quick dependency list (without Nix)
+
+If you are not using the provided `flake.nix`, install these tools manually to build and run the full test suite:
+- `gcc` or `clang`, plus `make`
+- `luajit` (for Lua tests and utilities)
+- `cstool` from Capstone (raw disassembly tests)
+- `node` (>=18) and `deno` (for JS/WASM tests)
+- `wazero` runtime for WASM CLI tests
+- `cosmocc`/Cosmopolitan SDK if you want the APE build
+- `objdump` (optional) for smart disassembly tests
+
 ### Build
 
 ```bash

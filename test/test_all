@@ -13,32 +13,61 @@ NC='\033[0m' # No Color
 
 echo -e "${BLUE}=== PrintableBinary Test Suite Runner ===${NC}"
 
-# Show which implementation is being tested
-# Auto-detect the correct path based on script location
 SCRIPT_DIR="$(dirname "$0")"
-DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../bin/printable_binary"
-IMPLEMENTATION="${IMPLEMENTATION_TO_TEST:-$DEFAULT_IMPLEMENTATION}"
-echo -e "${YELLOW}Testing implementation: $IMPLEMENTATION${NC}"
+
+# Build the list of implementations to exercise with the core suite
+if [ -n "$IMPLEMENTATION_TO_TEST" ]; then
+  IMPLEMENTATIONS=("$IMPLEMENTATION_TO_TEST")
+elif [ -n "$IMPLEMENTATIONS_TO_TEST" ]; then
+  read -r -a IMPLEMENTATIONS <<<"$IMPLEMENTATIONS_TO_TEST"
+else
+  CANDIDATES=(
+    "$SCRIPT_DIR/../bin/printable_binary"
+    "$SCRIPT_DIR/../bin/printable_binary_c"
+    "$SCRIPT_DIR/../bin/printable_binary_ape.com"
+    "$SCRIPT_DIR/../bin/printable_binary_node.js"
+  )
+  IMPLEMENTATIONS=()
+  for candidate in "${CANDIDATES[@]}"; do
+    if [ -x "$candidate" ]; then
+      IMPLEMENTATIONS+=("$candidate")
+    fi
+  done
+fi
+
+if [ "${#IMPLEMENTATIONS[@]}" -eq 0 ]; then
+  echo -e "${RED}No printable_binary implementations found to test.${NC}"
+  exit 1
+fi
+
+PRIMARY_IMPLEMENTATION="${IMPLEMENTATIONS[0]}"
+echo -e "${YELLOW}Implementations under test:${NC}"
+for impl in "${IMPLEMENTATIONS[@]}"; do
+  echo " - $impl"
+done
 
 # Track success/failure
 FAILED=0
 
-# Run deterministic unit tests
+# Run deterministic unit tests for each implementation
 echo -e "\n${YELLOW}Running deterministic unit tests...${NC}"
-if $(dirname "$0")/test; then
-  echo -e "${GREEN}Unit tests: PASSED${NC}"
-else
-  echo -e "${RED}Unit tests: FAILED${NC}"
-  FAILED=1
-fi
+for impl in "${IMPLEMENTATIONS[@]}"; do
+  echo -e "${BLUE}-- Core suite against $impl --${NC}"
+  if IMPLEMENTATION_TO_TEST="$impl" "$(dirname "$0")/test"; then
+    echo -e "${GREEN}Unit tests: PASSED for $impl${NC}"
+  else
+    echo -e "${RED}Unit tests: FAILED for $impl${NC}"
+    FAILED=1
+  fi
+done
 
 # Passthrough functionality tests are now integrated into the main test suite
 echo -e "\n${YELLOW}Passthrough functionality tests are integrated into the main test suite${NC}"
 echo -e "${GREEN}Passthrough tests: INCLUDED IN MAIN TESTS${NC}"
 
-# Run non-deterministic fuzz tests
-echo -e "\n${YELLOW}Running non-deterministic fuzz tests...${NC}"
-if $(dirname "$0")/fuzz_test; then
+# Run non-deterministic fuzz tests (primary implementation only to keep runtime reasonable)
+echo -e "\n${YELLOW}Running non-deterministic fuzz tests (primary implementation only)...${NC}"
+if IMPLEMENTATION_TO_TEST="$PRIMARY_IMPLEMENTATION" "$(dirname "$0")/fuzz_test"; then
   echo -e "${GREEN}Fuzz tests: PASSED${NC}"
 else
   echo -e "${RED}Fuzz tests: FAILED${NC}"
@@ -47,16 +76,20 @@ fi
 
 # Run disassembly tests
 echo -e "\n${YELLOW}Running disassembly tests...${NC}"
-if $(dirname "$0")/test_disassembly; then
-  echo -e "${GREEN}Disassembly tests: PASSED${NC}"
+if [[ "$PRIMARY_IMPLEMENTATION" == *"printable_binary_ape.com" ]]; then
+  echo -e "${YELLOW}Skipping disassembly tests for APE build (popen/cstool not available in some environments)${NC}"
 else
-  echo -e "${RED}Disassembly tests: FAILED${NC}"
-  FAILED=1
+  if IMPLEMENTATION_TO_TEST="$PRIMARY_IMPLEMENTATION" "$(dirname "$0")/test_disassembly"; then
+    echo -e "${GREEN}Disassembly tests: PASSED${NC}"
+  else
+    echo -e "${RED}Disassembly tests: FAILED${NC}"
+    FAILED=1
+  fi
 fi
 
 # Run performance benchmark tests
 echo -e "\n${YELLOW}Running performance benchmark tests...${NC}"
-if $(dirname "$0")/benchmark_test; then
+if IMPLEMENTATION_TO_TEST="$PRIMARY_IMPLEMENTATION" "$(dirname "$0")/benchmark_test"; then
   echo -e "${GREEN}Benchmark tests: PASSED${NC}"
 else
   echo -e "${RED}Benchmark tests: FAILED${NC}"
@@ -66,7 +99,7 @@ fi
 # Run JavaScript implementation tests (if Deno is available)
 echo -e "\n${YELLOW}Running JavaScript implementation tests...${NC}"
 if command -v deno &> /dev/null; then
-if deno run --allow-read --allow-env "$SCRIPT_DIR/../test/js/test_printable_binary.js"; then
+if PRINTABLE_BINARY_MAP="$SCRIPT_DIR/../character_map.txt" deno run --allow-read --allow-env "$SCRIPT_DIR/../test/js/test_printable_binary.js"; then
     echo -e "${GREEN}JavaScript tests: PASSED${NC}"
   else
     echo -e "${RED}JavaScript tests: FAILED${NC}"

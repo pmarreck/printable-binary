@@ -11,17 +11,31 @@ BLUE='\033[0;34m'
 YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
-# Check if luajit is installed
-if ! command -v luajit &> /dev/null; then
-    echo -e "${RED}Error: luajit is not installed. Please install it before running tests.${NC}"
-    exit 1
-fi
-
 # Path to the printable_binary script (can be overridden with IMPLEMENTATION_TO_TEST)
 # Auto-detect the correct path based on script location
 SCRIPT_DIR="$(dirname "$0")"
 DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../bin/printable_binary"
 SCRIPT="${IMPLEMENTATION_TO_TEST:-$DEFAULT_IMPLEMENTATION}"
+
+# Fail early if the implementation doesn't exist
+if [ ! -x "$SCRIPT" ]; then
+    echo -e "${RED}Error: Implementation not found or not executable: $SCRIPT${NC}"
+    exit 1
+fi
+
+# Detect interpreter requirements only when testing the Lua/Node scripts
+SHEBANG=$(head -n 1 "$SCRIPT" 2>/dev/null || echo "")
+if echo "$SHEBANG" | grep -qi "luajit"; then
+    if ! command -v luajit >/dev/null 2>&1; then
+        echo -e "${RED}Error: luajit is required to run $SCRIPT but was not found in PATH.${NC}"
+        exit 1
+    fi
+elif echo "$SHEBANG" | grep -qi "node"; then
+    if ! command -v node >/dev/null 2>&1; then
+        echo -e "${RED}Error: node is required to run $SCRIPT but was not found in PATH.${NC}"
+        exit 1
+    fi
+fi
 
 # Create temp files for testing
 TMP_BINARY=$(mktemp)
@@ -31,12 +45,13 @@ TMP_MAPPINGS=$(mktemp)
 TMP_MAPPINGS_JSON=$(mktemp)
 TMP_MAPPINGS_CSV=$(mktemp)
 TMP_STATS_STDERR=$(mktemp)
+TMP_ENCODED_WITH_WHITESPACE=$(mktemp)
 
 # Cleanup function
 cleanup() {
     rm -f "$TMP_BINARY" "$TMP_ENCODED" "$TMP_DECODED" \
           "$TMP_MAPPINGS" "$TMP_MAPPINGS_JSON" "$TMP_MAPPINGS_CSV" \
-          "$TMP_STATS_STDERR"
+          "$TMP_STATS_STDERR" "$TMP_ENCODED_WITH_WHITESPACE"
 }
 trap cleanup EXIT
 
@@ -260,6 +275,38 @@ else
     exit 1
 fi
 
+# Test 13: Decode survives blank lines in encoded text (regression for APE truncation)
+echo -e "${BLUE}Test #13: Decode handles blank lines in encoded text${NC}"
+MULTILINE_CONTENT=$'Line one\nLine two\n\nLine four\nLine five\n'
+printf "%s" "$MULTILINE_CONTENT" > "$TMP_BINARY"
+$SCRIPT "$TMP_BINARY" > "$TMP_ENCODED"
+
+# Inject real newlines (including a double newline) into the encoded stream to simulate copy/paste wrapping
+python3 - "$TMP_ENCODED" "$TMP_ENCODED_WITH_WHITESPACE" <<'PY'
+import sys, pathlib, math
+src, dest = sys.argv[1], sys.argv[2]
+text = pathlib.Path(src).read_text()
+if not text:
+    pathlib.Path(dest).write_text("")
+    sys.exit(0)
+# Insert single and double newlines at deterministic cut points
+first = max(1, len(text)//3)
+second = max(first + 1, 2*len(text)//3)
+wrapped = text[:first] + "\n" + text[first:second] + "\n\n" + text[second:] + "\n"
+pathlib.Path(dest).write_text(wrapped)
+PY
+
+$SCRIPT -d "$TMP_ENCODED_WITH_WHITESPACE" > "$TMP_DECODED"
+if cmp -s "$TMP_BINARY" "$TMP_DECODED"; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Multiline decode lost data (possible truncation)."
+    echo "Original (hex): $(xxd -p "$TMP_BINARY")"
+    echo "Decoded  (hex): $(xxd -p "$TMP_DECODED")"
+    exit 1
+fi
+
 ###############################################################################
 # CHARACTER MAPS TESTS
 ###############################################################################
@@ -386,19 +433,27 @@ test_byte 255 "Extended 255"
 
 echo -e "\n${YELLOW}Running disassembly tests...${NC}"
 
-# Check if cstool is available for disassembly tests
-if ! command -v cstool &> /dev/null; then
-    echo -e "${YELLOW}Skipping detailed disassembly tests (cstool not available)${NC}"
-else
-    # Run the detailed disassembly test suite
-    SCRIPT_DIR="$(dirname "$0")"
-    if "$SCRIPT_DIR/test_disassembly"; then
-        echo -e "${GREEN}Detailed disassembly tests: PASSED${NC}"
-    else
-        echo -e "${RED}Detailed disassembly tests: FAILED${NC}"
-        exit 1
-    fi
-fi
+# Skip disassembly for implementations that don't support Capstone piping (APE/Node builds)
+case "$SCRIPT" in
+    *printable_binary_ape.com|*printable_binary_node.js)
+        echo -e "${YELLOW}Skipping detailed disassembly tests for $SCRIPT${NC}"
+        ;;
+    *)
+        # Check if cstool is available for disassembly tests
+        if ! command -v cstool &> /dev/null; then
+            echo -e "${YELLOW}Skipping detailed disassembly tests (cstool not available)${NC}"
+        else
+            # Run the detailed disassembly test suite
+            SCRIPT_DIR="$(dirname "$0")"
+            if "$SCRIPT_DIR/test_disassembly"; then
+                echo -e "${GREEN}Detailed disassembly tests: PASSED${NC}"
+            else
+                echo -e "${RED}Detailed disassembly tests: FAILED${NC}"
+                exit 1
+            fi
+        fi
+        ;;
+esac
 
 ###############################################################################
 # PASSTHROUGH MODE TESTS

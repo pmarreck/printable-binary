@@ -7,6 +7,7 @@
  */
 
 const isNodeEnv = typeof process !== 'undefined' && !!process.versions?.node;
+const isDenoEnv = typeof Deno !== 'undefined' && typeof Deno.readTextFileSync === 'function';
 
 const CONTROL_NAMES = [
   'NUL','SOH','STX','ETX','EOT','ENQ','ACK','BEL',
@@ -56,12 +57,41 @@ if (isNodeEnv) {
     candidates.push(process.env.PRINTABLE_BINARY_MAP);
   }
   candidates.push(join(moduleDir, 'character_map.txt'));
+  candidates.push(join(moduleDir, '..', 'character_map.txt'));
+  candidates.push(join(moduleDir, '..', 'bin', 'character_map.txt'));
+  candidates.push(join(moduleDir, '..', 'docs', 'character_map.txt'));
   candidates.push(join(process.cwd(), 'character_map.txt'));
 
   let lastError;
   for (const candidate of candidates) {
     try {
       const text = readFileSync(candidate, 'utf8');
+      defaultCharacterMap = parseCharacterMap(text);
+      break;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (!defaultCharacterMap) {
+    throw new Error(`PrintableBinary: Unable to load character_map.txt. Set PRINTABLE_BINARY_MAP or place the map alongside printable_binary.js. Last error: ${lastError?.message ?? 'none'}`);
+  }
+} else if (isDenoEnv) {
+  const moduleDir = new URL('./', import.meta.url);
+  const candidates = [];
+  if (Deno.env?.get('PRINTABLE_BINARY_MAP')) {
+    candidates.push(Deno.env.get('PRINTABLE_BINARY_MAP'));
+  }
+  candidates.push(new URL('character_map.txt', moduleDir).pathname);
+  candidates.push(new URL('../character_map.txt', moduleDir).pathname);
+  candidates.push(new URL('../bin/character_map.txt', moduleDir).pathname);
+  candidates.push(new URL('../docs/character_map.txt', moduleDir).pathname);
+  candidates.push(`${Deno.cwd()}/character_map.txt`);
+
+  let lastError;
+  for (const candidate of candidates) {
+    try {
+      const text = Deno.readTextFileSync(candidate);
       defaultCharacterMap = parseCharacterMap(text);
       break;
     } catch (err) {

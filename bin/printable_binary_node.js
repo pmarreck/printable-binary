@@ -74,6 +74,7 @@ function parseArgs(argv) {
   let formatSpec = null;
   let filePath = null;
   let mappingsFormat = null;
+   let passthrough = false;
 
   const setMappingsFormat = (mode) => {
     if (mappingsFormat && mappingsFormat !== mode) {
@@ -107,6 +108,8 @@ function parseArgs(argv) {
       setMappingsFormat('json');
     } else if (arg === '--mappings-csv') {
       setMappingsFormat('csv');
+    } else if (arg === '-p' || arg === '--passthrough') {
+      passthrough = true;
     } else if (arg.startsWith('-')) {
       process.stderr.write(`Error: Unknown option ${arg}\n`);
       printUsage();
@@ -119,7 +122,7 @@ function parseArgs(argv) {
     }
   }
 
-  return { decodeMode, formatSpec, filePath, mappingsFormat };
+  return { decodeMode, formatSpec, filePath, mappingsFormat, passthrough };
 }
 
 async function readInput(filePath) {
@@ -136,7 +139,7 @@ async function readInput(filePath) {
 }
 
 async function main() {
-  const { decodeMode, formatSpec, filePath, mappingsFormat } = parseArgs(process.argv.slice(2));
+  const { decodeMode, formatSpec, filePath, mappingsFormat, passthrough } = parseArgs(process.argv.slice(2));
   const pb = new PrintableBinary();
 
   try {
@@ -149,11 +152,19 @@ async function main() {
     const input = await readInput(filePath);
 
     if (decodeMode) {
+      if (passthrough) {
+        process.stderr.write('Warning: --passthrough ignored in decode mode\n');
+      }
       const decoded = pb.decode(input.toString('utf8'));
       process.stdout.write(Buffer.from(decoded));
     } else {
       const encoded = pb.encode(input, formatSpec ? { format: formatSpec } : {});
-      process.stdout.write(encoded);
+      if (passthrough) {
+        process.stdout.write(input);
+        process.stderr.write(encoded);
+      } else {
+        process.stdout.write(encoded);
+      }
     }
   } catch (err) {
     process.stderr.write(`Error: ${err.message}\n`);

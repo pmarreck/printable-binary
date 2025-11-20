@@ -13,7 +13,7 @@ APE_TARGET = printable_binary_ape.com
 MAP_COPY = $(BIN_DIR)/character_map.txt
 
 APE_CC ?= cosmocc
-APE_FLAGS = -O3 -DNDEBUG
+APE_FLAGS = -O3 -DNDEBUG -I$(CURDIR)
 
 # Optimization levels
 CFLAGS_DEBUG = $(CFLAGS) -g -O0 -DDEBUG

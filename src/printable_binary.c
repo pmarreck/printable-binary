@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <ctype.h>
+#include <errno.h>
 
 #include "character_map_embedded.h"
 
@@ -676,36 +677,85 @@ static buffer_t read_file(const char *filename) {
 
     buffer_init(&buf, initial_capacity);
 
-    FILE *file = stdin;
-    if (filename && strcmp(filename, "-") != 0) {
-        file = fopen(filename, "rb");
-        if (!file) {
-            perror("Error opening file");
+    // Fast path for stdin: use unbuffered read() to avoid libc quirks (notably in Cosmopolitan APE)
+    if (!filename || strcmp(filename, "-") == 0) {
+        char temp[8192];
+        while (1) {
+            ssize_t bytes_read = read(STDIN_FILENO, temp, sizeof(temp));
+            if (bytes_read > 0) {
+                if (buf.size + (size_t)bytes_read >= buf.capacity) {
+                    buf.capacity = (buf.size + (size_t)bytes_read) * 2;
+                    buf.data = realloc(buf.data, buf.capacity);
+                    if (!buf.data) {
+                        fprintf(stderr, "Memory allocation failed\n");
+                        exit(1);
+                    }
+                }
+                memcpy(buf.data + buf.size, temp, (size_t)bytes_read);
+                buf.size += (size_t)bytes_read;
+                continue;
+            }
+            if (bytes_read == 0) {
+                break; // EOF
+            }
+            if (errno == EINTR
+#ifdef EAGAIN
+                || errno == EAGAIN || errno == EWOULDBLOCK
+#endif
+            ) {
+                continue;
+            }
+            perror("Error reading input");
+            exit(1);
+        }
+        buffer_prepare_return(&buf);
+        return buf;
+    }
+
+    // File path case: use stdio for portability
+    FILE *file = fopen(filename, "rb");
+    if (!file) {
+        perror("Error opening file");
+        exit(1);
+    }
+
+    char temp[8192];
+    while (1) {
+        size_t bytes_read = fread(temp, 1, sizeof(temp), file);
+        if (bytes_read > 0) {
+            if (buf.size + bytes_read >= buf.capacity) {
+                buf.capacity = (buf.size + bytes_read) * 2;
+                buf.data = realloc(buf.data, buf.capacity);
+                if (!buf.data) {
+                    fprintf(stderr, "Memory allocation failed\n");
+                    exit(1);
+                }
+            }
+            memcpy(buf.data + buf.size, temp, bytes_read);
+            buf.size += bytes_read;
+            continue;
+        }
+
+        if (feof(file)) {
+            break;
+        }
+
+        if (ferror(file)) {
+            if (errno == EINTR
+#ifdef EAGAIN
+                || errno == EAGAIN || errno == EWOULDBLOCK
+#endif
+            ) {
+                clearerr(file);
+                continue;
+            }
+            perror("Error reading file");
+            fclose(file);
             exit(1);
         }
     }
 
-    char temp[8192];
-    size_t bytes_read;
-    while ((bytes_read = fread(temp, 1, sizeof(temp), file)) > 0) {
-        // If buffer too small, grow it
-        if (buf.size + bytes_read >= buf.capacity) {
-            buf.capacity = (buf.size + bytes_read) * 2;
-            buf.data = realloc(buf.data, buf.capacity);
-            if (!buf.data) {
-                fprintf(stderr, "Memory allocation failed\n");
-                exit(1);
-            }
-        }
-        // Manually append data (avoid buffer_append since it doesn't support realloc)
-        memcpy(buf.data + buf.size, temp, bytes_read);
-        buf.size += bytes_read;
-    }
-
-    if (file != stdin) {
-        fclose(file);
-    }
-
+    fclose(file);
     buffer_prepare_return(&buf);
     return buf;
 }
