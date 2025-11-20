@@ -16,7 +16,7 @@
 #   TEST_SIZE_MB=5 ./fuzz_test     # Run with larger dataset
 #
 # Environment Variables:
-#   IMPLEMENTATION_TO_TEST         # Path to binary to test (default: ../printable_binary)
+#   IMPLEMENTATION_TO_TEST         # Path to binary to test (default: ../bin/printable_binary)
 #   TEST_SIZE_MB                   # Size of test data in MB (default: 1)
 #
 # Requirements:
@@ -56,7 +56,7 @@ NC='\033[0m' # No Color
 
 # Auto-detect the correct path based on script location
 SCRIPT_DIR="$(dirname "$0")"
-DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../printable_binary"
+DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../bin/printable_binary"
 SCRIPT="${IMPLEMENTATION_TO_TEST:-$DEFAULT_IMPLEMENTATION}"
 TEST_SIZE_MB="${TEST_SIZE_MB:-1}"
 TEST_SIZE_BYTES=$((TEST_SIZE_MB * 1024 * 1024))

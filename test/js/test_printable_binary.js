@@ -6,7 +6,7 @@
  * Or with Node.js: node test/js/test_printable_binary.js
  */
 
-import PrintableBinary from './printable_binary.js';
+import PrintableBinary from '../js/printable_binary.js';
 
 // Test utilities
 let testCount = 0;

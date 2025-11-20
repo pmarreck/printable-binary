@@ -169,9 +169,9 @@ Comprehensive testing across all file sizes and data patterns confirms:
 make release
 
 # Use exactly like LuaJIT version
-./printable_binary_c file.bin
-./printable_binary_c -d encoded_file.txt
-./printable_binary_c --passthrough file.bin | other_tool
+./bin/printable_binary_c file.bin
+./bin/printable_binary_c -d encoded_file.txt
+./bin/printable_binary_c --passthrough file.bin | other_tool
 ```
 
 ### Cross-Platform Support

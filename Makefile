@@ -3,11 +3,11 @@
 
 # Default compiler and flags
 CC ?= gcc
-CFLAGS = -std=c99 -Wall -Wextra -Wpedantic
+CFLAGS = -std=c99 -Wall -Wextra -Wpedantic -I$(CURDIR)
 LDFLAGS = 
 BIN_DIR = bin
 TARGET = printable_binary_c
-SOURCE = printable_binary.c
+SOURCE = src/printable_binary.c
 WASM_TARGET = printable_binary.wasm
 APE_TARGET = printable_binary_ape.com
 MAP_COPY = $(BIN_DIR)/character_map.txt
@@ -162,7 +162,7 @@ benchmark: $(TARGET)
 # Compare with LuaJIT version
 .PHONY: compare
 compare: $(TARGET)
-	@if [ ! -f printable_binary ]; then \
+	@if [ ! -f bin/printable_binary ]; then \
 		echo "Error: LuaJIT version not found"; \
 		exit 1; \
 	fi
@@ -175,13 +175,13 @@ compare: $(TARGET)
 	@time $(BIN_DIR)/$(TARGET) compare_test.bin > compare_c_encoded.tmp 2>/dev/null
 	@echo
 	@echo "LuaJIT version encoding:"
-	@time ./printable_binary compare_test.bin > compare_lua_encoded.tmp 2>/dev/null
+	@time ./bin/printable_binary compare_test.bin > compare_lua_encoded.tmp 2>/dev/null
 	@echo
 	@echo "C version decoding:"
 	@time $(BIN_DIR)/$(TARGET) -d compare_c_encoded.tmp > compare_c_decoded.tmp 2>/dev/null
 	@echo
 	@echo "LuaJIT version decoding:"
-	@time ./printable_binary -d compare_lua_encoded.tmp > compare_lua_decoded.tmp 2>/dev/null
+	@time ./bin/printable_binary -d compare_lua_encoded.tmp > compare_lua_decoded.tmp 2>/dev/null
 	@echo
 	@echo "Verifying output compatibility:"
 	@if cmp compare_c_encoded.tmp compare_lua_encoded.tmp; then \
@@ -205,13 +205,13 @@ hyperfine: $(TARGET)
 		echo "Running hyperfine benchmark..."; \
 		hyperfine --warmup 3 \
 			"$(BIN_DIR)/$(TARGET) hyperfine_test.bin" \
-			"./printable_binary hyperfine_test.bin" \
+		"./bin/printable_binary hyperfine_test.bin" \
 			--export-markdown benchmark_results.md; \
 		echo "Encode benchmark results saved to benchmark_results.md"; \
 		$(BIN_DIR)/$(TARGET) hyperfine_test.bin > hyperfine_encoded.tmp 2>/dev/null; \
 		hyperfine --warmup 3 \
 			"$(BIN_DIR)/$(TARGET) -d hyperfine_encoded.tmp" \
-			"./printable_binary -d hyperfine_encoded.tmp" \
+		"./bin/printable_binary -d hyperfine_encoded.tmp" \
 			--export-markdown decode_benchmark_results.md;
 		echo "Decode benchmark results saved to decode_benchmark_results.md"; \
 		rm -f hyperfine_test.bin hyperfine_encoded.tmp; \

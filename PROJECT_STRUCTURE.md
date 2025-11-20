@@ -26,7 +26,8 @@ printable-binary/
 │   ├── generate_embedded_map.lua
 │   └── js/                 # Mapping/diagnostic helpers used by Node tooling
 ├── printable_binary        # LuaJIT implementation (main script)
-├── printable_binary.c      # C source code
+├── src/                    # C source tree
+│   └── printable_binary.c  # High-performance implementation
 ├── Makefile               # Build system
 └── [documentation files]
 ```
@@ -35,7 +36,7 @@ printable-binary/
 
 ### Implementations
 - **`printable_binary`** - Original LuaJIT implementation (requires LuaJIT)
-- **`printable_binary.c`** - C source code for high-performance version
+- **`src/printable_binary.c`** - C source code for high-performance version
 - **`bin/printable_binary_c`** - Compiled C binary (created by `make`)
 
 ### Build System
@@ -95,7 +96,7 @@ IMPLEMENTATION_TO_TEST=/path/to/my/version make test
 
 All test scripts support the `IMPLEMENTATION_TO_TEST` environment variable:
 
-- **Default**: `../printable_binary` (LuaJIT version)
+- **Default**: `../bin/printable_binary` (LuaJIT version)
 - **C version**: `../bin/printable_binary_c`
 - **Custom**: Any path to a compatible implementation
 

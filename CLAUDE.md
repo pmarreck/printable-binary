@@ -27,7 +27,7 @@ When making changes to this codebase, follow TDD principles:
 
 ## Debug Mode
 - Set `DEBUG=1` environment variable to enable detailed diagnostic output
-- Example: `DEBUG=1 ./printable_binary -a /usr/bin/ditto`
+- Example: `DEBUG=1 ./bin/printable_binary -a /usr/bin/ditto`
 - Helpful when diagnosing architecture selection or disassembly issues
 
 ## Architecture Selection

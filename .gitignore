@@ -1,11 +1,11 @@
 **/.claude/settings.local.json
 .DS_Store
 **/.DS_Store
+.dirtree-state
 
 # Compiled binaries
 bin/printable_binary_c
 bin/printable_binary_ape.com
-bin/printable_binary
 /bin/character_map.txt
 /.emscripten_cache/
 *.o

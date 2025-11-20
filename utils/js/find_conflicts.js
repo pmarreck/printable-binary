@@ -1,4 +1,4 @@
-import PrintableBinary from './printable_binary.js';
+import PrintableBinary from '../../js/printable_binary.js';
 
 // Build maps without the Latin-1 extension to see the special chars
 class TestEncoder {

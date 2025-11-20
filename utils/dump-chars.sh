@@ -27,7 +27,7 @@ for range in "0-31" "32-64" "65-96" "97-127" "128-159" "160-191" "192-223" "224-
     printf "\\$(printf '%03o' $i)" > "$TEMPFILE"
     
     # Encode it
-    ENCODED=$(./printable_binary "$TEMPFILE" 2>/dev/null)
+    ENCODED=$(./bin/printable_binary "$TEMPFILE" 2>/dev/null)
     
     # Show the mapping
     printf "Byte %3d (0x%02X) -> %s\n" "$i" "$i" "$ENCODED"

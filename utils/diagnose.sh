@@ -16,13 +16,13 @@ echo "First 32 bytes of original:"
 hexdump -C "$TEST_FILE" | head -n 2
 
 echo "Encoding..."
-./printable_binary "$TEST_FILE" > "$ENCODED_FILE"
+./bin/printable_binary "$TEST_FILE" > "$ENCODED_FILE"
 echo "Encoded file size: $(wc -c < "$ENCODED_FILE") bytes"
 echo "First 32 bytes of encoded:"
 hexdump -C "$ENCODED_FILE" | head -n 2
 
 echo "Decoding..."
-./printable_binary -d "$ENCODED_FILE" > "$DECODED_FILE"
+./bin/printable_binary -d "$ENCODED_FILE" > "$DECODED_FILE"
 echo "Decoded file size: $(wc -c < "$DECODED_FILE") bytes"
 echo "First 32 bytes of decoded:"
 hexdump -C "$DECODED_FILE" | head -n 4

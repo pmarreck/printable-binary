@@ -79,9 +79,9 @@ make test-ape
 
 ```bash
 # Already optimized and ready to use
-./printable_binary file.bin
-./printable_binary -d encoded_file.txt
-./printable_binary -a executable  # Disassembly feature
+./bin/printable_binary file.bin
+./bin/printable_binary -d encoded_file.txt
+./bin/printable_binary -a executable  # Disassembly feature
 ```
 
 ## Installation Options
@@ -135,10 +135,10 @@ All compiled variants (ELF, APE, WASM via wazero) share **identical** command-li
 
 ```bash
 # Encode binary file to UTF-8
-./printable_binary file.bin > encoded.txt
+./bin/printable_binary file.bin > encoded.txt
 
 # Decode UTF-8 back to binary
-./printable_binary -d encoded.txt > decoded.bin
+./bin/printable_binary -d encoded.txt > decoded.bin
 
 # Verify round-trip
 cmp file.bin decoded.bin && echo "✓ Perfect round-trip"
@@ -148,18 +148,18 @@ cmp file.bin decoded.bin && echo "✓ Perfect round-trip"
 
 ```bash
 # Passthrough mode (monitor binary data in pipelines)
-./printable_binary --passthrough file.bin | other_tool
+./bin/printable_binary --passthrough file.bin | other_tool
 
 # Formatted output
-./printable_binary -f=4x10 file.bin    # 4 chars per group, 10 groups per line
+./bin/printable_binary -f=4x10 file.bin    # 4 chars per group, 10 groups per line
 
 # Disassembly (LuaJIT only)
-./printable_binary -a executable       # Auto-detect architecture
-./printable_binary -a --arch=arm64 binary  # Force ARM64
+./bin/printable_binary -a executable       # Auto-detect architecture
+./bin/printable_binary -a --arch=arm64 binary  # Force ARM64
 
 # Piped input
-cat file.bin | ./printable_binary
-echo "Hello" | ./printable_binary | ./printable_binary -d
+cat file.bin | ./bin/printable_binary
+echo "Hello" | ./bin/printable_binary | ./bin/printable_binary -d
 ```
 
 ### Complete Options Reference
@@ -181,7 +181,7 @@ Input/Output:
   - Outputs to stdout (unless --passthrough is used)
   - In passthrough mode: original data → stdout, encoded data → stderr
 
-Both binaries embed the canonical 256-entry map, so the new `--mappings*` flags work even when `character_map.txt` is missing. If you place a custom map alongside the executable (or set `PRINTABLE_BINARY_MAP`), these options will reflect the override automatically.
+Both binaries embed the canonical 256-entry map, so the new `--mappings*` flags work even when `character_map.txt` is missing. If you place a custom map alongside the executable (or set `PRINTABLE_BINARY_MAP`), these options will reflect the override automatically. The override file should contain **exactly 256 lines**, each a single UTF-8 glyph (line 0 = byte 0x00, line 255 = byte 0xFF).
 
 ### Environment Variables (All Implementations)
 
@@ -334,7 +334,7 @@ make LDFLAGS=-static release
 make profile
 
 # Run with profiling
-./printable_binary_profile large_file.bin
+./bin/printable_binary_profile large_file.bin
 gprof printable_binary_profile gmon.out > profile.txt
 
 # Memory profiling with Valgrind
@@ -397,7 +397,7 @@ dd if=/dev/urandom of=test.bin bs=1M count=1
 
 # Binary compatibility test
 ./bin/printable_binary_c test.bin > c_output.txt
-./printable_binary test.bin > lua_output.txt
+./bin/printable_binary test.bin > lua_output.txt
 cmp c_output.txt lua_output.txt && echo "✓ Outputs identical"
 ```
 
@@ -489,7 +489,7 @@ Both implementations are released under the same license as the original project
 ### Getting Help
 
 1. **Check this README** for common usage patterns
-2. **Run built-in help**: `./printable_binary --help`
+2. **Run built-in help**: `./bin/printable_binary --help`
 3. **Review test suites** for usage examples
 4. **Check performance docs** for optimization tips
 

@@ -36,8 +36,8 @@ $ bat -A binary_file.bin
 ### Round-Trip Encoding/Decoding (While Maintaining Human Legibility)
 
 ```bash
-$ ./printable_binary file.bin > encoded.txt
-$ ./printable_binary -d encoded.txt > decoded.bin
+$ ./bin/printable_binary file.bin > encoded.txt
+$ ./bin/printable_binary -d encoded.txt > decoded.bin
 $ cmp file.bin decoded.bin && echo "Perfect round-trip!"
 ```
 
@@ -46,15 +46,15 @@ $ cmp file.bin decoded.bin && echo "Perfect round-trip!"
 ### 1. **Lossless Round-Trip Encoding** 🔄
 
 ```bash
-./printable_binary file.bin > encoded.txt
-./printable_binary -d encoded.txt > recovered.bin
+./bin/printable_binary file.bin > encoded.txt
+./bin/printable_binary -d encoded.txt > recovered.bin
 # Perfect reconstruction - zero data loss
 ```
 
 ### 2. **Binary Disassembly Integration** 🔍
 
 ```bash
-./printable_binary -a binary_file
+./bin/printable_binary -a binary_file
 # Output includes both encoded data AND disassembly
 # Uses Capstone (cstool) for x86/ARM/etc disassembly
 # Even disassembly output can be decoded back to original binary
@@ -66,7 +66,7 @@ $ cmp file.bin decoded.bin && echo "Perfect round-trip!"
 
 ```bash
 # Monitor binary streams in real-time
-./printable_binary --passthrough file.bin | other_tool
+./bin/printable_binary --passthrough file.bin | other_tool
 # Original data flows through stdout, encoded representation on stderr
 ```
 
@@ -80,7 +80,7 @@ $ cmp file.bin decoded.bin && echo "Perfect round-trip!"
 
 ```bash
 # Configurable output formatting
-./printable_binary -f=4x10 file.bin  # Custom grouping
+./bin/printable_binary -f=4x10 file.bin  # Custom grouping
 # Whitespace-tolerant decoding - copy-paste friendly
 ```
 
@@ -88,7 +88,7 @@ $ cmp file.bin decoded.bin && echo "Perfect round-trip!"
 
 ```bash
 # PrintableBinary: ~1.8x expansion, human-readable
-echo "Hello" | ./printable_binary
+echo "Hello" | ./bin/printable_binary
 # Output: Hello
 
 # Base64: 1.33x expansion, opaque encoding
@@ -102,7 +102,7 @@ PrintableBinary trades slightly more space (1.8x vs 1.33x) for **immediate human
 
 ```bash
 # Automatic architecture detection for disassembly
-./printable_binary -a universal_binary
+./bin/printable_binary -a universal_binary
 # Handles x86_64, ARM64, x86, ARM with proper detection
 # Universal binaries get appropriate architecture warnings
 ```
@@ -189,19 +189,19 @@ bat -A suspicious_file.bin
 
 ```bash
 # Round-trip encoding
-./printable_binary data.bin > encoded.txt
-./printable_binary -d encoded.txt > restored.bin
+./bin/printable_binary data.bin > encoded.txt
+./bin/printable_binary -d encoded.txt > restored.bin
 
 # Binary analysis with disassembly
-./printable_binary -a executable.bin > analysis.txt
-./printable_binary -d analysis.txt > recovered_executable.bin
+./bin/printable_binary -a executable.bin > analysis.txt
+./bin/printable_binary -d analysis.txt > recovered_executable.bin
 
 # Real-time pipeline monitoring
-./printable_binary --passthrough data.bin | process_tool
+./bin/printable_binary --passthrough data.bin | process_tool
 
 # Production batch processing
 for file in *.bin; do
-    ./printable_binary_c "$file" > "${file}.encoded"
+    ./bin/printable_binary_c "$file" > "${file}.encoded"
 done
 ```
 

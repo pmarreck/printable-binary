@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // Compare the Lua and JS encode maps for bytes 128-255
-import PrintableBinary from './printable_binary.js';
+import PrintableBinary from '../../js/printable_binary.js';
 
 const encoder = new PrintableBinary();
 

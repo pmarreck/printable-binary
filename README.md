@@ -39,14 +39,14 @@ This implementation allows you to view binary data directly in a terminal (it ev
 
 ```bash
 # Use any implementation:
-# LuaJIT version:     ./printable_binary
+# LuaJIT version:     ./bin/printable_binary
 # C version (ELF/Mach): ./bin/printable_binary_c
 # C APE (Cosmopolitan): ./bin/printable_binary_ape.com
 # Node.js CLI:         ./bin/printable_binary_node.js
 # (Examples below use the LuaJIT version; the others accept the same flags.)
 
 # Encode binary data
-echo -n "Hello, World!" | ./printable_binary
+echo -n "Hello, World!" | ./bin/printable_binary
 # Output: Hello,␣World﹗
 
 # Note: Direct encoding of binary data as command-line arguments is not supported
@@ -54,49 +54,49 @@ echo -n "Hello, World!" | ./printable_binary
 # Always pipe input or specify a file to encode
 
 # Encode a file
-./printable_binary somefile.bin > encoded.txt
+./bin/printable_binary somefile.bin > encoded.txt
 
 # Encode with formatting (groups of 8 characters, 10 groups per line)
-./printable_binary -f somefile.bin > formatted_encoded.txt
+./bin/printable_binary -f somefile.bin > formatted_encoded.txt
 
 # Encode with custom formatting (groups of 4 characters, 16 groups per line)
-./printable_binary -f=4x16 somefile.bin > custom_formatted.txt
+./bin/printable_binary -f=4x16 somefile.bin > custom_formatted.txt
 
 # Encode with raw disassembly (auto-detects architecture)
-./printable_binary -a executable.bin > disassembled.txt
+./bin/printable_binary -a executable.bin > disassembled.txt
 
 # Encode with smart disassembly (format-aware)
-./printable_binary --smart-asm executable.bin > smart_disassembled.txt
+./bin/printable_binary --smart-asm executable.bin > smart_disassembled.txt
 
 # Encode with both formatting and disassembly
-./printable_binary -a -f=8x8 executable.bin > formatted_disassembly.txt
+./bin/printable_binary -a -f=8x8 executable.bin > formatted_disassembly.txt
 
 # Encode with specific architecture (useful for universal binaries)
-./printable_binary -a --arch x64 universal_binary.bin > x64_disassembly.txt
+./bin/printable_binary -a --arch x64 universal_binary.bin > x64_disassembly.txt
 
 # NOTE: Disassembly only processes a portion of the binary
 # Decoding from disassembly will not reconstruct the full binary
 # For universal binaries, it will only show one architecture
-./printable_binary universal_binary.bin > full_binary.txt  # Use this for full binary preservation
+./bin/printable_binary universal_binary.bin > full_binary.txt  # Use this for full binary preservation
 
 # Inspect the active character map (table/JSON/CSV)
-./printable_binary --mappings | head
+./bin/printable_binary --mappings | head
 ./bin/printable_binary_c --mappings-json > mapping.json
 ./bin/printable_binary_node.js --mappings-csv > mapping.csv
 
 # Decode data (spaces and newlines are automatically ignored during decoding)
-echo -n "Hello,␣World﹗" | ./printable_binary -d
+echo -n "Hello,␣World﹗" | ./bin/printable_binary -d
 # Output: Hello, World!
 
 # Decode formatted data (formatting is ignored)
-cat formatted_encoded.txt | ./printable_binary -d > original.bin
+cat formatted_encoded.txt | ./bin/printable_binary -d > original.bin
 
 # Decode disassembled data (disassembly info is ignored)
-cat disassembled.txt | ./printable_binary -d > original_executable.bin
+cat disassembled.txt | ./bin/printable_binary -d > original_executable.bin
 
 # Use passthrough mode to output both original binary (stdout) and encoded text (stderr)
 # This is useful for binary data processing pipelines that need both representations
-echo -n "Hello, World!" | ./printable_binary --passthrough 2>encoded.txt | wc -c
+echo -n "Hello, World!" | ./bin/printable_binary --passthrough 2>encoded.txt | wc -c
 # Binary data goes to stdout, encoded text to stderr
 
 # Use the C implementation for better performance on large files
@@ -173,15 +173,15 @@ Supported flags: `-d/--decode`, `-f/--format NxM`, `--mappings*`, `-h/--help`. T
 Every CLI and the WASM build ships with the canonical 256-entry table embedded, so you can always inspect it:
 
 ```bash
-./printable_binary --mappings          # human-readable table
-./printable_binary --mappings-json     # machine-readable JSON
-./printable_binary --mappings-csv      # spreadsheet-friendly CSV
+./bin/printable_binary --mappings          # human-readable table
+./bin/printable_binary --mappings-json     # machine-readable JSON
+./bin/printable_binary --mappings-csv      # spreadsheet-friendly CSV
 ```
 
-Those commands show whichever map is active. To override the defaults, place a `character_map.txt` next to the executable (or set `PRINTABLE_BINARY_MAP`) and rerun the same flags to confirm your changes. The lookup order is:
+Those commands show whichever map is active. To override the defaults, place a `character_map.txt` next to the executable (or set `PRINTABLE_BINARY_MAP`) and rerun the same flags to confirm your changes. The file format is simple: **256 lines of UTF-8, one glyph per byte value starting at 0x00**. No commas, spaces, or indexes—just the literal characters in order. The lookup order is:
 
 1. `PRINTABLE_BINARY_MAP` environment variable (path to the file)
-2. A `character_map.txt` sitting next to the executable/module (`printable_binary`, `js/printable_binary.js`, `bin/printable_binary_c`, or the WASM dir)
+2. A `character_map.txt` sitting next to the executable/module (`bin/printable_binary`, `js/printable_binary.js`, `bin/printable_binary_c`, or the WASM dir)
 3. The current working directory
 
 If none of those locations exist, the embedded table is used automatically. Edit the file to experiment with alternative glyphs—the LuaJIT, C, Node.js, and WebAssembly implementations will all honor the override on their next run.
@@ -200,12 +200,12 @@ One powerful trick is to drop PrintableBinary into a pipeline so you can watch t
 ```bash
 # Monitor traffic but keep the pipeline lossless
 tcpdump -i en0 -w - | \
-  ./printable_binary --passthrough > capture.raw 2> capture.pbt
+  ./bin/printable_binary --passthrough > capture.raw 2> capture.pbt
 
 # Alternatively inspect a decompression stream:
 gzip -c bigfile > /tmp/data.gz
 gzip -dc /tmp/data.gz | \
-  ./printable_binary --passthrough | md5sum
+  ./bin/printable_binary --passthrough | md5sum
 # stdout (original bytes) flows into md5sum; stderr shows the printable view.
 ```
 
@@ -221,8 +221,8 @@ Uses `objdump` for format-aware disassembly that understands binary file structu
 
 ```bash
 # Smart disassembly - recommended for most use cases
-./printable_binary --smart-asm /usr/bin/ls
-./printable_binary --smart-asm -f=4x8 binary_file.exe
+./bin/printable_binary --smart-asm /usr/bin/ls
+./bin/printable_binary --smart-asm -f=4x8 binary_file.exe
 ```
 
 **Advantages:**
@@ -241,11 +241,11 @@ Uses `cstool` (Capstone) for direct byte-to-instruction disassembly:
 
 ```bash
 # Raw disassembly with auto-detection
-./printable_binary -a binary_file
+./bin/printable_binary -a binary_file
 
 # Force specific architecture
-./printable_binary -a --arch=arm64 data_file.bin
-./printable_binary -a --arch=x64 shellcode.bin
+./bin/printable_binary -a --arch=arm64 data_file.bin
+./bin/printable_binary -a --arch=x64 shellcode.bin
 ```
 
 **Advantages:**
@@ -275,7 +275,7 @@ Uses `cstool` (Capstone) for direct byte-to-instruction disassembly:
 **Smart disassembly of a macOS binary:**
 
 ```bash
-./printable_binary --smart-asm /usr/libexec/rosetta/runtime
+./bin/printable_binary --smart-asm /usr/libexec/rosetta/runtime
 # Output includes proper ARM64 disassembly with section information
 ```
 
@@ -283,14 +283,14 @@ Uses `cstool` (Capstone) for direct byte-to-instruction disassembly:
 
 ```bash
 # Analyze potential shellcode
-echo -n "4889e5" | xxd -r -p | ./printable_binary -a --arch=x64
+echo -n "4889e5" | xxd -r -p | ./bin/printable_binary -a --arch=x64
 ```
 
 **Cross-architecture analysis:**
 
 ```bash
 # See what ARM code looks like when interpreted as x86
-./printable_binary -a --arch=x32 /usr/bin/arm_binary
+./bin/printable_binary -a --arch=x32 /usr/bin/arm_binary
 ```
 
 ## Format Compatibility
@@ -320,19 +320,19 @@ The PrintableBinary character set is specifically designed to be highly compatib
 
 ```bash
 # JSON
-echo '{"binary_data": "'$(./printable_binary file.bin)'"}'
+echo '{"binary_data": "'$(./bin/printable_binary file.bin)'"}'
 
 # XML/HTML
-echo '<data>'$(./printable_binary file.bin)'</data>'
+echo '<data>'$(./bin/printable_binary file.bin)'</data>'
 
 # YAML
-echo 'data: "'$(./printable_binary file.bin)'"'
+echo 'data: "'$(./bin/printable_binary file.bin)'"'
 
 # Shell variable
-DATA="$(./printable_binary file.bin)"
+DATA="$(./bin/printable_binary file.bin)"
 
 # C string literal
-printf 'char data[] = "%s";\n' "$(./printable_binary file.bin)"
+printf 'char data[] = "%s";\n' "$(./bin/printable_binary file.bin)"
 ```
 
 **Note:** If your original binary contains problematic characters (like `<` or `{`), they'll appear as-is since they're printable ASCII. Use quoted contexts when embedding in structured formats.
@@ -709,7 +709,7 @@ make wasm
 make ape
 
 # Resulting executables live in ./bin:
-#   ./printable_binary                 (LuaJIT script)
+#   ./bin/printable_binary                 (LuaJIT script)
 #   ./bin/printable_binary_c           (native ELF/Mach-O)
 #   ./bin/printable_binary_ape.com     (Actually Portable Executable)
 #   ./bin/printable_binary.wasm        (WASM for wazero/browsers)

@@ -16,7 +16,7 @@ echo -e "${BLUE}=== PrintableBinary Test Suite Runner ===${NC}"
 # Show which implementation is being tested
 # Auto-detect the correct path based on script location
 SCRIPT_DIR="$(dirname "$0")"
-DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../printable_binary"
+DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../bin/printable_binary"
 IMPLEMENTATION="${IMPLEMENTATION_TO_TEST:-$DEFAULT_IMPLEMENTATION}"
 echo -e "${YELLOW}Testing implementation: $IMPLEMENTATION${NC}"
 

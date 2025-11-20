@@ -4,7 +4,7 @@
  * Cross-compatibility test between Lua and JavaScript implementations
  */
 
-import PrintableBinary from './printable_binary.js';
+import PrintableBinary from '../js/printable_binary.js';
 
 const encoder = new PrintableBinary();
 
@@ -23,7 +23,7 @@ console.log();
 
 // Encode with Lua implementation
 const luaProcess = Deno.run({
-  cmd: ["./printable_binary"],
+  cmd: ["./bin/printable_binary"],
   stdin: "piped",
   stdout: "piped",
   stderr: "piped"
