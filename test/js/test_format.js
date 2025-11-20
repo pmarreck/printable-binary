@@ -1,4 +1,4 @@
-import PrintableBinary from '../js/printable_binary.js';
+import PrintableBinary from '../../js/printable_binary.js';
 
 const encoder = new PrintableBinary();
 

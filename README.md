@@ -195,6 +195,8 @@ PrintableBinary respects a couple of environment variables across every implemen
 - `PRINTABLE_BINARY_MAP` – absolute or relative path to a `character_map.txt` that overrides the embedded table. The lookup order is described above.
 - `PRINTABLE_BINARY_MUTE_STATS` – set to `1`, `true`, or `yes` to suppress the usual "Encoded …" / "Decoding mode …" statistics that are normally written to stderr. This is handy for scripts that expect clean stderr output while still reusing the default behavior interactively.
 
+When launching the WASM build with wazero, remember that it does **not** inherit host environment variables unless you pass them. Use `wazero run --env=PRINTABLE_BINARY_MUTE_STATS=true bin/printable_binary.wasm` (or `--env-inherit` to forward everything) so the behavior matches the native binaries.
+
 ### Inspecting Streams (Passthrough Mode)
 
 One powerful trick is to drop PrintableBinary into a pipeline so you can watch the encoded stream on stderr while the raw bytes continue downstream untouched:

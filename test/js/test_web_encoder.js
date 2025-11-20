@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // Test the web encoder to see if it matches CLI output
-import PrintableBinary from '../js/printable_binary.js';
+import PrintableBinary from '../../js/printable_binary.js';
 import fs from 'fs';
 
 const encoder = new PrintableBinary();
