@@ -3,13 +3,19 @@
 **/.DS_Store
 .dirtree-state
 
-# Compiled binaries
+# Compiled binaries (non-APE)
 bin/printable_binary_c
-bin/printable_binary_ape.com
-/bin/character_map.txt
 /.emscripten_cache/
 *.o
 *.exe
 *.dll
 *.so
 *.dylib
+
+# Local Cosmopolitan toolchain cache (large download)
+.cosmocc/
+
+# build detritus
+**/*.elf
+**/*.dbg
+a.out

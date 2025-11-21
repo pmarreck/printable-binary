@@ -11,14 +11,30 @@ SOURCE = src/printable_binary.c
 WASM_TARGET = printable_binary.wasm
 APE_TARGET = printable_binary_ape.com
 MAP_COPY = $(BIN_DIR)/character_map.txt
+STRIP ?= strip
 
-APE_CC ?= cosmocc
+COSMOCC_VERSION ?= 4.0.2
+COSMOCC_URL ?= https://cosmo.zip/pub/cosmocc/cosmocc-$(COSMOCC_VERSION).zip
+COSMOCC_DIR ?= $(CURDIR)/.cosmocc
+COSMOCC_BIN ?= $(COSMOCC_DIR)/bin/cosmocc
+
+# Only fetch Cosmopolitan toolchain when the caller hasn't overridden APE_CC
+ifndef APE_CC
+APE_CC := $(COSMOCC_BIN)
+APE_CC_DEP := $(COSMOCC_BIN)
+else
+APE_CC_DEP :=
+endif
+
 APE_FLAGS = -O3 -DNDEBUG -I$(CURDIR)
 
 # Optimization levels
 CFLAGS_DEBUG = $(CFLAGS) -g -O0 -DDEBUG
 CFLAGS_RELEASE = $(CFLAGS) -O3 -DNDEBUG -march=native -mtune=native
 CFLAGS_SIZE = $(CFLAGS) -Os -DNDEBUG
+
+# Whether to strip the APE output (set to 0 to keep symbols)
+APE_STRIP ?= 1
 
 # Platform-specific settings
 UNAME_S := $(shell uname -s)
@@ -114,7 +130,7 @@ $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
 $(MAP_COPY): character_map.txt | $(BIN_DIR)
-	cp $< $@
+	ln -sf ../$< $@
 
 # WASM target (requires emscripten)
 .PHONY: wasm
@@ -128,9 +144,35 @@ $(BIN_DIR)/$(WASM_TARGET): $(SOURCE) $(MAP_COPY) | $(BIN_DIR)
 .PHONY: ape
 ape: $(BIN_DIR)/$(APE_TARGET)
 
-$(BIN_DIR)/$(APE_TARGET): $(SOURCE) $(MAP_COPY) | $(BIN_DIR)
+$(COSMOCC_BIN):
+	@if [ -z "$$CONFIRM_BIG_DEP_DOWNLOAD" ] || ! printf '%s\n' "$$CONFIRM_BIG_DEP_DOWNLOAD" | grep -Eiq '^(1|y|yes|true)$'; then \
+		echo "cosmocc $(COSMOCC_VERSION) (~400MB) needs to be downloaded."; \
+		echo "Set CONFIRM_BIG_DEP_DOWNLOAD=1 (or yes/true) to proceed."; \
+		exit 1; \
+	fi
+	@echo "Downloading cosmocc $(COSMOCC_VERSION) to $(COSMOCC_DIR)..."
+	mkdir -p $(COSMOCC_DIR)
+	@if [ ! -f "$(COSMOCC_DIR)/cosmocc-$(COSMOCC_VERSION).zip" ]; then \
+		curl -L "$(COSMOCC_URL)" -o $(COSMOCC_DIR)/cosmocc-$(COSMOCC_VERSION).zip; \
+	else \
+		echo "Reusing cached cosmocc-$(COSMOCC_VERSION).zip"; \
+	fi
+	cd $(COSMOCC_DIR) && unzip -oq -n cosmocc-$(COSMOCC_VERSION).zip
+
+.PHONY: cosmocc
+cosmocc: $(COSMOCC_BIN)
+	@echo "Cosmopolitan toolchain ready at $(COSMOCC_BIN)"
+
+$(BIN_DIR)/$(APE_TARGET): $(SOURCE) $(MAP_COPY) $(APE_CC_DEP) | $(BIN_DIR)
 	$(APE_CC) $(APE_FLAGS) -o $@ $<
 	chmod +x $@
+	@if [ "$(APE_STRIP)" != "0" ]; then \
+		$(STRIP) -s $@; \
+	fi
+	@if ! strings -a $@ | grep -q '.aarch64.elf'; then \
+		echo "cosmocc did not embed the Apple Silicon/aarch64 slice; please use cosmocc >= 3.x or override COSMOCC_URL"; \
+		exit 1; \
+	fi
 
 # Test targets
 .PHONY: test

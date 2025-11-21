@@ -59,6 +59,16 @@ for impl in "${IMPLEMENTATIONS[@]}"; do
     echo -e "${RED}Unit tests: FAILED for $impl${NC}"
     FAILED=1
   fi
+
+  # If we're exercising the Cosmopolitan build, ensure it carries the Apple Silicon slice.
+  if [[ "$impl" == *"printable_binary_ape.com" ]]; then
+    if "$(dirname "$0")/test_ape_arch_slice" "$impl"; then
+      echo -e "${GREEN}APE slice check: PASSED for $impl${NC}"
+    else
+      echo -e "${RED}APE slice check: FAILED for $impl${NC}"
+      FAILED=1
+    fi
+  fi
 done
 
 # Passthrough functionality tests are now integrated into the main test suite
