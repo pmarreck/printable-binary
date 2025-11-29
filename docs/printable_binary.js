@@ -17,7 +17,7 @@ function parseCharacterMap(text) {
   return lines.slice(0, 256);
 }
 
-const EMBEDDED_MAP = `∅
+const EMBEDDED_MAP = `·
 ¯
 «
 »
@@ -27,7 +27,7 @@ const EMBEDDED_MAP = `∅
 ª
 ⌫
 ⇥
-⇩
+¶
 ↧
 §
 ⏎
@@ -40,7 +40,7 @@ const EMBEDDED_MAP = `∅
 ³
 µ
 ɨ
-¬
+⏹
 ©
 ¦
 Ƶ
@@ -48,7 +48,7 @@ const EMBEDDED_MAP = `∅
 Ξ
 ǁ
 ǀ
-¶
+¬
 ␣
 ǃ
 ˵
@@ -272,7 +272,8 @@ z
 ž
 Ž
 ż
-Ż`.split('\n');
+Ż
+`.split('\n');
 const defaultCharacterMap = EMBEDDED_MAP;
 
 class PrintableBinary {

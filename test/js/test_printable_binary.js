@@ -171,7 +171,7 @@ console.log('\n--- Known Mapping Verification Tests ---');
   // Test specific byte mappings from the specification
   const byte0 = new Uint8Array([0]);
   const encoded0 = encoder.encode(byte0);
-  assertEquals(encoded0, "\u2205", 'Byte 0 maps to ∅ (U+2205)');
+  assertEquals(encoded0, "\u00B7", 'Byte 0 maps to · (U+00B7)');
 }
 
 {
@@ -206,7 +206,7 @@ console.log('\n--- Mapping Export Tests ---');
   const first = mappings[0];
   assertEquals(first.byte, 0, 'First mapping byte index');
   assertEquals(first.ascii, 'NUL', 'First mapping ASCII name');
-  assertEquals(first.mapping, "\u2205", 'First mapping character');
+  assertEquals(first.mapping, "\u00B7", 'First mapping character');
   const last = mappings[255];
   assertEquals(last.byte, 255, 'Last mapping byte index');
   assert(typeof last.mapping === 'string' && last.mapping.length > 0, 'Last mapping has glyph');

@@ -1,7 +1,7 @@
 #pragma once
 // Auto-generated from character_map.txt to support embedded builds
 static const char *embedded_character_map[256] = {
-    "∅",
+    "·",
     "¯",
     "«",
     "»",
@@ -11,7 +11,7 @@ static const char *embedded_character_map[256] = {
     "ª",
     "⌫",
     "⇥",
-    "⇩",
+    "¶",
     "↧",
     "§",
     "⏎",
@@ -24,7 +24,7 @@ static const char *embedded_character_map[256] = {
     "³",
     "µ",
     "ɨ",
-    "¬",
+    "⏹",
     "©",
     "¦",
     "Ƶ",
@@ -32,7 +32,7 @@ static const char *embedded_character_map[256] = {
     "Ξ",
     "ǁ",
     "ǀ",
-    "¶",
+    "¬",
     "␣",
     "ǃ",
     "˵",

@@ -171,7 +171,7 @@ fi
 echo -e "${BLUE}Test #8: Mappings table output${NC}"
 $SCRIPT --mappings > "$TMP_MAPPINGS"
 if grep -q "Byte" "$TMP_MAPPINGS" && grep -q "0x00" "$TMP_MAPPINGS"; then
-    if grep -q "NUL" "$TMP_MAPPINGS" && grep -q "∅" "$TMP_MAPPINGS"; then
+if grep -q "NUL" "$TMP_MAPPINGS" && grep -q "·" "$TMP_MAPPINGS"; then
         echo -e "${GREEN}PASS${NC}"
     else
         echo -e "${RED}FAIL${NC}"
@@ -195,7 +195,7 @@ with open(path, 'r', encoding='utf-8') as fh:
 assert isinstance(data, list) and len(data) == 256
 assert data[0]["byte"] == 0
 assert data[0]["ascii"] == "NUL"
-assert data[0]["mapping"] == "\u2205"
+assert data[0]["mapping"] == "\u00B7"
 assert data[-1]["byte"] == 255
 PY
     then
@@ -216,7 +216,7 @@ echo -e "${BLUE}Test #10: Mappings CSV output${NC}"
 if $SCRIPT --mappings-csv > "$TMP_MAPPINGS_CSV"; then
     HEADER=$(head -n 1 "$TMP_MAPPINGS_CSV")
     FIRST_LINE=$(sed -n '2p' "$TMP_MAPPINGS_CSV")
-    if [[ "$HEADER" == "byte,hex,dec,ascii,mapping" ]] && [[ "$FIRST_LINE" == "0,0x00,0,\"NUL\",\"∅\"" ]]; then
+if [[ "$HEADER" == "byte,hex,dec,ascii,mapping" ]] && [[ "$FIRST_LINE" == "0,0x00,0,\"NUL\",\"·\"" ]]; then
         echo -e "${GREEN}PASS${NC}"
     else
         echo -e "${RED}FAIL${NC}"
@@ -261,7 +261,7 @@ fi
 
 # Test 12: ANSI escape sequences decode correctly (regression test)
 echo -e "${BLUE}Test #12: ANSI escape decode preserves bytes${NC}"
-COLOR_ENCODED=$'⎋⟦38;5;208mhi⎋⟦0;39m⇩'
+COLOR_ENCODED=$'⎋⟦38;5;208mhi⎋⟦0;39m¶'
 printf "%s" "$COLOR_ENCODED" > "$TMP_ENCODED"
 $SCRIPT -d "$TMP_ENCODED" > "$TMP_DECODED"
 RESULT_HEX=$(xxd -p "$TMP_DECODED" | tr -d '\n')
@@ -514,7 +514,7 @@ fi
 
 # Check if stderr contains the encoded data
 STDERR_CONTENT=$(cat "$PASSTHROUGH_STDERR" | grep -v "Encoding" | grep -v "Encoded to")
-if [[ "$STDERR_CONTENT" == *"∅¯«»Hello"* ]]; then
+if [[ "$STDERR_CONTENT" == *"·¯«»Hello"* ]]; then
     echo -e "${GREEN}PASS: Encoded binary data correctly sent to stderr${NC}"
 else
     echo -e "${RED}FAIL: Encoded binary data not found in stderr${NC}"

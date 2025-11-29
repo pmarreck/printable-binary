@@ -4,7 +4,7 @@ East Asian Width values from Python's `unicodedata`. Legend: Na=Narrow, N=Neutra
 
 | Byte | Char | Code Point | UTF-8 | EAW |
 | --- | --- | --- | --- | --- |
-| 0 | ∅ | U+2205 | E2 88 85 | N |
+| 0 | · | U+00B7 | C2 B7 | A |
 | 1 | ¯ | U+00AF | C2 AF | Na |
 | 2 | « | U+00AB | C2 AB | N |
 | 3 | » | U+00BB | C2 BB | N |
@@ -14,7 +14,7 @@ East Asian Width values from Python's `unicodedata`. Legend: Na=Narrow, N=Neutra
 | 7 | ª | U+00AA | C2 AA | A |
 | 8 | ⌫ | U+232B | E2 8C AB | N |
 | 9 | ⇥ | U+21E5 | E2 87 A5 | N |
-| 10 | ⇩ | U+21E9 | E2 87 A9 | N |
+| 10 | ¶ | U+00B6 | C2 B6 | A |
 | 11 | ↧ | U+21A7 | E2 86 A7 | N |
 | 12 | § | U+00A7 | C2 A7 | A |
 | 13 | ⏎ | U+23CE | E2 8F 8E | N |
@@ -27,7 +27,7 @@ East Asian Width values from Python's `unicodedata`. Legend: Na=Narrow, N=Neutra
 | 20 | ³ | U+00B3 | C2 B3 | A |
 | 21 | µ | U+00B5 | C2 B5 | N |
 | 22 | ɨ | U+0268 | C9 A8 | N |
-| 23 | ¬ | U+00AC | C2 AC | Na |
+| 23 | ⏹ | U+23F9 | E2 8F B9 | N |
 | 24 | © | U+00A9 | C2 A9 | N |
 | 25 | ¦ | U+00A6 | C2 A6 | Na |
 | 26 | Ƶ | U+01B5 | C6 B5 | N |
@@ -35,7 +35,7 @@ East Asian Width values from Python's `unicodedata`. Legend: Na=Narrow, N=Neutra
 | 28 | Ξ | U+039E | CE 9E | A |
 | 29 | ǁ | U+01C1 | C7 81 | N |
 | 30 | ǀ | U+01C0 | C7 80 | N |
-| 31 | ¶ | U+00B6 | C2 B6 | A |
+| 31 | ¬ | U+00AC | C2 AC | Na |
 | 32 | ␣ | U+2423 | E2 90 A3 | N |
 | 33 | ǃ | U+01C3 | C7 83 | N |
 | 34 | ˵ | U+02F5 | CB B5 | N |

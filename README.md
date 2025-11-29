@@ -317,7 +317,7 @@ The PrintableBinary character set is specifically designed to be highly compatib
 - **Double quotes** (34) → `˵` (U+02F5) - Avoids JSON/XML attribute conflicts
 - **Single quotes** (39) → `ʼ` (U+02BC) - Avoids shell/SQL conflicts
 - **Backslashes** (92) → `⧹` (U+29F9) - Avoids escape sequence issues
-- **Control characters** → Safe Unicode symbols (∅, ⇩, ⏎, etc.)
+- **Control characters** → Safe Unicode symbols (·, ¶, ⏎, etc.)
 - **No problematic delimiters** in our special encodings
 
 ### 📝 **Usage Recommendations:**
@@ -343,7 +343,7 @@ printf 'char data[] = "%s";\n' "$(./bin/printable_binary file.bin)"
 
 ## Character Encoding
 
-- **Control Characters (0-31)**: Mapped to visually distinct symbols like ∅, ¯, «, », µ, etc.
+- **Control Characters (0-31)**: Mapped to visually distinct symbols like ·, ¯, «, », µ, etc.
 - **Space (32)**: Encoded as ␣ for visibility
 - **Shell-unsafe ASCII characters**: Mapped to safe Unicode alternatives:
   - Exclamation mark (33) → ﹗ (U+FE57) Small Exclamation Mark
@@ -377,7 +377,7 @@ This table is generated from `character_map.txt` so every implementation stays i
 
 | Byte | Char | Unicode | UTF-8 | Name |
 | --- | --- | --- | --- | --- |
-| 0 | ∅ | U+2205 | E2 88 85 | Empty Set |
+| 0 | · | U+00B7 | C2 B7 | Middle Dot |
 | 1 | ¯ | U+00AF | C2 AF | Macron |
 | 2 | « | U+00AB | C2 AB | Left-Pointing Double Angle Quotation Mark |
 | 3 | » | U+00BB | C2 BB | Right-Pointing Double Angle Quotation Mark |
@@ -387,7 +387,7 @@ This table is generated from `character_map.txt` so every implementation stays i
 | 7 | ª | U+00AA | C2 AA | Feminine Ordinal Indicator |
 | 8 | ⌫ | U+232B | E2 8C AB | Erase To The Left |
 | 9 | ⇥ | U+21E5 | E2 87 A5 | Rightwards Arrow To Bar |
-| 10 | ⇩ | U+21E9 | E2 87 A9 | Downwards White Arrow |
+| 10 | ¶ | U+00B6 | C2 B6 | Pilcrow Sign |
 | 11 | ↧ | U+21A7 | E2 86 A7 | Downwards Arrow From Bar |
 | 12 | § | U+00A7 | C2 A7 | Section Sign |
 | 13 | ⏎ | U+23CE | E2 8F 8E | Return Symbol |
@@ -400,7 +400,7 @@ This table is generated from `character_map.txt` so every implementation stays i
 | 20 | ³ | U+00B3 | C2 B3 | Superscript Three |
 | 21 | µ | U+00B5 | C2 B5 | Micro Sign |
 | 22 | ɨ | U+0268 | C9 A8 | Latin Small Letter I With Stroke |
-| 23 | ¬ | U+00AC | C2 AC | Not Sign |
+| 23 | ⏹ | U+23F9 | E2 8F B9 | Black Square For Stop |
 | 24 | © | U+00A9 | C2 A9 | Copyright Sign |
 | 25 | ¦ | U+00A6 | C2 A6 | Broken Bar |
 | 26 | Ƶ | U+01B5 | C6 B5 | Latin Capital Letter Z With Stroke |
@@ -408,7 +408,7 @@ This table is generated from `character_map.txt` so every implementation stays i
 | 28 | Ξ | U+039E | CE 9E | Greek Capital Letter Xi |
 | 29 | ǁ | U+01C1 | C7 81 | Latin Letter Lateral Click |
 | 30 | ǀ | U+01C0 | C7 80 | Latin Letter Dental Click |
-| 31 | ¶ | U+00B6 | C2 B6 | Pilcrow Sign |
+| 31 | ¬ | U+00AC | C2 AC | Not Sign |
 | 32 | ␣ | U+2423 | E2 90 A3 | Open Box |
 | 33 | ǃ | U+01C3 | C7 83 | Latin Letter Retroflex Click |
 | 34 | ˵ | U+02F5 | CB B5 | Modifier Letter Middle Double Grave Accent |
@@ -633,135 +633,6 @@ This table is generated from `character_map.txt` so every implementation stays i
 | 253 | Ž | U+017D | C5 BD | Latin Capital Letter Z With Caron |
 | 254 | ż | U+017C | C5 BC | Latin Small Letter Z With Dot Above |
 | 255 | Ż | U+017B | C5 BB | Latin Capital Letter Z With Dot Above |
-
-Bytes 33-126 (printable ASCII, except 34, 39, and 92) reuse their literal glyphs.
-
-The canonical list for bytes 128-255 lives in `character_map.txt`; the web UI mirrors it in `docs/character_map.txt`.
-We order the high bytes alphabetically (all A/a glyphs, then B/b, and so on) so neighbouring values are visually related.
-After editing the map, run `./utils/audit_character_map.lua character_map.txt` and regenerate `CHARACTER_WIDTHS.md` to keep these docs fresh. If/when Unicode updates its East Asian width tables, refresh the local copy with `./utils/update_eaw_data.sh` before auditing.
-
-## Running Tests
-
-The project includes three types of test suites:
-
-### Deterministic Unit Tests
-
-These tests validate basic functionality and expected behavior:
-
-```bash
-./test/test
-```
-
-### Non-deterministic Fuzz Tests
-
-These tests run randomized inputs to verify robustness:
-
-```bash
-./test/fuzz_test
-```
-
-### Performance Benchmark Tests
-
-These tests measure encoding and decoding performance:
-
-```bash
-./test/benchmark_test
-```
-
-### Running All Tests
-
-To run all test suites at once:
-
-```bash
-./test/test_all
-```
-
-## Utilities
-
-The project includes several utility scripts in the `utils/` directory:
-
-- `xxhash32`: Standard XXH32 hash utility (supports binary/hex/encoded output)
-- `prng`: Deterministic pseudo-random number generator using XXH32 (supports seeded and auto-seeded generation)
-
-## Requirements
-
-### LuaJIT Implementation
-
-- LuaJIT (tested with LuaJIT 2.0.5)
-
-### C Implementation
-
-- C99-compatible compiler (GCC, Clang)
-- Standard C library
-- Cosmopolitan SDK (`cosmocc`) if you want the APE build
-
-### Optional Dependencies (for disassembly features)
-
-- `cstool` (Capstone disassembly engine) for raw disassembly (`-a/--asm`)
-- `objdump` for smart disassembly (`--smart-asm`)
-
-### Quick dependency list (without Nix)
-
-If you are not using the provided `flake.nix`, install these tools manually to build and run the full test suite:
-- `gcc` or `clang`, plus `make`
-- `luajit` (for Lua tests and utilities)
-- `cstool` from Capstone (raw disassembly tests)
-- `node` (>=18) and `deno` (for JS/WASM tests)
-- `wazero` runtime for WASM CLI tests
-- `cosmocc`/Cosmopolitan SDK if you want the APE build
-- `objdump` (optional) for smart disassembly tests
-
-### Build
-
-```bash
-# Build the optimized ELF/Mach-O C binary
-make
-
-# Build the WebAssembly module
-make wasm
-
-# Build the Cosmopolitan APE binary (runs on Linux/macOS/Windows without deps)
-make ape
-
-# Resulting executables live in ./bin:
-#   ./bin/printable_binary                 (LuaJIT script)
-#   ./bin/printable_binary_c           (native ELF/Mach-O)
-#   ./bin/printable_binary_ape.com     (Actually Portable Executable)
-#   ./bin/printable_binary.wasm        (WASM for wazero/browsers)
-```
-
-### Nix Development Environment
-
-If you're using Nix, the included `flake.nix` provides a full development shell:
-
-```bash
-nix develop             # drops you into a shell with gcc/clang, cosmocc, LuaJIT, Deno, etc.
-nix build .#printableBinaryNative   # C binary (ELF/Mach-O)
-nix build .#printableBinaryWasm     # WebAssembly artifact
-nix build .#printableBinaryApe      # Actually Portable Executable via cosmocc
-nix build                          # Symlink package containing all of the above
-```
-
-The shell hook lists the major tools (compilers, debuggers, benchmarking utilities) that are available. This is the easiest way to ensure all optional dependencies—such as LuaJIT for the script version and Deno/Node tooling for the JS implementation—are present.
-
-## Implementation Details
-
-### Algorithm Overview
-
-For encoding:
-
-1. Each byte of the input binary data is processed individually
-2. The byte value (0-255) is used as a key to look up the corresponding UTF-8 representation
-3. The encoded representations are concatenated to form the output string
-
-For decoding:
-
-1. The input string is processed from left to right
-2. At each position, the decoder attempts to match the longest possible UTF-8 sequence (3, 2, or 1 bytes)
-3. When a match is found, the corresponding byte value is output
-4. This continues until the entire input is processed
-
-### UTF-8 Encoding Strategy
 
 This implementation uses a carefully chosen set of UTF-8 characters to represent each possible byte value:
 
