@@ -14,6 +14,7 @@ bin/printable_binary_c
 
 # Local Cosmopolitan toolchain cache (large download)
 .cosmocc/
+.direnv/
 
 # build detritus
 **/*.elf

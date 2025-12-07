@@ -33,8 +33,8 @@ CFLAGS_DEBUG = $(CFLAGS) -g -O0 -DDEBUG
 CFLAGS_RELEASE = $(CFLAGS) -O3 -DNDEBUG -march=native -mtune=native
 CFLAGS_SIZE = $(CFLAGS) -Os -DNDEBUG
 
-# Whether to strip the APE output (set to 0 to keep symbols)
-APE_STRIP ?= 1
+# Whether to strip the APE output (set to 1 to force host strip; default 0 because host strip can drop the embedded aarch64 slice)
+APE_STRIP ?= 0
 
 # Platform-specific settings
 UNAME_S := $(shell uname -s)
@@ -166,12 +166,12 @@ cosmocc: $(COSMOCC_BIN)
 $(BIN_DIR)/$(APE_TARGET): $(SOURCE) $(MAP_COPY) $(APE_CC_DEP) | $(BIN_DIR)
 	$(APE_CC) $(APE_FLAGS) -o $@ $<
 	chmod +x $@
-	@if [ "$(APE_STRIP)" != "0" ]; then \
-		$(STRIP) -s $@; \
-	fi
 	@if ! strings -a $@ | grep -q '.aarch64.elf'; then \
 		echo "cosmocc did not embed the Apple Silicon/aarch64 slice; please use cosmocc >= 3.x or override COSMOCC_URL"; \
 		exit 1; \
+	fi
+	@if [ "$(APE_STRIP)" != "0" ]; then \
+		$(STRIP) -s $@; \
 	fi
 
 # Test targets

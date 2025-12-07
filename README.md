@@ -26,6 +26,15 @@ This implementation allows you to view binary data directly in a terminal (it ev
 - **Binary Safety**: Preserves all binary data, including NUL bytes, when encoding and decoding
 - **Passthrough Mode**: Simultaneously outputs original binary data to stdout and encoded text to stderr for flexible processing pipelines
 
+### Practical benefits (why use this?)
+- **Human-scannable snapshots:** denser than hex, more readable than Base64; great for fixtures/tests where you want literal UTF-8 instead of escaped hex blobs.
+- **Better diffs & greppability:** control chars and whitespace are explicit, so structure pops out; far richer than `strings(1)`, which drops most bytes.
+- **Debuggable logs & pastebins:** printable, reversible, survives Slack/email/wikis without mangling or wrap damage.
+- **Small binary fixtures:** embed headers, protocol frames, certs, etc., in text files while staying patch/grep friendly.
+- **Cross-platform:** fat APE runs on Linux/macOS/Windows; WASM runs in browsers/CI; same CLI everywhere.
+- **Monospace-safe glyph set:** every glyph is vetted to occupy the same width in common monospace fonts, so alignment in editors/terminals/diffs stays intact (surprisingly many Unicode symbols don’t).
+- **Disassembly helper:** Capstone/objdump modes let you view code + data together without losing offsets.
+
 ### Compared to Hexadecimal Encodings
 
 - **Higher on-screen density**: Hex consumes two glyphs per byte; PrintableBinary maps each byte to a single visible character, so you see roughly twice as much data per line while still preserving UTF-8 safety.

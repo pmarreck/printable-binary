@@ -123,8 +123,9 @@ nix develop
 
 # Build with Nix
 nix build .#printableBinaryNative   # ELF/Mach-O binary
-nix build .#printableBinaryApe      # Cosmopolitan APE binary
+nix build .#printableBinaryApe      # Cosmopolitan APE fat binary (x86_64 + arm64, pinned cosmocc 4.0.2)
 nix build .#printableBinaryWasm     # WebAssembly module
+nix build .#default                 # Suite: native + APE + WASM
 ```
 
 ## Command-Line Usage

@@ -10,6 +10,25 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+
+        cosmoccVersion = "4.0.2";
+        cosmoccHash = "sha256-6KZv7KU2rJhwfc9k6z9I6ZdfIS1KqRFLZUo8YyuD7ZY=";
+        cosmoccSrc = pkgs.fetchzip {
+          url = "https://cosmo.zip/pub/cosmocc/cosmocc-${cosmoccVersion}.zip";
+          hash = cosmoccHash;
+          stripRoot = false;
+        };
+        cosmoccBin = pkgs.stdenvNoCC.mkDerivation {
+          pname = "cosmocc-bin";
+          version = cosmoccVersion;
+          src = cosmoccSrc;
+          phases = [ "installPhase" ];
+          installPhase = ''
+            mkdir -p $out
+            cp -r $src/* $out/
+          '';
+        };
+
         emscriptenFlags = "-O3 -DNDEBUG "
           + "-s STANDALONE_WASM=1 "
           + "-s FILESYSTEM=1 "
@@ -73,9 +92,13 @@
 
           src = ./.;
 
-          nativeBuildInputs = [ pkgs.cosmopolitan ];
+          nativeBuildInputs = [
+            pkgs.unzip
+            cosmoccBin
+          ];
 
           buildPhase = ''
+            export PATH=${cosmoccBin}/bin:$PATH
             cosmocc -O3 -DNDEBUG -o printable_binary_ape.com printable_binary.c
           '';
 
@@ -86,7 +109,7 @@
           '';
 
           meta = with pkgs.lib; {
-            description = "PrintableBinary built as an Actually Portable Executable (Cosmopolitan)";
+            description = "PrintableBinary built as an Actually Portable Executable (Cosmopolitan, pinned ${cosmoccVersion})";
             license = licenses.mit;
             platforms = platforms.all;
           };
@@ -115,8 +138,8 @@
             # Cross-compilation targets (optional)
             pkgsCross.mingwW64.buildPackages.gcc
 
-            # Actually Portable Executable (cosmopolitan)
-            cosmopolitan
+            # Actually Portable Executable (cosmopolitan, pinned)
+            cosmoccBin
 
             # Development utilities
             xxd
@@ -149,14 +172,19 @@
             echo "  deno (for JavaScript/web implementation)"
             echo "  node (for CLI/automation tests)"
             echo "  emcc (Emscripten) for WebAssembly builds"
-            echo "  cosmocc (Cosmopolitan) for APE builds"
+            echo "  cosmocc ${cosmoccVersion} (pinned) for APE builds (fat x86_64 + arm64)"
             echo "  wazero (WASI runtime for testing)"
             echo ""
             echo "Example build commands:"
             echo "  gcc -O3 -o printable_binary_c printable_binary.c"
             echo "  clang -O3 -march=native -o printable_binary_c printable_binary.c"
             echo "  emcc printable_binary.c ${emscriptenFlags} -o printable_binary.wasm"
-            echo "  cosmocc -O3 -o printable_binary_ape.com printable_binary.c"
+            echo "  cosmocc -O3 -o printable_binary_ape.com printable_binary.c   # fat APE"
+            echo "  make -B wasm                                                 # uses emcc"
+            echo "  CONFIRM_BIG_DEP_DOWNLOAD=1 make -B ape                       # uses pinned cosmocc"
+            echo "  nix build .#printableBinaryApe    # fat APE (pinned cosmocc ${cosmoccVersion})"
+            echo "  nix build .#printableBinaryWasm   # wasm"
+            echo "  nix build .#default               # suite (native+wasm+ape)"
             echo ""
             echo "Test JavaScript implementation:"
             echo "  deno run --allow-read --allow-env test/js/test_printable_binary.js"
