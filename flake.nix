@@ -117,46 +117,48 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            # C compilation/tools
-            gcc
-            clang
-            gdb
-            valgrind
-            capstone # provides cstool for disassembly tests
+          buildInputs =
+            let
+              linuxOnly = with pkgs; lib.optionals (!stdenv.isDarwin) [ valgrind perf-tools ];
+            in
+            with pkgs; [
+              # C compilation/tools
+              gcc
+              clang
+              gdb
+              capstone # provides cstool for disassembly tests
 
-            # Build systems
-            gnumake
-            cmake
-            ninja
+              # Build systems
+              gnumake
+              cmake
+              ninja
 
-            # Performance and profiling tools
-            perf-tools
-            hyperfine
-            time
+              # Performance and profiling tools
+              hyperfine
+              time
 
-            # Cross-compilation targets (optional)
-            pkgsCross.mingwW64.buildPackages.gcc
+              # Cross-compilation targets (optional)
+              pkgsCross.mingwW64.buildPackages.gcc
 
-            # Actually Portable Executable (cosmopolitan, pinned)
-            cosmoccBin
+              # Actually Portable Executable (cosmopolitan, pinned)
+              cosmoccBin
 
-            # Development utilities
-            xxd
-            hexdump
-            file
+              # Development utilities
+              xxd
+              hexdump
+              file
 
-            # Benchmarking and testing
-            luajit
-            wazero
+              # Benchmarking and testing
+              luajit
+              wazero
 
-            # JavaScript/TypeScript runtime for web implementation
-            deno
-            nodejs_20
+              # JavaScript/TypeScript runtime for web implementation
+              deno
+              nodejs_20
 
-            # WebAssembly toolchain
-            emscripten
-          ];
+              # WebAssembly toolchain
+              emscripten
+            ] ++ linuxOnly;
 
           shellHook = ''
             echo "PrintableBinary Development Environment"
