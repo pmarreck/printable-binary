@@ -235,6 +235,15 @@ fi
 echo -e "${BLUE}Test #11: Stats muted via PRINTABLE_BINARY_MUTE_STATS${NC}"
 printf 'Mute stats test' > "$TMP_BINARY"
 
+# Control: stats should normally be present (implementations that emit them)
+PRINTABLE_BINARY_MUTE_STATS= $SCRIPT "$TMP_BINARY" > "$TMP_ENCODED" 2> "$TMP_STATS_STDERR"
+if [[ -s "$TMP_STATS_STDERR" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${YELLOW}SKIP${NC}"
+    echo "No stats emitted by $SCRIPT without PRINTABLE_BINARY_MUTE_STATS; assuming silent-by-design implementation."
+fi
+
 PRINTABLE_BINARY_MUTE_STATS=1 $SCRIPT "$TMP_BINARY" > "$TMP_ENCODED" 2> "$TMP_STATS_STDERR"
 if [[ -s "$TMP_STATS_STDERR" ]]; then
     echo -e "${RED}FAIL${NC}"

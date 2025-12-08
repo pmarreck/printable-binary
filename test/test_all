@@ -119,6 +119,19 @@ else
   echo -e "${YELLOW}JavaScript tests: SKIPPED (Deno not found)${NC}"
 fi
 
+# Node CLI stderr behavior (stats)
+echo -e "\n${YELLOW}Running Node CLI stats test...${NC}"
+if [[ -x "$SCRIPT_DIR/../bin/printable_binary_node.js" ]] && command -v node &> /dev/null; then
+  if "$SCRIPT_DIR/test_node_cli_stats"; then
+    echo -e "${GREEN}Node CLI stats test: PASSED${NC}"
+  else
+    echo -e "${RED}Node CLI stats test: FAILED${NC}"
+    FAILED=1
+  fi
+else
+  echo -e "${YELLOW}Node CLI stats test: SKIPPED (binary or node missing)${NC}"
+fi
+
 # Run WASM tests (requires wazero and printable_binary.wasm)
 echo -e "\n${YELLOW}Running WASM tests...${NC}"
 if "$SCRIPT_DIR/test_wasm"; then

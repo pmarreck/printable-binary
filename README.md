@@ -224,6 +224,58 @@ gzip -dc /tmp/data.gz | \
 
 Because `--passthrough` sends the original binary to stdout, you can insert PrintableBinary anywhere in a Unix pipeline for observability without modifying the data flow.
 
+### Real-World Recipes
+
+- **Escape-proof JSON embed** – Avoid backslash/quote hell by pre-encoding the bytes, then drop them straight into a JSON string:
+
+  ```bash
+  ENCODED="$(./bin/printable_binary secret.bin)"
+  printf '{"payload":"%s"}\n' "$ENCODED" | jq .
+  # Decode later:
+  printf '%s' "$ENCODED" | ./bin/printable_binary -d > restored.bin
+  ```
+
+- **Bash assertion on binary snippets** – Keep fixtures inline without here-doc escaping. Generate the encoded blob once (e.g., `PRINTABLE_BINARY_MUTE_STATS=1 printf 'CAFÉ\n' | ./bin/printable_binary`), then paste it into the here-doc:
+
+  ```bash
+  want=$'CAFÉ\n'                                     # byte-for-byte expectation
+  got=$(./bin/printable_binary -d <<'EOF'
+  CAFĹɃ¶
+  EOF
+  )
+  [[ "$got" == "$want" ]] || { echo "mismatch"; exit 1; }
+  ```
+
+- **Peek mixed binary/text streams in place** – Mirror a live HTTP POST while keeping the raw bytes intact:
+
+  ```bash
+  nc -l 8080 | ./bin/printable_binary --passthrough \
+    >requests.raw 2>requests.pbt
+  # tail -f requests.pbt to watch headers + body without mojibake.
+  ```
+
+- **Web page embed + JS decode** – Ship binary in HTML as plain text, then revive it in the browser using the shared module:
+
+  ```html
+  <script type="module">
+    import PrintableBinary from './js/printable_binary.js';
+    const encoded = `{{REPLACE_WITH_$(./bin/printable_binary file.bin)}}`;
+    const pb = new PrintableBinary();
+    const bytes = pb.decode(encoded);
+    // do something with bytes (e.g., create a Blob)
+  </script>
+  ```
+
+- **Inspect hint bytes of common formats** – Spot magic numbers without a hex viewer:
+
+  ```bash
+  head -c 16 some.pdf | ./bin/printable_binary
+  # Expect to see %PDF␣1.7… rendered directly.
+
+  head -c 8 image.png | ./bin/printable_binary
+  # Should show 89PNG⏎␣␣ if the PNG signature is intact.
+  ```
+
 ## Disassembly Features
 
 PrintableBinary offers two modes for disassembling binary files, each with different strengths:

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Verifies that the Node CLI is silent on stderr both with and without
+# PRINTABLE_BINARY_MUTE_STATS, since it never emits stats.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NODE_CLI="$SCRIPT_DIR/../bin/printable_binary_node.js"
+
+if [[ ! -x "$NODE_CLI" ]]; then
+  echo "SKIP: Node CLI not found at $NODE_CLI"
+  exit 0
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "SKIP: node is not available in PATH"
+  exit 0
+fi
+
+TMP_DIR="$(mktemp -d)"
+cleanup() { rm -rf "$TMP_DIR"; }
+trap cleanup EXIT
+
+input="$TMP_DIR/input.bin"
+encoded="$TMP_DIR/encoded.txt"
+decoded="$TMP_DIR/decoded.bin"
+stderr1="$TMP_DIR/stderr1.log"
+stderr2="$TMP_DIR/stderr2.log"
+
+printf 'stats-check' > "$input"
+
+# Default (no env var): should be silent on stderr
+cat "$input" | "$NODE_CLI" > "$encoded" 2> "$stderr1"
+if [[ -s "$stderr1" ]]; then
+  echo "FAIL: Node CLI emitted stderr without PRINTABLE_BINARY_MUTE_STATS"
+  cat "$stderr1"
+  exit 1
+fi
+
+# With env var: also silent
+cat "$input" | PRINTABLE_BINARY_MUTE_STATS=1 "$NODE_CLI" > /dev/null 2> "$stderr2"
+if [[ -s "$stderr2" ]]; then
+  echo "FAIL: Node CLI emitted stderr with PRINTABLE_BINARY_MUTE_STATS=1"
+  cat "$stderr2"
+  exit 1
+fi
+
+# Sanity: decode what we encoded
+cat "$encoded" | "$NODE_CLI" -d > "$decoded"
+if ! cmp -s "$input" "$decoded"; then
+  echo "FAIL: Node CLI encode/decode mismatch"
+  exit 1
+fi
+
+echo "Node CLI stats test: PASS"
