@@ -27,29 +27,8 @@ When making changes to this codebase, follow TDD principles:
 
 ## Debug Mode
 - Set `DEBUG=1` environment variable to enable detailed diagnostic output
-- Example: `DEBUG=1 ./bin/printable_binary -a /usr/bin/ditto`
-- Helpful when diagnosing architecture selection or disassembly issues
-
-## Architecture Selection
-- The tool supports multiple architectures: x64, x32, arm64, arm
-- Auto-detection selects the best architecture based on instruction compatibility
-- Universal binaries (macOS) are detected with appropriate warnings
-- Architecture names are displayed in user-friendly format (e.g., "x86_64" instead of "x64")
-- On Apple Silicon, arm64 is preferred when appropriate
-
-## Disassembly Features
-- Uses Capstone (`cstool`) for disassembly
-- Groups similar instructions for better readability
-- Identifies common patterns like NUL sequences and NOPs
-- Formats output with configurable grouping
-- Uses 🧾 emoji to separate binary data from disassembly text
-- Handles alignment issues by correctly interpreting hexadecimal offsets
-
-## Potential Issues and Workarounds
-- If auto-detection selects the wrong architecture, specify it with `--arch`
-- Universal binaries can only be disassembled for one architecture at a time
-- Decoding from disassembly output won't match the original binary for universal binaries
-- Long sequences of repeated bytes are grouped for readability
+- Example: `DEBUG=1 ./bin/printable_binary --mappings`
+- Helpful when diagnosing mapping load issues or unexpected decode behavior
 
 ## Code Style
 - Follow existing patterns and naming conventions

@@ -44,7 +44,7 @@
           buildInputs = [ pkgs.gcc ];
 
           buildPhase = ''
-            gcc -O3 -march=native -Wall -Wextra -o printable_binary_c printable_binary.c
+            gcc -O3 -march=native -Wall -Wextra -o printable_binary_c src/printable_binary.c
           '';
 
           installPhase = ''
@@ -70,7 +70,7 @@
           buildPhase = ''
             export EM_CACHE="$TMPDIR/emscripten_cache"
             mkdir -p "$EM_CACHE"
-            emcc printable_binary.c ${emscriptenFlags} -o printable_binary.wasm
+            emcc src/printable_binary.c ${emscriptenFlags} -o printable_binary.wasm
           '';
 
           installPhase = ''
@@ -99,7 +99,7 @@
 
           buildPhase = ''
             export PATH=${cosmoccBin}/bin:$PATH
-            cosmocc -O3 -DNDEBUG -o printable_binary_ape.com printable_binary.c
+            cosmocc -O3 -DNDEBUG -o printable_binary_ape.com src/printable_binary.c
           '';
 
           installPhase = ''
@@ -126,7 +126,6 @@
               gcc
               clang
               gdb
-              capstone # provides cstool for disassembly tests
 
               # Build systems
               gnumake
@@ -178,10 +177,10 @@
             echo "  wazero (WASI runtime for testing)"
             echo ""
             echo "Example build commands:"
-            echo "  gcc -O3 -o printable_binary_c printable_binary.c"
-            echo "  clang -O3 -march=native -o printable_binary_c printable_binary.c"
-            echo "  emcc printable_binary.c ${emscriptenFlags} -o printable_binary.wasm"
-            echo "  cosmocc -O3 -o printable_binary_ape.com printable_binary.c   # fat APE"
+            echo "  gcc -O3 -o printable_binary_c src/printable_binary.c"
+            echo "  clang -O3 -march=native -o printable_binary_c src/printable_binary.c"
+            echo "  emcc src/printable_binary.c ${emscriptenFlags} -o printable_binary.wasm"
+            echo "  cosmocc -O3 -o printable_binary_ape.com src/printable_binary.c   # fat APE"
             echo "  make -B wasm                                                 # uses emcc"
             echo "  CONFIRM_BIG_DEP_DOWNLOAD=1 make -B ape                       # uses pinned cosmocc"
             echo "  nix build .#printableBinaryApe    # fat APE (pinned cosmocc ${cosmoccVersion})"
@@ -196,7 +195,7 @@
             echo "  # Then open http://localhost:8000 in your browser"
             echo ""
             echo "Cross-compilation example:"
-            echo "  x86_64-w64-mingw32-gcc -O3 -o printable_binary.exe printable_binary.c"
+            echo "  x86_64-w64-mingw32-gcc -O3 -o printable_binary.exe src/printable_binary.c"
             echo ""
           '';
 

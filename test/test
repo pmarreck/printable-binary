@@ -167,6 +167,35 @@ else
     exit 1
 fi
 
+# Test 7b: Disassembly options removed
+echo -e "${BLUE}Test #7b: Disassembly options are not exposed${NC}"
+if [[ "$HELP_OUTPUT" == *"--smart-asm"* || "$HELP_OUTPUT" == *"--arch"* || "$HELP_OUTPUT" == *"--asm"* || "$HELP_OUTPUT" == *" -a,"* ]]; then
+    echo -e "${RED}FAIL${NC}"
+    echo "Help output still mentions disassembly options, but they should be removed."
+    exit 1
+else
+    echo -e "${GREEN}PASS${NC}"
+fi
+
+# Test 7c: Disassembly options are rejected
+echo -e "${BLUE}Test #7c: Disassembly options are rejected${NC}"
+if $SCRIPT -a "$TMP_BINARY" >/dev/null 2>&1; then
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected -a/--asm to be rejected, but it succeeded."
+    exit 1
+fi
+if $SCRIPT --smart-asm "$TMP_BINARY" >/dev/null 2>&1; then
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected --smart-asm to be rejected, but it succeeded."
+    exit 1
+fi
+if $SCRIPT --arch=x64 "$TMP_BINARY" >/dev/null 2>&1; then
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected --arch to be rejected, but it succeeded."
+    exit 1
+fi
+echo -e "${GREEN}PASS${NC}"
+
 # Test 8: Mappings table output
 echo -e "${BLUE}Test #8: Mappings table output${NC}"
 $SCRIPT --mappings > "$TMP_MAPPINGS"
@@ -435,34 +464,6 @@ test_byte 128 "Extended 128"
 test_byte 192 "Extended 192"
 test_byte 224 "Extended 224"
 test_byte 255 "Extended 255"
-
-###############################################################################
-# DISASSEMBLY TESTS
-###############################################################################
-
-echo -e "\n${YELLOW}Running disassembly tests...${NC}"
-
-# Skip disassembly for implementations that don't support Capstone piping (APE/Node builds)
-case "$SCRIPT" in
-    *printable_binary_ape.com|*printable_binary_node.js)
-        echo -e "${YELLOW}Skipping detailed disassembly tests for $SCRIPT${NC}"
-        ;;
-    *)
-        # Check if cstool is available for disassembly tests
-        if ! command -v cstool &> /dev/null; then
-            echo -e "${YELLOW}Skipping detailed disassembly tests (cstool not available)${NC}"
-        else
-            # Run the detailed disassembly test suite
-            SCRIPT_DIR="$(dirname "$0")"
-            if "$SCRIPT_DIR/test_disassembly"; then
-                echo -e "${GREEN}Detailed disassembly tests: PASSED${NC}"
-            else
-                echo -e "${RED}Detailed disassembly tests: FAILED${NC}"
-                exit 1
-            fi
-        fi
-        ;;
-esac
 
 ###############################################################################
 # PASSTHROUGH MODE TESTS

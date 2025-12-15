@@ -93,13 +93,10 @@ typedef struct {
     bool decode_mode;
     bool passthrough_mode;
     bool format_mode;
-    bool asm_mode;
-    bool smart_asm_mode;
     bool help_mode;
     int format_group;
     int format_groups_per_line;
     mappings_mode_t mappings_mode;
-    char *arch;
     char *input_file;
 } options_t;
 
@@ -760,7 +757,7 @@ static buffer_t read_file(const char *filename) {
     return buf;
 }
 
-// Clean input for decoding (remove whitespace and disassembly formatting)
+// Clean input for decoding (remove whitespace)
 static buffer_t clean_decode_input(const buffer_t *input) {
     buffer_t output;
     // Start with reasonable initial size, will grow as needed
@@ -798,10 +795,6 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  -p, --passthrough  Pass input to stdout unchanged, send encoded data to stderr\n");
     fprintf(stderr, "  -f[=NxM], --format[=NxM]   Format output in groups\n");
     fprintf(stderr, "                    Default: 8x10 (groups of 8 chars, 10 groups per line)\n");
-    fprintf(stderr, "  -a, --asm        Raw disassembly (works on any data, uses cstool)\n");
-    fprintf(stderr, "  --smart-asm      Smart disassembly (format-aware, uses objdump)\n");
-    fprintf(stderr, "  --arch ARCH      Specify architecture for disassembly\n");
-    fprintf(stderr, "                    Valid values: x64, x32, arm64, arm\n");
     fprintf(stderr, "  --mappings       Show the byte-to-character mapping table\n");
     fprintf(stderr, "  --mappings-json  Output mappings as JSON\n");
     fprintf(stderr, "  --mappings-csv   Output mappings as CSV\n");
@@ -824,9 +817,6 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  %s binary_file               # Encode binary to UTF-8\n", program_name);
     fprintf(stderr, "  %s -d encoded_file           # Decode UTF-8 to binary\n", program_name);
     fprintf(stderr, "  %s -f=4x10 binary_file       # Encode with formatting\n", program_name);
-    fprintf(stderr, "  %s -a executable             # Raw disassembly (any data)\n", program_name);
-    fprintf(stderr, "  %s --smart-asm binary        # Smart disassembly (executables)\n", program_name);
-    fprintf(stderr, "  %s -a --arch=arm64 binary    # Force ARM64 raw disassembly\n", program_name);
     fprintf(stderr, "  %s --passthrough file | tool # Monitor binary stream\n", program_name);
 }
 
@@ -836,13 +826,10 @@ static options_t parse_options(int argc, char *argv[]) {
         .decode_mode = false,
         .passthrough_mode = false,
         .format_mode = false,
-        .asm_mode = false,
-        .smart_asm_mode = false,
         .help_mode = false,
         .format_group = 8,
         .format_groups_per_line = 10,
         .mappings_mode = MAPPINGS_NONE,
-        .arch = NULL,
         .input_file = NULL
     };
 
@@ -885,19 +872,6 @@ static options_t parse_options(int argc, char *argv[]) {
                 } else {
                     opts.format_mode = true;
                 }
-            } else if (long_option_equals(name, name_len, "asm")) {
-                opts.asm_mode = true;
-            } else if (long_option_equals(name, name_len, "smart-asm")) {
-                opts.smart_asm_mode = true;
-            } else if (long_option_equals(name, name_len, "arch")) {
-                if (!value) {
-                    if (i + 1 >= argc) {
-                        fprintf(stderr, "Error: --arch requires a value\n");
-                        exit(1);
-                    }
-                    value = argv[++i];
-                }
-                opts.arch = (char*)value;
             } else if (long_option_equals(name, name_len, "mappings")) {
                 set_mappings_mode(&opts, MAPPINGS_TABLE);
             } else if (long_option_equals(name, name_len, "mappings-json")) {
@@ -923,10 +897,6 @@ static options_t parse_options(int argc, char *argv[]) {
                     break;
                 case 'p':
                     opts.passthrough_mode = true;
-                    pos++;
-                    break;
-                case 'a':
-                    opts.asm_mode = true;
                     pos++;
                     break;
                 case 'h':
@@ -974,12 +944,6 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    // Validate conflicting options
-    if (opts.asm_mode && opts.smart_asm_mode) {
-        fprintf(stderr, "Error: Cannot use both --asm and --smart-asm together\n");
-        return 1;
-    }
-
     // Check for terminal input when no file specified
     if (!opts.input_file && isatty(STDIN_FILENO)) {
         print_usage(program_display_name);
@@ -1020,236 +984,6 @@ int main(int argc, char *argv[]) {
             // Write original data to stdout
             fwrite(input.data, 1, input.size, stdout);
         }
-
-#ifdef __EMSCRIPTEN__
-        if (opts.smart_asm_mode || opts.asm_mode) {
-            fprintf(stderr, "Error: Disassembly modes are not supported in the WebAssembly build\n");
-            free(input.data);
-            return 1;
-        }
-#else
-        // Check for smart disassembly mode first
-        if (opts.smart_asm_mode) {
-            if (!opts.input_file) {
-                fprintf(stderr, "Error: Smart disassembly mode requires a file input\n");
-                exit(1);
-            }
-
-            // Check if objdump is available
-            if (system("which objdump > /dev/null 2>&1") != 0) {
-                fprintf(stderr, "Error: objdump not found. Smart disassembly requires objdump.\n");
-                exit(1);
-            }
-
-            fprintf(stderr, "# Smart disassembly using objdump (format-aware):\n");
-
-            // Create objdump command
-            char objdump_cmd[512];
-            snprintf(objdump_cmd, sizeof(objdump_cmd), "objdump -d \"%s\" 2>/dev/null", opts.input_file);
-
-            FILE *objdump_pipe = popen(objdump_cmd, "r");
-            if (!objdump_pipe) {
-                fprintf(stderr, "Error: Failed to run objdump\n");
-                exit(1);
-            }
-
-            buffer_t objdump_output;
-            buffer_init(&objdump_output, 0);  // Use default, will start with stack
-
-            char line[1024];
-            while (fgets(line, sizeof(line), objdump_pipe)) {
-                // Look for disassembly lines (address: bytes instruction)
-                unsigned int addr;
-
-                char *colon_pos = strchr(line, ':');
-
-                if (colon_pos && sscanf(line, " %x:", &addr) == 1) {
-                    // Parse the rest after the colon
-                    char *rest = colon_pos + 1;
-
-                    // Skip whitespace
-                    while (*rest && isspace(*rest)) rest++;
-
-                    // Find where instruction starts (after hex bytes)
-                    char *instr_start = rest;
-                    int byte_count = 0;
-                    char clean_bytes[64] = {0};
-
-                    // Extract hex bytes
-                    while (*instr_start && byte_count < 32) {
-                        if (isxdigit(*instr_start)) {
-                            if (byte_count < 63) {
-                                clean_bytes[byte_count] = *instr_start;
-                                byte_count++;
-                            }
-                            instr_start++;
-                        } else if (*instr_start == ' ' || *instr_start == '\t') {
-                            // Skip whitespace, but if we hit a lot of spaces, we've reached the instruction
-                            int space_count = 0;
-                            char *temp = instr_start;
-                            while (*temp && (*temp == ' ' || *temp == '\t')) {
-                                space_count++;
-                                temp++;
-                            }
-                            if (space_count > 4) {
-                                instr_start = temp;
-                                break;
-                            }
-                            instr_start++;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    // Get instruction text
-                    char *instr_end = strchr(instr_start, '\n');
-                    if (instr_end) *instr_end = '\0';
-
-                    // Remove leading/trailing whitespace from instruction
-                    while (*instr_start && isspace(*instr_start)) instr_start++;
-                    char *instr_tail = instr_start + strlen(instr_start) - 1;
-                    while (instr_tail > instr_start && isspace(*instr_tail)) {
-                        *instr_tail = '\0';
-                        instr_tail--;
-                    }
-
-                    if (byte_count > 0 && strlen(instr_start) > 0) {
-                        // Convert hex bytes to encoded characters
-                        for (int i = 0; i < byte_count; i += 2) {
-                            if (i + 1 < byte_count) {
-                                char byte_str[3] = {clean_bytes[i], clean_bytes[i+1], '\0'};
-                                unsigned int byte_val;
-                                if (sscanf(byte_str, "%x", &byte_val) == 1) {
-                                    utf8_sequence_t seq = encode_table[byte_val];
-                                    buffer_append(&objdump_output, seq.bytes, seq.length);
-                                }
-                            }
-                        }
-
-                        // Add receipt emoji and instruction
-                        buffer_append(&objdump_output, " 🧾 ", 6);
-                        buffer_append(&objdump_output, instr_start, strlen(instr_start));
-                        buffer_append(&objdump_output, "\n", 1);
-                    }
-                } else if (strstr(line, "Disassembly of section") || strstr(line, "file format")) {
-                    // Include section headers as comments
-                    buffer_append(&objdump_output, "# ", 2);
-                    char *line_end = strchr(line, '\n');
-                    if (line_end) *line_end = '\0';
-                    // Trim whitespace
-                    char *trimmed = line;
-                    while (*trimmed && isspace(*trimmed)) trimmed++;
-                    char *tail = trimmed + strlen(trimmed) - 1;
-                    while (tail > trimmed && isspace(*tail)) {
-                        *tail = '\0';
-                        tail--;
-                    }
-                    buffer_append(&objdump_output, trimmed, strlen(trimmed));
-                    buffer_append(&objdump_output, "\n", 1);
-                }
-            }
-            pclose(objdump_pipe);
-
-            // Output the smart disassembly
-            if (opts.passthrough_mode) {
-                fprintf(stderr, "%.*s", (int)objdump_output.size, objdump_output.data);
-            } else {
-                printf("%.*s", (int)objdump_output.size, objdump_output.data);
-            }
-
-            buffer_free(&objdump_output);
-            return 0;
-
-        } else if (opts.asm_mode) {
-            // Basic disassembly implementation
-            if (!opts.input_file) {
-                fprintf(stderr, "Error: Disassembly mode requires a file input\n");
-                exit(1);
-            }
-
-            // Check if cstool is available
-            if (system("which cstool > /dev/null 2>&1") != 0) {
-                fprintf(stderr, "Warning: Capstone disassembly engine not found. Install it for disassembly.\n");
-                fprintf(stderr, "Continuing with simple output...\n");
-            } else {
-                // Create hex dump command
-                char hex_cmd[512];
-                snprintf(hex_cmd, sizeof(hex_cmd), "xxd -p \"%s\" | tr -d '\\n'", opts.input_file);
-
-                FILE *hex_pipe = popen(hex_cmd, "r");
-                if (!hex_pipe) {
-                    fprintf(stderr, "Error: Failed to create hex dump\n");
-                    exit(1);
-                }
-
-                // Read hex data
-                char hex_data[65536]; // 64KB max for now
-                size_t hex_len = fread(hex_data, 1, sizeof(hex_data) - 1, hex_pipe);
-                hex_data[hex_len] = '\0';
-                pclose(hex_pipe);
-
-                // Determine architecture
-                const char *arch;
-                if (opts.arch) {
-                    arch = opts.arch;
-                    fprintf(stderr, "# Using specified architecture: %s\n", arch);
-                } else {
-                    // Simple auto-detection - default to x64
-                    arch = "x64";
-                    fprintf(stderr, "# Auto-detecting architecture...\n");
-                    fprintf(stderr, "# Auto-detected architecture: x64\n");
-                }
-                fprintf(stderr, "# Disassembly using %s architecture:\n", arch);
-
-                // Create cstool command
-                char cstool_cmd[1024];
-                snprintf(cstool_cmd, sizeof(cstool_cmd), "echo '%s' | xargs cstool %s 2>/dev/null", hex_data, arch);
-
-                FILE *cstool_pipe = popen(cstool_cmd, "r");
-                if (!cstool_pipe) {
-                    fprintf(stderr, "Error: Failed to run cstool\n");
-                    exit(1);
-                }
-
-                // Read and parse disassembly output
-                char line[256];
-                buffer_t disasm_output;
-                buffer_init(&disasm_output, 0); // Will grow as needed, start with stack
-
-                while (fgets(line, sizeof(line), cstool_pipe)) {
-                    // Parse cstool format: " addr  bytes    instruction"
-                    unsigned int addr;
-                    char bytes[32], instruction[128];
-                    if (sscanf(line, " %x %31s %127[^\n]", &addr, bytes, instruction) == 3) {
-                        // Convert hex bytes to encoded characters
-                        for (size_t i = 0; i < strlen(bytes); i += 2) {
-                            char byte_str[3] = {bytes[i], bytes[i+1], '\0'};
-                            unsigned int byte_val;
-                            if (sscanf(byte_str, "%x", &byte_val) == 1) {
-                                utf8_sequence_t seq = encode_table[byte_val];
-                                if (seq.length > 0) {
-                                    buffer_append(&disasm_output, seq.bytes, seq.length);
-                                }
-                            }
-                        }
-
-                        // Add disassembly separator and instruction
-                        const char *separator = " 🧾 ";
-                        buffer_append(&disasm_output, separator, strlen(separator));
-                        buffer_append(&disasm_output, instruction, strlen(instruction));
-                        buffer_append(&disasm_output, "\n", 1);
-                    }
-                }
-                pclose(cstool_pipe);
-
-                // Output the disassembly
-                fwrite(disasm_output.data, 1, disasm_output.size, stdout);
-                free(disasm_output.data);
-                free(input.data);
-                return 0;
-            }
-        }
-#endif
 
         // Encode the data
         buffer_t encoded = encode_data((uint8_t*)input.data, input.size);

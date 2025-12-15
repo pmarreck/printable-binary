@@ -19,8 +19,7 @@ PrintableBinary is available in multiple high-performance implementations:
 - **Great for distribution**: Ship one file (`printable_binary_ape.com`) and it just works
 
 ### ⚡ **LuaJIT Implementation** (Original)
-- **Feature-complete**: Full disassembly support with Capstone
-- **Scriptable**: Easy to modify and extend
+- **Reference implementation**: Easy to modify and extend
 - **Well-tested**: Extensive test suite and battle-tested
 - **Development-friendly**: Rapid prototyping and debugging
 
@@ -81,7 +80,6 @@ make test-ape
 # Already optimized and ready to use
 ./bin/printable_binary file.bin
 ./bin/printable_binary -d encoded_file.txt
-./bin/printable_binary -a executable  # Disassembly feature
 ```
 
 ## Installation Options
@@ -154,10 +152,6 @@ cmp file.bin decoded.bin && echo "✓ Perfect round-trip"
 # Formatted output
 ./bin/printable_binary -f=4x10 file.bin    # 4 chars per group, 10 groups per line
 
-# Disassembly (LuaJIT only)
-./bin/printable_binary -a executable       # Auto-detect architecture
-./bin/printable_binary -a --arch=arm64 binary  # Force ARM64
-
 # Piped input
 cat file.bin | ./bin/printable_binary
 echo "Hello" | ./bin/printable_binary | ./bin/printable_binary -d
@@ -173,8 +167,6 @@ Options:
   --mappings            Print the active byte-to-Unicode table
   --mappings-json       Emit the mapping table as JSON
   --mappings-csv        Emit the mapping table as CSV
-  -a, --asm            Disassemble binary (LuaJIT only, requires Capstone)
-  --arch ARCH          Specify architecture for disassembly (x64, x32, arm64, arm)
   -h, --help           Show help message
 
 Input/Output:
@@ -206,7 +198,6 @@ Both binaries embed the canonical 256-entry map, so the new `--mappings*` flags 
 
 ✅ **Quick scripts** and one-off operations  
 ✅ **Development and testing** (easier to modify)  
-✅ **Disassembly features** (full Capstone integration)  
 ✅ **Small files** where performance difference is negligible  
 ✅ **Integration** with existing Lua-based workflows  
 ✅ **Rapid prototyping** and experimentation  
@@ -220,7 +211,6 @@ Both binaries embed the canonical 256-entry map, so the new `--mappings*` flags 
 | **Basic Encoding/Decoding** | ✅ | ✅ | Identical output |
 | **Passthrough Mode** | ✅ | ✅ | Same functionality |
 | **Formatted Output** | ✅ | ✅ | Same formatting |
-| **Disassembly** | ✅ | ❌ | LuaJIT only |
 | **Cross-Platform** | ✅ | ✅ | Both work everywhere |
 | **Binary Size** | Small | **Smaller** | C compiles to ~50KB |
 | **Startup Time** | Fast | **Faster** | C has no interpreter overhead |
@@ -285,9 +275,6 @@ nix develop
 
 **Required:**
 - LuaJIT 2.0 or later
-
-**Optional:**
-- Capstone disassembly engine (`cstool` command)
 
 ## Development
 

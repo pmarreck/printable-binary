@@ -431,12 +431,7 @@ class PrintableBinary {
     }
 
     // Clean up the input string - remove whitespace
-    // Also remove receipt emoji if present (used in disassembly mode)
     let cleanedString = printableString.replace(/[\r\n\t ]/g, '');
-
-    // Remove receipt emoji (🧾) which is used as separator in disassembly output
-    const receiptEmoji = "\u{1F9FE}";
-    cleanedString = cleanedString.replace(new RegExp(receiptEmoji, 'g'), '');
 
     const result = [];
     let i = 0;

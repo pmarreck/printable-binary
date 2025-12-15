@@ -6,11 +6,10 @@ This document describes the organization of the PrintableBinary project after th
 
 ```
 printable-binary/
-├── bin/                    # Runtime-ready executables (C, APE, Node CLI, WASM)
-│   ├── printable_binary_c
-│   ├── printable_binary_ape.com
+├── bin/                    # Entry points + build outputs
+│   ├── printable_binary        # LuaJIT implementation (main CLI)
 │   ├── printable_binary_node.js
-│   └── printable_binary.wasm
+│   └── printable_binary_c      # Built by `make release` (not committed)
 ├── js/                     # Shared JavaScript module used by CLI/browser
 ├── bm/                     # Benchmark helpers and comparison scripts
 ├── test/                   # All tests (Lua + JS + WASM + fuzz)
@@ -25,7 +24,6 @@ printable-binary/
 │   ├── audit_character_map.lua
 │   ├── generate_embedded_map.lua
 │   └── js/                 # Mapping/diagnostic helpers used by Node tooling
-├── printable_binary        # LuaJIT implementation (main script)
 ├── src/                    # C source tree
 │   └── printable_binary.c  # High-performance implementation
 ├── Makefile               # Build system
@@ -35,7 +33,7 @@ printable-binary/
 ## Key Files
 
 ### Implementations
-- **`printable_binary`** - Original LuaJIT implementation (requires LuaJIT)
+- **`bin/printable_binary`** - Original LuaJIT implementation (requires LuaJIT)
 - **`src/printable_binary.c`** - C source code for high-performance version
 - **`bin/printable_binary_c`** - Compiled C binary (created by `make`)
 

@@ -14,6 +14,15 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}=== PrintableBinary Test Suite Runner ===${NC}"
 
 SCRIPT_DIR="$(dirname "$0")"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Build the C implementation when possible so the suite tests current sources
+C_BUILD_OK=0
+if command -v make >/dev/null 2>&1 && [[ -f "$REPO_ROOT/src/printable_binary.c" ]]; then
+  if (cd "$REPO_ROOT" && make -s release >/dev/null 2>&1); then
+    C_BUILD_OK=1
+  fi
+fi
 
 # Build the list of implementations to exercise with the core suite
 if [ -n "$IMPLEMENTATION_TO_TEST" ]; then
@@ -23,10 +32,12 @@ elif [ -n "$IMPLEMENTATIONS_TO_TEST" ]; then
 else
   CANDIDATES=(
     "$SCRIPT_DIR/../bin/printable_binary"
-    "$SCRIPT_DIR/../bin/printable_binary_c"
     "$SCRIPT_DIR/../bin/printable_binary_ape.com"
     "$SCRIPT_DIR/../bin/printable_binary_node.js"
   )
+  if [[ "$C_BUILD_OK" -eq 1 && -x "$SCRIPT_DIR/../bin/printable_binary_c" ]]; then
+    CANDIDATES+=("$SCRIPT_DIR/../bin/printable_binary_c")
+  fi
   IMPLEMENTATIONS=()
   for candidate in "${CANDIDATES[@]}"; do
     if [ -x "$candidate" ]; then
@@ -82,19 +93,6 @@ if IMPLEMENTATION_TO_TEST="$PRIMARY_IMPLEMENTATION" "$(dirname "$0")/fuzz_test";
 else
   echo -e "${RED}Fuzz tests: FAILED${NC}"
   FAILED=1
-fi
-
-# Run disassembly tests
-echo -e "\n${YELLOW}Running disassembly tests...${NC}"
-if [[ "$PRIMARY_IMPLEMENTATION" == *"printable_binary_ape.com" ]]; then
-  echo -e "${YELLOW}Skipping disassembly tests for APE build (popen/cstool not available in some environments)${NC}"
-else
-  if IMPLEMENTATION_TO_TEST="$PRIMARY_IMPLEMENTATION" "$(dirname "$0")/test_disassembly"; then
-    echo -e "${GREEN}Disassembly tests: PASSED${NC}"
-  else
-    echo -e "${RED}Disassembly tests: FAILED${NC}"
-    FAILED=1
-  fi
 fi
 
 # Run performance benchmark tests

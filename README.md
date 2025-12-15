@@ -18,11 +18,7 @@ This implementation allows you to view binary data directly in a terminal (it ev
 - **Single Character Width**: Each encoded representation renders as a single character wide in a monospace terminal
 - **Compactness**: Uses 1-3 byte UTF-8 characters for optimal space efficiency
 - **Usability**: Encoded strings are easily copyable, pastable, and printable
-- **Smart Disassembly**: Format-aware disassembly using objdump that understands binary file structures (Mach-O, ELF, PE)
-- **Raw Disassembly**: Direct byte-to-instruction disassembly using Capstone with auto-architecture detection or manual selection
 - **Formatting**: Customizable output formatting with group size and line width options
-- **Universal Binary Support**: Detects and clearly identifies macOS universal binaries with multiple architectures
-- **Intelligent Pattern Recognition**: Recognizes common byte patterns (NUL, NOP, INT3) and provides context-aware analysis to distinguish between code and data
 - **Binary Safety**: Preserves all binary data, including NUL bytes, when encoding and decoding
 - **Passthrough Mode**: Simultaneously outputs original binary data to stdout and encoded text to stderr for flexible processing pipelines
 
@@ -31,9 +27,8 @@ This implementation allows you to view binary data directly in a terminal (it ev
 - **Better diffs & greppability:** control chars and whitespace are explicit, so structure pops out; far richer than `strings(1)`, which drops most bytes.
 - **Debuggable logs & pastebins:** printable, reversible, survives Slack/email/wikis without mangling or wrap damage.
 - **Small binary fixtures:** embed headers, protocol frames, certs, etc., in text files while staying patch/grep friendly.
-- **Cross-platform:** fat APE runs on Linux/macOS/Windows; WASM runs in browsers/CI; same CLI everywhere.
+- **Cross-platform:** works anywhere you can run LuaJIT/Node, or build the C version.
 - **Monospace-safe glyph set:** every glyph is vetted to occupy the same width in common monospace fonts, so alignment in editors/terminals/diffs stays intact (surprisingly many Unicode symbols don’t).
-- **Disassembly helper:** Capstone/objdump modes let you view code + data together without losing offsets.
 
 ### Compared to Hexadecimal Encodings
 
@@ -49,9 +44,8 @@ This implementation allows you to view binary data directly in a terminal (it ev
 ```bash
 # Use any implementation:
 # LuaJIT version:     ./bin/printable_binary
-# C version (ELF/Mach): ./bin/printable_binary_c
-# C APE (Cosmopolitan): ./bin/printable_binary_ape.com
 # Node.js CLI:         ./bin/printable_binary_node.js
+# C version:           make release && ./bin/printable_binary_c
 # (Examples below use the LuaJIT version; the others accept the same flags.)
 
 # Encode binary data
@@ -71,23 +65,6 @@ echo -n "Hello, World!" | ./bin/printable_binary
 # Encode with custom formatting (groups of 4 characters, 16 groups per line)
 ./bin/printable_binary -f=4x16 somefile.bin > custom_formatted.txt
 
-# Encode with raw disassembly (auto-detects architecture)
-./bin/printable_binary -a executable.bin > disassembled.txt
-
-# Encode with smart disassembly (format-aware)
-./bin/printable_binary --smart-asm executable.bin > smart_disassembled.txt
-
-# Encode with both formatting and disassembly
-./bin/printable_binary -a -f=8x8 executable.bin > formatted_disassembly.txt
-
-# Encode with specific architecture (useful for universal binaries)
-./bin/printable_binary -a --arch x64 universal_binary.bin > x64_disassembly.txt
-
-# NOTE: Disassembly only processes a portion of the binary
-# Decoding from disassembly will not reconstruct the full binary
-# For universal binaries, it will only show one architecture
-./bin/printable_binary universal_binary.bin > full_binary.txt  # Use this for full binary preservation
-
 # Inspect the active character map (table/JSON/CSV)
 ./bin/printable_binary --mappings | head
 ./bin/printable_binary_c --mappings-json > mapping.json
@@ -99,9 +76,6 @@ echo -n "Hello,␣World﹗" | ./bin/printable_binary -d
 
 # Decode formatted data (formatting is ignored)
 cat formatted_encoded.txt | ./bin/printable_binary -d > original.bin
-
-# Decode disassembled data (disassembly info is ignored)
-cat disassembled.txt | ./bin/printable_binary -d > original_executable.bin
 
 # Use passthrough mode to output both original binary (stdout) and encoded text (stderr)
 # This is useful for binary data processing pipelines that need both representations
@@ -175,11 +149,11 @@ cat input.bin | ./bin/printable_binary_node.js -f=8x10 > encoded.txt
 ./bin/printable_binary_node.js --mappings-json > map.json
 ```
 
-Supported flags: `-d/--decode`, `-f/--format NxM`, `--mappings*`, `-h/--help`. The CLI shares the exact encode/decode implementation with the browser UI. Disassembly options (`-a`, `--smart-asm`, etc.) are not available in the Node wrapper; use the LuaJIT or C binaries when you need Capstone/objdump features.
+Supported flags: `-d/--decode`, `-f/--format NxM`, `--mappings*`, `-h/--help`. The CLI shares the exact encode/decode implementation with the browser UI.
 
 ### Character Map
 
-Every CLI and the WASM build ships with the canonical 256-entry table embedded, so you can always inspect it:
+Every CLI (and the WASM build, when built) ships with the canonical 256-entry table embedded, so you can always inspect it:
 
 ```bash
 ./bin/printable_binary --mappings          # human-readable table
@@ -204,7 +178,7 @@ PrintableBinary respects a couple of environment variables across every implemen
 - `PRINTABLE_BINARY_MAP` – absolute or relative path to a `character_map.txt` that overrides the embedded table. The lookup order is described above.
 - `PRINTABLE_BINARY_MUTE_STATS` – set to `1`, `true`, or `yes` to suppress the usual "Encoded …" / "Decoding mode …" statistics that are normally written to stderr. This is handy for scripts that expect clean stderr output while still reusing the default behavior interactively.
 
-When launching the WASM build with wazero, remember that it does **not** inherit host environment variables unless you pass them. Use `wazero run --env=PRINTABLE_BINARY_MUTE_STATS=true bin/printable_binary.wasm` (or `--env-inherit` to forward everything) so the behavior matches the native binaries.
+When launching the WASM build with wazero, remember that it does **not** inherit host environment variables unless you pass them. After building `bin/printable_binary.wasm` (for example via `make wasm`), use `wazero run --env=PRINTABLE_BINARY_MUTE_STATS=true bin/printable_binary.wasm` (or `--env-inherit` to forward everything) so the behavior matches the native binaries.
 
 ### Inspecting Streams (Passthrough Mode)
 
@@ -275,88 +249,6 @@ Because `--passthrough` sends the original binary to stdout, you can insert Prin
   head -c 8 image.png | ./bin/printable_binary
   # Should show 89PNG⏎␣␣ if the PNG signature is intact.
   ```
-
-## Disassembly Features
-
-PrintableBinary offers two modes for disassembling binary files, each with different strengths:
-
-### Smart Disassembly (`--smart-asm`)
-
-Uses `objdump` for format-aware disassembly that understands binary file structures:
-
-```bash
-# Smart disassembly - recommended for most use cases
-./bin/printable_binary --smart-asm /usr/bin/ls
-./bin/printable_binary --smart-asm -f=4x8 binary_file.exe
-```
-
-**Advantages:**
-
-- ✅ Format-aware (understands Mach-O, ELF, PE formats)
-- ✅ Only disassembles actual executable code sections
-- ✅ Accurate disassembly with proper architecture detection
-- ✅ Includes section headers and file format information
-- ✅ Best for analyzing complete, well-formed binaries
-
-**Requirements:** `objdump` (usually part of binutils)
-
-### Raw Disassembly (`-a, --asm`)
-
-Uses `cstool` (Capstone) for direct byte-to-instruction disassembly:
-
-```bash
-# Raw disassembly with auto-detection
-./bin/printable_binary -a binary_file
-
-# Force specific architecture
-./bin/printable_binary -a --arch=arm64 data_file.bin
-./bin/printable_binary -a --arch=x64 shellcode.bin
-```
-
-**Advantages:**
-
-- ✅ Works on any binary data, including fragments
-- ✅ Faster performance
-- ✅ Good for shellcode, raw code fragments, or data analysis
-- ✅ Useful for seeing "what would this data look like as code"
-- ✅ Cross-architecture analysis
-
-**Requirements:** `cstool` (part of Capstone framework)
-
-### When to Use Each Mode
-
-| Use Case                        | Recommended Mode | Reason                                         |
-| ------------------------------- | ---------------- | ---------------------------------------------- |
-| Analyzing executables/libraries | `--smart-asm`    | Format-aware, shows only real code             |
-| Raw shellcode analysis          | `-a, --asm`      | Works on code fragments                        |
-| Memory dumps                    | `-a, --asm`      | No file format structure                       |
-| Cross-architecture analysis     | `-a, --asm`      | Force interpretation as different arch         |
-| Data section analysis           | `-a, --asm`      | See what data looks like as code               |
-| Quick analysis                  | `--smart-asm`    | More accurate results                          |
-| Research/debugging              | `-a, --asm`      | Raw interpretation without format intelligence |
-
-### Examples
-
-**Smart disassembly of a macOS binary:**
-
-```bash
-./bin/printable_binary --smart-asm /usr/libexec/rosetta/runtime
-# Output includes proper ARM64 disassembly with section information
-```
-
-**Raw disassembly for shellcode analysis:**
-
-```bash
-# Analyze potential shellcode
-echo -n "4889e5" | xxd -r -p | ./bin/printable_binary -a --arch=x64
-```
-
-**Cross-architecture analysis:**
-
-```bash
-# See what ARM code looks like when interpreted as x86
-./bin/printable_binary -a --arch=x32 /usr/bin/arm_binary
-```
 
 ## Format Compatibility
 
