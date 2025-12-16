@@ -32,9 +32,12 @@ elif [ -n "$IMPLEMENTATIONS_TO_TEST" ]; then
 else
   CANDIDATES=(
     "$SCRIPT_DIR/../bin/printable_binary"
-    "$SCRIPT_DIR/../bin/printable_binary_ape.com"
     "$SCRIPT_DIR/../bin/printable_binary_node.js"
   )
+  APE_BIN="$SCRIPT_DIR/../bin/printable_binary_ape.com"
+  if [[ -x "$APE_BIN" ]]; then
+    CANDIDATES+=("$SCRIPT_DIR/printable_binary_ape_wrapper")
+  fi
   if [[ "$C_BUILD_OK" -eq 1 && -x "$SCRIPT_DIR/../bin/printable_binary_c" ]]; then
     CANDIDATES+=("$SCRIPT_DIR/../bin/printable_binary_c")
   fi
@@ -72,8 +75,8 @@ for impl in "${IMPLEMENTATIONS[@]}"; do
   fi
 
   # If we're exercising the Cosmopolitan build, ensure it carries the Apple Silicon slice.
-  if [[ "$impl" == *"printable_binary_ape.com" ]]; then
-    if "$(dirname "$0")/test_ape_arch_slice" "$impl"; then
+  if [[ "$impl" == *"printable_binary_ape_wrapper" ]]; then
+    if "$(dirname "$0")/test_ape_arch_slice" "$SCRIPT_DIR/../bin/printable_binary_ape.com"; then
       echo -e "${GREEN}APE slice check: PASSED for $impl${NC}"
     else
       echo -e "${RED}APE slice check: FAILED for $impl${NC}"

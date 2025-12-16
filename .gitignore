@@ -2,11 +2,11 @@
 .DS_Store
 **/.DS_Store
 .dirtree-state
+.ape-*
 
 # Compiled binaries (non-APE)
 bin/printable_binary_c
 bin/printable_binary.wasm
-bin/printable_binary_ape.com
 /.emscripten_cache/
 *.o
 *.exe

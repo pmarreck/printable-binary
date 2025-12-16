@@ -145,7 +145,7 @@ $(BIN_DIR)/$(WASM_TARGET): $(SOURCE) $(MAP_COPY) | $(BIN_DIR)
 ape: $(BIN_DIR)/$(APE_TARGET)
 
 $(COSMOCC_BIN):
-	@if [ -z "$$CONFIRM_BIG_DEP_DOWNLOAD" ] || ! printf '%s\n' "$$CONFIRM_BIG_DEP_DOWNLOAD" | grep -Eiq '^(1|y|yes|true)$'; then \
+	@if [ -z "$$CONFIRM_BIG_DEP_DOWNLOAD" ] || ! printf '%s\n' "$$CONFIRM_BIG_DEP_DOWNLOAD" | grep -Eiq '^(1|y|yes|true)$$'; then \
 		echo "cosmocc $(COSMOCC_VERSION) (~400MB) needs to be downloaded."; \
 		echo "Set CONFIRM_BIG_DEP_DOWNLOAD=1 (or yes/true) to proceed."; \
 		exit 1; \
