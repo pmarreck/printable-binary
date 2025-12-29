@@ -77,9 +77,9 @@ const EMBEDDED_MAP = `·
 9
 ꞉
 ;
-<
+˂
 ꞊
->
+˃
 Ɂ
 @
 A

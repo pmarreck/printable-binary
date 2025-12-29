@@ -92,6 +92,19 @@ else
     exit 1
 fi
 
+# Test 2b: Angle brackets use lookalike glyphs
+echo -e "${BLUE}Test #2b: Angle bracket lookalikes${NC}"
+printf '<>' > "$TMP_BINARY"
+ENCODED=$($SCRIPT "$TMP_BINARY")
+if [[ "$ENCODED" == "˂˃" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: ˂˃"
+    echo "Got: $ENCODED"
+    exit 1
+fi
+
 # Test 3: Quotes and backslashes
 echo -e "${BLUE}Test #3: Quotes and backslashes roundtrip${NC}"
 printf '\"\\\n' > "$TMP_BINARY"

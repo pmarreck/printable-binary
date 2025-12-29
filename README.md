@@ -292,7 +292,7 @@ DATA="$(./bin/printable_binary file.bin)"
 printf 'char data[] = "%s";\n' "$(./bin/printable_binary file.bin)"
 ```
 
-**Note:** If your original binary contains problematic characters (like `<` or `{`), they'll appear as-is since they're printable ASCII. Use quoted contexts when embedding in structured formats.
+**Note:** If your original binary contains problematic characters (like `{`), they'll appear as-is since they're printable ASCII. Use quoted contexts when embedding in structured formats.
 
 ## Character Encoding
 
@@ -390,9 +390,9 @@ This table is generated from `character_map.txt` so every implementation stays i
 | 57 | 9 | U+0039 | 39 | Digit Nine |
 | 58 | ꞉ | U+A789 | EA 9E 89 | Modifier Letter Colon |
 | 59 | ; | U+037E | CD BE | Greek Question Mark |
-| 60 | < | U+003C | 3C | Less-Than Sign |
+| 60 | ˂ | U+02C2 | 3C | Modifier Letter Left Arrowhead |
 | 61 | ꞊ | U+A78A | EA 9E 8A | Modifier Letter Short Equals Sign |
-| 62 | > | U+003E | 3E | Greater-Than Sign |
+| 62 | ˃ | U+02C3 | 3E | Modifier Letter Right Arrowhead |
 | 63 | Ɂ | U+0241 | C9 81 | Latin Capital Letter Glottal Stop |
 | 64 | @ | U+0040 | 40 | Commercial At |
 | 65 | A | U+0041 | 41 | Latin Capital Letter A |
