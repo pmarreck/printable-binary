@@ -45,6 +45,12 @@ function parseCharacterMap(text) {
   return lines.slice(0, 256);
 }
 
+function warnSpacesAfterNewline(str) {
+  if (/[\n\r] {2,}/.test(str)) {
+    console.warn('Warning: spaces after newline are treated as data in --spaces mode');
+  }
+}
+
 let defaultCharacterMap = null;
 if (isNodeEnv) {
   const { readFileSync } = await import('node:fs');
@@ -159,9 +165,10 @@ class PrintableBinary {
     const chunks = [];
     let currentChunk = [];
 
+    const spacesMode = options.spaces === true;
     for (let i = 0; i < binaryData.length; i++) {
       const byte = binaryData[i];
-      const encoded = this.encodeMap.get(byte);
+      const encoded = spacesMode && byte === 0x20 ? ' ' : this.encodeMap.get(byte);
       if (encoded !== undefined) {
         currentChunk.push(encoded);
 
@@ -182,7 +189,7 @@ class PrintableBinary {
 
     // Apply formatting if requested
     if (options.format) {
-      output = this.formatOutput(output, options.format);
+      output = this.formatOutput(output, options.format, options);
     }
 
     return output;
@@ -209,7 +216,7 @@ class PrintableBinary {
    * @param {string} formatSpec - Format specification like "8x10" (8 chars per group, 10 groups per line)
    * @returns {string} Formatted output
    */
-  formatOutput(encoded, formatSpec) {
+  formatOutput(encoded, formatSpec, options = {}) {
     // Parse format specification (e.g., "8x10" or "75x1")
     const match = formatSpec.match(/^(\d+)x(\d+)$/);
     if (!match) {
@@ -219,6 +226,7 @@ class PrintableBinary {
     const charsPerGroup = parseInt(match[1], 10);
     const groupsPerLine = parseInt(match[2], 10);
     const glyphs = Array.from(encoded);
+    const groupSeparator = options.spaces ? '\t' : ' ';
 
     if (groupsPerLine === 1) {
       const result = [];
@@ -246,7 +254,7 @@ class PrintableBinary {
             result.push('\n');
             groupCount = 0;
           } else {
-            result.push(' ');
+            result.push(groupSeparator);
           }
         } else if (groupCount === groupsPerLine) {
           groupCount = 0;
@@ -262,19 +270,28 @@ class PrintableBinary {
    * @param {string} printableString - The encoded string to decode
    * @returns {Uint8Array} The decoded binary data
    */
-  decode(printableString) {
+  decode(printableString, options = {}) {
     if (typeof printableString !== 'string') {
       throw new Error("Input must be a string");
     }
 
     // Clean up the input string - remove whitespace
-    let cleanedString = printableString.replace(/[\r\n\t ]/g, '');
+    const spacesMode = options.spaces === true;
+    if (spacesMode && options.warnOnIndent) {
+      warnSpacesAfterNewline(printableString);
+    }
+    let cleanedString = printableString.replace(spacesMode ? /[\r\n\t]/g : /[\r\n\t ]/g, '');
 
     const result = [];
     let i = 0;
 
     // Process the string one character at a time
     while (i < cleanedString.length) {
+      if (spacesMode && cleanedString[i] === ' ') {
+        result.push(0x20);
+        i += 1;
+        continue;
+      }
       let matched = false;
 
       // Try to match longest first (up to 3 UTF-16 code units for our charset)
@@ -306,10 +323,10 @@ class PrintableBinary {
    * @param {string} str - The string to encode
    * @returns {string} The encoded printable string
    */
-  encodeString(str) {
+  encodeString(str, options = {}) {
     const encoder = new TextEncoder();
     const bytes = encoder.encode(str);
-    return this.encode(bytes);
+    return this.encode(bytes, options);
   }
 
   /**
@@ -318,8 +335,8 @@ class PrintableBinary {
    * @param {string} printableString - The encoded string to decode
    * @returns {string} The decoded string
    */
-  decodeToString(printableString) {
-    const bytes = this.decode(printableString);
+  decodeToString(printableString, options = {}) {
+    const bytes = this.decode(printableString, options);
     const decoder = new TextDecoder();
     return decoder.decode(bytes);
   }

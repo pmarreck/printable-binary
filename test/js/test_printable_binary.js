@@ -165,6 +165,28 @@ console.log('\n--- Whitespace Handling Tests ---');
   assertEquals(decoded, input, 'Decode with newlines between characters');
 }
 
+// Test 11b: Spaces option preserves literal spaces
+{
+  const input = "A B  C";
+  const encoded = encoder.encodeString(input, { spaces: true });
+  assertEquals(encoded, "A B  C", 'Encode preserves spaces with { spaces: true }');
+
+  const decoded = encoder.decodeToString(encoded, { spaces: true });
+  assertEquals(decoded, input, 'Decode preserves spaces with { spaces: true }');
+}
+
+// Test 11c: Spaces option decodes both ␣ and literal spaces
+{
+  const decoded = encoder.decodeToString("A␣B C", { spaces: true });
+  assertEquals(decoded, "A B C", 'Decode converts ␣ and literal spaces to space');
+}
+
+// Test 11d: Spaces option ignores newlines/tabs but keeps spaces
+{
+  const decoded = encoder.decodeToString("A B\nC\tD\rE", { spaces: true });
+  assertEquals(decoded, "A BCDE", 'Decode keeps spaces but ignores newlines/tabs');
+}
+
 // Test 12: Known mappings verification
 console.log('\n--- Known Mapping Verification Tests ---');
 {

@@ -138,7 +138,7 @@ The implementation includes comprehensive tests:
 3. **Special ASCII** - Shell-safe special characters
 4. **Extended bytes** - All bytes 128-255
 5. **Edge cases** - Empty input, single byte, NUL bytes
-6. **Whitespace handling** - Decoding with spaces and newlines
+6. **Whitespace handling** - Decoding with spaces/newlines (and `spaces` mode preserving literal spaces)
 7. **Known mappings** - Verification of specific character mappings
 8. **Binary patterns** - Repeating and sequential patterns
 9. **Large data** - Performance test with 10,000 bytes

@@ -21,6 +21,8 @@ Usage: ${progname} [options] [file]
 
 Options:
   -d, --decode          Decode mode (default is encode mode)
+  -s, --spaces          Preserve literal spaces (decoder still ignores tabs/newlines/CR)
+  -p, --passthrough     Pass input to stdout unchanged, send encoded data to stderr
   -f, --format NxM      Format output in groups (e.g. 75x1)
   -f=NXM, --format=NXM  Alternate syntax for specifying formatting
   --mappings            Show the byte-to-character mapping table
@@ -28,7 +30,7 @@ Options:
   --mappings-csv        Output the mappings as CSV
   -h, --help            Show this help
 
-Encoded output is whitespace-agnostic: you can reflow, indent, or wrap it freely because the decoder ignores real whitespace while rendering quotes, backslashes, tabs, and control bytes as visible, but clearly related, glyphs (e.g., SPACE→␣, TAB→⇥, CR→⏎, LF→↧, single quote→ʼ, double quote→˵, backslash→⧷).
+Encoded output is whitespace-agnostic: you can reflow, indent, or wrap it freely because the decoder ignores real whitespace while rendering quotes, backslashes, tabs, and control bytes as visible, but clearly related, glyphs (e.g., SPACE→␣, TAB→⇥, CR→⏎, LF→↧, single quote→ʼ, double quote→˵, backslash→⧷). With --spaces, literal spaces are treated as data (and we warn on indented lines).
 
 If no file is specified, input is read from stdin.
 Output is written to stdout.
@@ -74,7 +76,8 @@ function parseArgs(argv) {
   let formatSpec = null;
   let filePath = null;
   let mappingsFormat = null;
-   let passthrough = false;
+  let passthrough = false;
+  let spacesMode = false;
 
   const setMappingsFormat = (mode) => {
     if (mappingsFormat && mappingsFormat !== mode) {
@@ -92,6 +95,8 @@ function parseArgs(argv) {
       process.exit(0);
     } else if (arg === '-d' || arg === '--decode') {
       decodeMode = true;
+    } else if (arg === '-s' || arg === '--spaces') {
+      spacesMode = true;
     } else if (arg === '-f' || arg === '--format') {
       if (i + 1 >= argv.length) {
         process.stderr.write('Error: --format requires a value like 75x1\n');
@@ -122,7 +127,7 @@ function parseArgs(argv) {
     }
   }
 
-  return { decodeMode, formatSpec, filePath, mappingsFormat, passthrough };
+  return { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode };
 }
 
 async function readInput(filePath) {
@@ -139,7 +144,7 @@ async function readInput(filePath) {
 }
 
 async function main() {
-  const { decodeMode, formatSpec, filePath, mappingsFormat, passthrough } = parseArgs(process.argv.slice(2));
+  const { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode } = parseArgs(process.argv.slice(2));
   const pb = new PrintableBinary();
 
   try {
@@ -155,10 +160,17 @@ async function main() {
       if (passthrough) {
         process.stderr.write('Warning: --passthrough ignored in decode mode\n');
       }
-      const decoded = pb.decode(input.toString('utf8'));
+      const decoded = pb.decode(input.toString('utf8'), {
+        spaces: spacesMode,
+        warnOnIndent: spacesMode
+      });
       process.stdout.write(Buffer.from(decoded));
     } else {
-      const encoded = pb.encode(input, formatSpec ? { format: formatSpec } : {});
+      const options = { spaces: spacesMode };
+      if (formatSpec) {
+        options.format = formatSpec;
+      }
+      const encoded = pb.encode(input, options);
       if (passthrough) {
         process.stdout.write(input);
         process.stderr.write(encoded);

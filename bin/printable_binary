@@ -163,26 +163,43 @@ end
 build_maps()
 
 -- Encode binary data to printable UTF-8
-function PrintableBinary.encode(binary_data)
+function PrintableBinary.encode(binary_data, options)
   if type(binary_data) ~= "string" then
     error("Input must be a string")
   end
 
+  options = options or {}
+  local spaces_mode = options.spaces == true
   local result = {}
 
   for i = 1, #binary_data do
     local byte = string.byte(binary_data, i)
-    result[i] = encode_map[byte]
+    if spaces_mode and byte == 32 then
+      result[i] = " "
+    else
+      result[i] = encode_map[byte]
+    end
   end
 
   return table.concat(result)
 end
 
 -- Decode printable UTF-8 back to binary
-function PrintableBinary.decode(printable_string)
+local function warn_spaces_after_newline(str)
+  if str:match("\r\n  +") or str:match("\n  +") or str:match("\r  +") then
+    io.stderr:write("Warning: spaces after newline are treated as data in --spaces mode\n")
+  end
+end
+
+function PrintableBinary.decode(printable_string, options)
   if type(printable_string) ~= "string" then
     error("Input must be a string")
   end
+
+  options = options or {}
+  local spaces_mode = options.spaces == true
+  local skip_clean = options.skip_clean == true
+  local warn_on_indent = options.warn_on_indent == true
 
   -- For debugging
   local debug_mode = os.getenv("DEBUG")
@@ -193,7 +210,18 @@ function PrintableBinary.decode(printable_string)
   end
 
   -- Clean up the input string
-  local cleaned_string = printable_string:gsub("[\r\n\t ]", "")
+  if spaces_mode and warn_on_indent then
+    warn_spaces_after_newline(printable_string)
+  end
+
+  local cleaned_string = printable_string
+  if not skip_clean then
+    if spaces_mode then
+      cleaned_string = cleaned_string:gsub("[\r\n\t]", "")
+    else
+      cleaned_string = cleaned_string:gsub("[\r\n\t ]", "")
+    end
+  end
 
   debug_print("Input length: " .. #printable_string .. ", Cleaned length: " .. #cleaned_string)
 
@@ -206,16 +234,24 @@ function PrintableBinary.decode(printable_string)
   while i <= s_len do
     local matched_char = nil
 
+    if spaces_mode and cleaned_string:sub(i, i) == " " then
+      result_bytes_as_chars[#result_bytes_as_chars + 1] = " "
+      i = i + 1
+      matched_char = " "
+    end
+
     -- Try to match longest first (3-byte, then 2-byte, then 1-byte)
     -- Max UTF-8 char length in our set is 3 bytes
-    for len = 4, 1, -1 do
-      if i + len - 1 <= s_len then
-        local sub = string.sub(cleaned_string, i, i + len - 1)
-        if decode_map[sub] then
-          result_bytes_as_chars[#result_bytes_as_chars + 1] = string.char(decode_map[sub])
-          i = i + len
-          matched_char = sub
-          break
+    if not matched_char then
+      for len = 4, 1, -1 do
+        if i + len - 1 <= s_len then
+          local sub = string.sub(cleaned_string, i, i + len - 1)
+          if decode_map[sub] then
+            result_bytes_as_chars[#result_bytes_as_chars + 1] = string.char(decode_map[sub])
+            i = i + len
+            matched_char = sub
+            break
+          end
         end
       end
     end
@@ -251,6 +287,7 @@ if arg then
     io.stderr:write("Options:\n")
     io.stderr:write("  -d, --decode     Decode mode (default is encode mode)\n")
     io.stderr:write("  -p, --passthrough  Pass input to stdout unchanged, send encoded data to stderr\n")
+    io.stderr:write("  -s, --spaces     Preserve literal spaces (decoder still ignores tabs/newlines/CR)\n")
     io.stderr:write("  -f[=NxM], --format[=NxM]   Format output in groups\n")
     io.stderr:write("                    Default: 8x10 (groups of 8 chars, 10 groups per line)\n")
     io.stderr:write("  --mappings       Show the current byte-to-character mapping table\n")
@@ -262,6 +299,7 @@ if arg then
     io.stderr:write("Output is written to stdout, unless --passthrough is used (see below).\n\n")
     io.stderr:write("PrintableBinary encodes every byte (including quotes, backslashes, tabs, CR/LF, etc.) into visible, but clearly related, glyphs.\n")
     io.stderr:write("You can format the encoded text however you like—spaces, newlines, indentation—because the decoder ignores real whitespace.\n")
+    io.stderr:write("With --spaces, literal spaces are treated as data (and we warn on indented lines).\n")
     io.stderr:write("Examples: SPACE→␣, TAB→⇥, CR→⏎, LF→↧, single quote→ʼ, double quote→˵, backslash→⧷.\n\n")
     io.stderr:write("No shell escaping surprises, and the visually-related glyphs make the context obvious at a glance.\n\n")
     io.stderr:write("When --passthrough is used:\n")
@@ -345,6 +383,7 @@ if arg then
   local format_mode = false
   local format_spec = nil
   local passthrough_mode = false
+  local spaces_mode = false
 
   -- Default formatting groups
   local format_group = 8
@@ -360,6 +399,8 @@ if arg then
       decode_mode = true
     elseif arg[i] == "-p" or arg[i] == "--passthrough" then
       passthrough_mode = true
+    elseif arg[i] == "-s" or arg[i] == "--spaces" then
+      spaces_mode = true
     elseif arg[i] == "--format" or arg[i] == "-f" then
       format_mode = true
     elseif arg[i]:match("^%-f=") then
@@ -445,12 +486,22 @@ if arg then
 
     stats_write("Decoding mode: Input size is " .. #input_data .. " bytes\n")
 
+    if spaces_mode then
+      warn_spaces_after_newline(input_data)
+    end
+
     -- Simple whitespace removal - we need to preserve all other characters
-    local cleaned_input = input_data:gsub("[\r\n\t ]", "")
-    stats_write("After whitespace removal: " .. #cleaned_input .. " bytes\n")
+    local cleaned_input
+    if spaces_mode then
+      cleaned_input = input_data:gsub("[\r\n\t]", "")
+      stats_write("After whitespace removal (tabs/newlines/CR): " .. #cleaned_input .. " bytes\n")
+    else
+      cleaned_input = input_data:gsub("[\r\n\t ]", "")
+      stats_write("After whitespace removal: " .. #cleaned_input .. " bytes\n")
+    end
 
     -- Decode directly
-    output = PrintableBinary.decode(cleaned_input)
+    output = PrintableBinary.decode(cleaned_input, { spaces = spaces_mode, skip_clean = true })
     stats_write("Decoded result size: " .. #output .. " bytes\n")
 
     -- Always output decoded data to stdout in decode mode
@@ -464,7 +515,7 @@ if arg then
     if passthrough_mode then
       io.stdout:write(input_data)
     end
-    output = PrintableBinary.encode(input_data)
+    output = PrintableBinary.encode(input_data, { spaces = spaces_mode })
     stats_write("Encoded " .. #input_data .. " bytes of input to " .. #output .. " bytes\n")
 
     -- Apply formatting if requested
@@ -473,6 +524,7 @@ if arg then
       local char_count = 0
       local chars_in_group = 0
       local groups_in_line = 0
+      local group_separator = spaces_mode and "\t" or " "
 
       -- We need to handle UTF-8 characters properly
       -- For each input byte, we have a corresponding UTF-8 output character
@@ -483,7 +535,13 @@ if arg then
       for i = 1, original_len do
         -- Get the encoded character for this position
         -- and add it to the formatted output
-        local encoded_char = encode_map[string.byte(input_data, i)]
+        local byte = string.byte(input_data, i)
+        local encoded_char
+        if spaces_mode and byte == 32 then
+          encoded_char = " "
+        else
+          encoded_char = encode_map[byte]
+        end
         formatted_output[#formatted_output + 1] = encoded_char
         chars_in_group = chars_in_group + 1
 
@@ -496,7 +554,7 @@ if arg then
               formatted_output[#formatted_output + 1] = "\n"
               groups_in_line = 0
             else
-              formatted_output[#formatted_output + 1] = " "
+              formatted_output[#formatted_output + 1] = group_separator
             end
           elseif groups_in_line == format_groups_per_line then
             groups_in_line = 0

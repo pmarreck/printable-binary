@@ -94,6 +94,7 @@ typedef struct {
     bool passthrough_mode;
     bool format_mode;
     bool help_mode;
+    bool spaces_mode;
     int format_group;
     int format_groups_per_line;
     mappings_mode_t mappings_mode;
@@ -556,12 +557,16 @@ static uint8_t utf8_sequence_length(uint8_t first_byte) {
 }
 
 // Encode binary data to printable UTF-8
-static buffer_t encode_data(const uint8_t *input, size_t input_len) {
+static buffer_t encode_data(const uint8_t *input, size_t input_len, bool spaces_mode) {
     buffer_t output;
     // Start with reasonable initial size, will grow as needed
     buffer_init(&output, INITIAL_BUFFER_SIZE);
 
     for (size_t i = 0; i < input_len; i++) {
+        if (spaces_mode && input[i] == ' ') {
+            buffer_append_char(&output, ' ');
+            continue;
+        }
         utf8_sequence_t seq = encode_table[input[i]];
         if (seq.length > 0) {
             buffer_append(&output, seq.bytes, seq.length);
@@ -572,13 +577,18 @@ static buffer_t encode_data(const uint8_t *input, size_t input_len) {
 }
 
 // Decode printable UTF-8 back to binary
-static buffer_t decode_data(const uint8_t *input, size_t input_len) {
+static buffer_t decode_data(const uint8_t *input, size_t input_len, bool spaces_mode) {
     buffer_t output;
     // Start with reasonable initial size, will grow as needed
     buffer_init(&output, INITIAL_BUFFER_SIZE);
 
     size_t i = 0;
     while (i < input_len) {
+        if (spaces_mode && input[i] == ' ') {
+            buffer_append_char(&output, ' ');
+            i++;
+            continue;
+        }
         uint8_t first_byte = input[i];
         uint8_t seq_len = utf8_sequence_length(first_byte);
 
@@ -624,13 +634,14 @@ static buffer_t decode_data(const uint8_t *input, size_t input_len) {
 }
 
 // Apply formatting to encoded output
-static buffer_t format_output(const buffer_t *input, int group_size, int groups_per_line) {
+static buffer_t format_output(const buffer_t *input, int group_size, int groups_per_line, bool spaces_mode) {
     buffer_t output;
     // Start with reasonable initial size, will grow as needed
     buffer_init(&output, INITIAL_BUFFER_SIZE);
 
     size_t char_count = 0;
     size_t i = 0;
+    const char group_separator = spaces_mode ? '\t' : ' ';
 
     while (i < input->size) {
         // Determine UTF-8 character length
@@ -650,7 +661,7 @@ static buffer_t format_output(const buffer_t *input, int group_size, int groups_
             if ((char_count / group_size) % groups_per_line == 0) {
                 buffer_append_char(&output, '\n');
             } else {
-                buffer_append_char(&output, ' ');
+                buffer_append_char(&output, group_separator);
             }
         }
     }
@@ -758,17 +769,36 @@ static buffer_t read_file(const char *filename) {
 }
 
 // Clean input for decoding (remove whitespace)
-static buffer_t clean_decode_input(const buffer_t *input) {
+static buffer_t clean_decode_input(const buffer_t *input, bool spaces_mode) {
     buffer_t output;
     // Start with reasonable initial size, will grow as needed
     buffer_init(&output, INITIAL_BUFFER_SIZE);
 
+    bool warned = false;
+    char prev1 = '\0';
+    char prev2 = '\0';
+
     // Simple whitespace removal for now
     for (size_t i = 0; i < input->size; i++) {
         char c = input->data[i];
-        if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+
+        if (spaces_mode && !warned && c == ' ' && prev1 == ' ' && (prev2 == '\n' || prev2 == '\r')) {
+            fprintf(stderr, "Warning: spaces after newline are treated as data in --spaces mode\n");
+            warned = true;
+        }
+
+        if (c == '\n' || c == '\r') {
+            // skip
+        } else if (c == '\t') {
+            // skip
+        } else if (c == ' ' && !spaces_mode) {
+            // skip
+        } else {
             buffer_append_char(&output, c);
         }
+
+        prev2 = prev1;
+        prev1 = c;
     }
 
     buffer_prepare_return(&output);
@@ -793,6 +823,7 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -d, --decode     Decode mode (default is encode mode)\n");
     fprintf(stderr, "  -p, --passthrough  Pass input to stdout unchanged, send encoded data to stderr\n");
+    fprintf(stderr, "  -s, --spaces     Preserve literal spaces (decoder still ignores tabs/newlines/CR)\n");
     fprintf(stderr, "  -f[=NxM], --format[=NxM]   Format output in groups\n");
     fprintf(stderr, "                    Default: 8x10 (groups of 8 chars, 10 groups per line)\n");
     fprintf(stderr, "  --mappings       Show the byte-to-character mapping table\n");
@@ -804,6 +835,7 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "Output is written to stdout, unless --passthrough is used.\n\n");
     fprintf(stderr, "PrintableBinary encodes every byte (quotes, backslashes, tabs, CR/LF, etc.) into visible, but clearly related, glyphs.\n");
     fprintf(stderr, "You can format the encoded text freely—spaces, newlines, indentation—because the decoder ignores real whitespace.\n");
+    fprintf(stderr, "With --spaces, literal spaces are treated as data (and we warn on indented lines).\n");
     fprintf(stderr, "Examples: SPACE→␣, TAB→⇥, CR→⏎, LF→↧, single quote→ʼ, double quote→˵, backslash→⧷.\n");
     fprintf(stderr, "This avoids shell-escaping surprises while keeping context obvious.\n\n");
     fprintf(stderr, "When --passthrough is used:\n");
@@ -827,6 +859,7 @@ static options_t parse_options(int argc, char *argv[]) {
         .passthrough_mode = false,
         .format_mode = false,
         .help_mode = false,
+        .spaces_mode = false,
         .format_group = 8,
         .format_groups_per_line = 10,
         .mappings_mode = MAPPINGS_NONE,
@@ -866,6 +899,8 @@ static options_t parse_options(int argc, char *argv[]) {
                 opts.decode_mode = true;
             } else if (long_option_equals(name, name_len, "passthrough")) {
                 opts.passthrough_mode = true;
+            } else if (long_option_equals(name, name_len, "spaces")) {
+                opts.spaces_mode = true;
             } else if (long_option_equals(name, name_len, "format")) {
                 if (value && value[0] != '\0') {
                     parse_format_spec(&opts, value);
@@ -897,6 +932,10 @@ static options_t parse_options(int argc, char *argv[]) {
                     break;
                 case 'p':
                     opts.passthrough_mode = true;
+                    pos++;
+                    break;
+                case 's':
+                    opts.spaces_mode = true;
                     pos++;
                     break;
                 case 'h':
@@ -963,12 +1002,16 @@ int main(int argc, char *argv[]) {
         }
 
         // Clean input and decode
-        buffer_t cleaned = clean_decode_input(&input);
+        buffer_t cleaned = clean_decode_input(&input, opts.spaces_mode);
         if (stats_enabled) {
-            fprintf(stderr, "After whitespace removal: %zu bytes\n", cleaned.size);
+            if (opts.spaces_mode) {
+                fprintf(stderr, "After whitespace removal (tabs/newlines/CR): %zu bytes\n", cleaned.size);
+            } else {
+                fprintf(stderr, "After whitespace removal: %zu bytes\n", cleaned.size);
+            }
         }
 
-        buffer_t decoded = decode_data((uint8_t*)cleaned.data, cleaned.size);
+        buffer_t decoded = decode_data((uint8_t*)cleaned.data, cleaned.size, opts.spaces_mode);
         if (stats_enabled) {
             fprintf(stderr, "Decoded result size: %zu bytes\n", decoded.size);
         }
@@ -986,7 +1029,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Encode the data
-        buffer_t encoded = encode_data((uint8_t*)input.data, input.size);
+        buffer_t encoded = encode_data((uint8_t*)input.data, input.size, opts.spaces_mode);
         if (stats_enabled) {
             fprintf(stderr, "Encoded %zu bytes of input to %zu bytes\n", input.size, encoded.size);
         }
@@ -996,7 +1039,7 @@ int main(int argc, char *argv[]) {
 
         // Apply formatting if requested
         if (opts.format_mode) {
-            formatted = format_output(&encoded, opts.format_group, opts.format_groups_per_line);
+            formatted = format_output(&encoded, opts.format_group, opts.format_groups_per_line, opts.spaces_mode);
             output = &formatted;
         }
 

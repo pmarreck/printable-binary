@@ -70,12 +70,16 @@ echo -n "Hello, World!" | ./bin/printable_binary
 ./bin/printable_binary_c --mappings-json > mapping.json
 ./bin/printable_binary_node.js --mappings-csv > mapping.csv
 
-# Decode data (spaces and newlines are automatically ignored during decoding)
+# Decode data (whitespace is ignored during decoding)
 echo -n "Hello,␣World﹗" | ./bin/printable_binary -d
 # Output: Hello, World!
 
 # Decode formatted data (formatting is ignored)
 cat formatted_encoded.txt | ./bin/printable_binary -d > original.bin
+
+# Preserve literal spaces (tabs/newlines/CR are still ignored)
+echo -n "A B  C" | ./bin/printable_binary --spaces > encoded_with_spaces.txt
+./bin/printable_binary --spaces -d encoded_with_spaces.txt > restored.bin
 
 # Use passthrough mode to output both original binary (stdout) and encoded text (stderr)
 # This is useful for binary data processing pipelines that need both representations
@@ -124,6 +128,10 @@ console.log(encoded);
 // Decode back to bytes
 const decoded = pb.decode(encoded);
 console.log(Array.from(decoded)); // [0, 255, 65]
+
+// Preserve literal spaces (tabs/newlines/CR still ignored on decode)
+const encodedSpaces = pb.encodeString('A B  C', { spaces: true });
+const decodedSpaces = pb.decodeToString(encodedSpaces, { spaces: true });
 ```
 
 The same module powers the browser UI and can be run in Node.js (ESM) or bundled for other environments.
@@ -149,7 +157,7 @@ cat input.bin | ./bin/printable_binary_node.js -f=8x10 > encoded.txt
 ./bin/printable_binary_node.js --mappings-json > map.json
 ```
 
-Supported flags: `-d/--decode`, `-f/--format NxM`, `--mappings*`, `-h/--help`. The CLI shares the exact encode/decode implementation with the browser UI.
+Supported flags: `-d/--decode`, `-f/--format NxM`, `-s/--spaces`, `--mappings*`, `-h/--help`. The CLI shares the exact encode/decode implementation with the browser UI.
 
 ### Character Map
 
