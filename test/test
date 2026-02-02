@@ -861,7 +861,7 @@ fi
 if [[ "$HELP_OUTPUT" == *"--preserve-whitespace"* || "$HELP_OUTPUT" == *" -w,"* ]]; then
     SUPPORTS_PRESERVE_WHITESPACE=true
 fi
-if [[ "$HELP_OUTPUT" == *"--preserve "* || "$HELP_OUTPUT" == *" -p "* ]]; then
+if [[ "$HELP_OUTPUT" == *"--preserve "* || "$HELP_OUTPUT" == *"--preserve="* || "$HELP_OUTPUT" == *" -p "* || "$HELP_OUTPUT" == *" -P,"* ]]; then
     SUPPORTS_PRESERVE_CUSTOM=true
 fi
 
@@ -957,11 +957,18 @@ else
     echo -e "${YELLOW}SKIP${NC}: --preserve-whitespace not supported by this implementation"
 fi
 
-# Test: --preserve / -p with custom characters
+# Test: --preserve / -p/-P with custom characters
 if $SUPPORTS_PRESERVE_CUSTOM; then
     echo -e "${BLUE}Test: --preserve with custom characters${NC}"
     # Normally ! encodes to ǃ and " encodes to ˵
-    RESULT=$(echo -n 'hello!"world' | $SCRIPT --preserve '!"' 2>/dev/null)
+    # Detect which format the implementation uses (= or space-separated)
+    if [[ "$HELP_OUTPUT" == *"--preserve="* ]]; then
+        # Uses --preserve=CHARS format (C, Zig)
+        RESULT=$(/usr/bin/printf 'hello!"world' | $SCRIPT --preserve='!"' 2>/dev/null)
+    else
+        # Uses --preserve <chars> format (Lua)
+        RESULT=$(/usr/bin/printf 'hello!"world' | $SCRIPT --preserve '!"' 2>/dev/null)
+    fi
     if [[ "$RESULT" == 'hello!"world' ]]; then
         echo -e "${GREEN}PASS${NC}"
     else
@@ -971,8 +978,13 @@ if $SUPPORTS_PRESERVE_CUSTOM; then
         exit 1
     fi
 
-    echo -e "${BLUE}Test: -p short flag with custom characters${NC}"
-    RESULT=$(echo -n 'test;data' | $SCRIPT -p ';' 2>/dev/null)
+    echo -e "${BLUE}Test: -p/-P short flag with custom characters${NC}"
+    # Detect which short flag the implementation uses (-p for Lua, -P for C/Zig)
+    if [[ "$HELP_OUTPUT" == *" -P,"* || "$HELP_OUTPUT" == *" -P "* ]]; then
+        RESULT=$(echo -n 'test;data' | $SCRIPT -P ';' 2>/dev/null)
+    else
+        RESULT=$(echo -n 'test;data' | $SCRIPT -p ';' 2>/dev/null)
+    fi
     # ; normally encodes to itself (Greek question mark), but let's verify behavior
     if [[ "$RESULT" == *";"* ]]; then
         echo -e "${GREEN}PASS${NC}"

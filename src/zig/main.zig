@@ -116,6 +116,14 @@ fn parseArgs(allocator: std.mem.Allocator) !Options {
                 opts.format_groups_per_line = parsed.per_line;
             } else if (std.mem.startsWith(u8, name, "preserve=")) {
                 opts.preserve_chars = try allocator.dupe(u8, name[9..]);
+            } else if (std.mem.eql(u8, name, "preserve")) {
+                // --preserve CHARS (space-separated)
+                if (i + 1 < args.len) {
+                    i += 1;
+                    opts.preserve_chars = try allocator.dupe(u8, args[i]);
+                } else {
+                    return error.MissingValue;
+                }
             } else if (std.mem.eql(u8, name, "decode")) {
                 opts.decode_mode = true;
             } else if (std.mem.eql(u8, name, "passthrough")) {
