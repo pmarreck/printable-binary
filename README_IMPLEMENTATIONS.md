@@ -1,6 +1,6 @@
 # PrintableBinary Implementations Guide
 
-A comprehensive guide to the LuaJIT and C implementations of PrintableBinary - a tool for encoding binary data into human-readable UTF-8 strings and decoding them back.
+A comprehensive guide to the LuaJIT, C, and Zig implementations of PrintableBinary - a tool for encoding binary data into human-readable UTF-8 strings and decoding them back.
 
 ## Overview
 
@@ -17,6 +17,12 @@ PrintableBinary is available in multiple high-performance implementations:
 - **Zero dependencies**: Bundles Cosmopolitan libc, so it works even on stripped-down hosts
 - **CLI parity**: Same flags, environment variables, and character map behavior as the ELF build
 - **Great for distribution**: Ship one file (`printable_binary_ape.com`) and it just works
+
+### 🦎 **Zig Implementation** (Modern, Memory-Safe)
+- **Memory-safe**: Zig's safety features catch bugs at compile time and runtime
+- **Cross-compilation**: Easy cross-compilation to many platforms from a single host
+- **Fast compilation**: Incremental builds and fast compile times
+- **CLI parity**: Same flags and behavior as C implementation
 
 ### ⚡ **LuaJIT Implementation** (Original)
 - **Reference implementation**: Easy to modify and extend
@@ -72,6 +78,18 @@ make ape
 
 # Run the full automated test suite against the APE binary
 make test-ape
+```
+
+### Zig Implementation
+
+```bash
+# Build with Nix
+nix build .#printableBinaryZig
+./result-zig/bin/printable_binary_zig file.bin
+
+# Or build directly with Zig
+zig build -Doptimize=ReleaseFast
+./zig-out/bin/printable_binary_zig file.bin
 ```
 
 ### LuaJIT Implementation
@@ -162,24 +180,36 @@ echo "Hello" | ./bin/printable_binary | ./bin/printable_binary -d
 ```
 Options:
   -d, --decode          Decode mode (default is encode mode)
-  -p, --passthrough     Pass input to stdout unchanged, send encoded data to stderr
+  --passthrough         Pass input to stdout unchanged, send encoded data to stderr
   -f[=NxM], --format[=NxM]  Format output in groups (default: 8x10)
   --mappings            Print the active byte-to-Unicode table
   --mappings-json       Emit the mapping table as JSON
   --mappings-csv        Emit the mapping table as CSV
-  -h, --help           Show help message
+  -h, --help            Show help message
+
+Encode options (preserve literal characters instead of encoding):
+  -s, --spaces          Preserve literal spaces (don't encode to ␣)
+  -t, --tabs            Preserve literal tabs (don't encode to ⇥)
+  -n, --crlf            Preserve literal CR/LF (don't encode to ⏎/¶)
+  -w, --preserve-whitespace  Shorthand for -stn (preserve all whitespace)
+  -p, --preserve=CHARS  Preserve specific characters (e.g., -p '!"')
+
+Decode options:
+  -S, --strip-whitespace  Strip whitespace before decoding (for formatted input)
 
 Input/Output:
   - Reads from file or stdin if no file specified
   - Outputs to stdout (unless --passthrough is used)
   - In passthrough mode: original data → stdout, encoded data → stderr
 
-Both binaries embed the canonical 256-entry map, so the new `--mappings*` flags work even when `character_map.txt` is missing. If you place a custom map alongside the executable (or set `PRINTABLE_BINARY_MAP`), these options will reflect the override automatically. The override file should contain **exactly 256 lines**, each a single UTF-8 glyph (line 0 = byte 0x00, line 255 = byte 0xFF).
+All binaries embed the canonical 256-entry map, so the `--mappings*` flags work even when `character_map.txt` is missing. If you place a custom map alongside the executable (or set `PRINTABLE_BINARY_MAP`), these options will reflect the override automatically. The override file should contain **exactly 256 lines**, each a single UTF-8 glyph (line 0 = byte 0x00, line 255 = byte 0xFF).
+```
 
 ### Environment Variables (All Implementations)
 
-- `PRINTABLE_BINARY_MAP` – points to an alternate `character_map.txt`. Handy when you keep multiple glyph sets around.
-- `PRINTABLE_BINARY_MUTE_STATS` – set to `1`, `true`, or `yes` to suppress the usual encode/decode statistics on stderr. Ideal for scripts that treat stderr as a data channel.
+```
+PRINTABLE_BINARY_MAP       – points to an alternate character_map.txt
+PRINTABLE_BINARY_MUTE_STATS – set to 1/true/yes to suppress stderr statistics
 ```
 
 ## When to Use Which Implementation
@@ -194,27 +224,38 @@ Both binaries embed the canonical 256-entry map, so the new `--mappings*` flags 
 ✅ **Long-running processes** with many operations  
 ✅ **Cross-platform deployment**  
 
+### Use Zig Implementation For:
+
+✅ **Cross-compilation** to other platforms
+✅ **Memory-safe production** where safety is paramount
+✅ **WebAssembly targets** (future capability)
+✅ **Modern tooling** with built-in package manager
+✅ **Environments** where C toolchains are unavailable
+
 ### Use LuaJIT Implementation For:
 
-✅ **Quick scripts** and one-off operations  
-✅ **Development and testing** (easier to modify)  
-✅ **Small files** where performance difference is negligible  
-✅ **Integration** with existing Lua-based workflows  
+✅ **Quick scripts** and one-off operations
+✅ **Development and testing** (easier to modify)
+✅ **Small files** where performance difference is negligible
+✅ **Integration** with existing Lua-based workflows
 ✅ **Rapid prototyping** and experimentation  
 
 ## Feature Comparison
 
-| Feature | LuaJIT | C | Notes |
-|---------|--------|---|-------|
-| **Performance** | Fast | **Faster** | C is 1.1-6x faster |
-| **Memory Usage** | Good | **Better** | C uses less memory |
-| **Basic Encoding/Decoding** | ✅ | ✅ | Identical output |
-| **Passthrough Mode** | ✅ | ✅ | Same functionality |
-| **Formatted Output** | ✅ | ✅ | Same formatting |
-| **Cross-Platform** | ✅ | ✅ | Both work everywhere |
-| **Binary Size** | Small | **Smaller** | C compiles to ~50KB |
-| **Startup Time** | Fast | **Faster** | C has no interpreter overhead |
-| **Development** | **Easier** | Harder | Lua is more flexible |
+| Feature | LuaJIT | C | Zig | Notes |
+|---------|--------|---|-----|-------|
+| **Performance** | Fast | **Faster** | **Faster** | C/Zig are 1.1-6x faster |
+| **Memory Usage** | Good | **Better** | **Better** | Native uses less memory |
+| **Memory Safety** | ✅ | ⚠️ | ✅ | Zig has built-in safety checks |
+| **Basic Encoding/Decoding** | ✅ | ✅ | ✅ | Identical output |
+| **Passthrough Mode** | ✅ | ✅ | ✅ | Same functionality |
+| **Formatted Output** | ✅ | ✅ | ✅ | Same formatting |
+| **Preserve Options** | ✅ | ✅ | ✅ | -s/-t/-n/-w/-p flags |
+| **Cross-Platform** | ✅ | ✅ | ✅ | All work everywhere |
+| **Binary Size** | Small | **Smaller** | Small | C compiles to ~50KB |
+| **Startup Time** | Fast | **Faster** | **Faster** | No interpreter overhead |
+| **Development** | **Easier** | Harder | Medium | Lua is most flexible |
+| **Cross-Compilation** | N/A | Manual | **Easy** | Zig has built-in cross-compile |
 
 ## Compatibility
 
@@ -346,6 +387,15 @@ make memcheck
 - **Decoding**: Hash-based decode table with efficient UTF-8 processing
 - **Memory**: Static tables + growable buffers, no garbage collection
 - **Size**: ~500 lines of C code
+
+### Zig Implementation
+
+- **Language**: Zig with safety checks and optimizations
+- **Encoding**: ArrayHashMap for byte-to-UTF8 lookups
+- **Decoding**: StringHashMap for UTF8-to-byte reverse lookups
+- **Memory**: Arena allocator for efficient memory management
+- **Safety**: Bounds checking and null safety at compile time
+- **Size**: ~500 lines of Zig code (main.zig + printable_binary.zig)
 
 ### Key Optimizations in C Version
 
@@ -495,11 +545,12 @@ When reporting issues, please include:
 
 ## Summary
 
-PrintableBinary offers two excellent implementations:
+PrintableBinary offers three excellent native implementations:
 
 - **C Implementation**: Maximum performance for production use
+- **Zig Implementation**: Memory-safe with easy cross-compilation
 - **LuaJIT Implementation**: Maximum flexibility for development
 
-Both maintain perfect compatibility while offering different trade-offs. Choose based on your specific needs: performance-critical applications benefit from the C version, while development and scripting scenarios may prefer the LuaJIT version.
+All maintain perfect compatibility while offering different trade-offs. Choose based on your specific needs: performance-critical applications benefit from the C or Zig versions, while development and scripting scenarios may prefer the LuaJIT version.
 
-**🚀 For most users, we recommend starting with the C implementation for its superior performance and efficiency.**
+**🚀 For most users, we recommend the C or Zig implementation for superior performance and efficiency.**

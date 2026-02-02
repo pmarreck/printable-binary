@@ -1,6 +1,6 @@
 # PrintableBinary
 
-A cross-platform utility (LuaJIT, C, and JavaScript implementations) for encoding arbitrary binary data into human-readable UTF-8 text, and then decoding it back to the original binary data.
+A cross-platform utility (LuaJIT, C, Zig, and JavaScript implementations) for encoding arbitrary binary data into human-readable UTF-8 text, and then decoding it back to the original binary data.
 
 ## Overview
 
@@ -10,7 +10,7 @@ This implementation allows you to view binary data directly in a terminal (it ev
 
 ## Features
 
-- **Triple Implementations**: Available as LuaJIT script, compiled C binary, and JavaScript module (shared by the browser UI and Node.js tooling) for maximum flexibility
+- **Multiple Implementations**: Available as LuaJIT script, compiled C binary, Zig binary, and JavaScript module (shared by the browser UI and Node.js tooling) for maximum flexibility
 - **Web & Node.js Tooling**: Drag-and-drop browser interface and a Node-based CLI wrapper share the same encode/decode core for cross-platform workflows
 - **Visually Distinct Characters**: Each of the 256 possible byte values maps to a unique, visually distinct UTF-8 character
 - **ASCII Passthrough**: Standard printable ASCII characters (32-126) largely remain themselves for immediate recognition
@@ -46,6 +46,7 @@ This implementation allows you to view binary data directly in a terminal (it ev
 # LuaJIT version:     ./bin/printable_binary
 # Node.js CLI:         ./bin/printable_binary_node.js
 # C version:           make release && ./bin/printable_binary_c
+# Zig version:         nix build .#printableBinaryZig && ./bin/printable_binary_zig
 # (Examples below use the LuaJIT version; the others accept the same flags.)
 
 # Encode binary data
@@ -77,9 +78,18 @@ echo -n "Hello,␣World﹗" | ./bin/printable_binary -d
 # Decode formatted data (formatting is ignored)
 cat formatted_encoded.txt | ./bin/printable_binary -d > original.bin
 
-# Preserve literal spaces (tabs/newlines/CR are still ignored)
+# Preserve literal whitespace (spaces, tabs, newlines stay as-is instead of being encoded)
 echo -n "A B  C" | ./bin/printable_binary --spaces > encoded_with_spaces.txt
-./bin/printable_binary --spaces -d encoded_with_spaces.txt > restored.bin
+./bin/printable_binary -d -S encoded_with_spaces.txt > restored.bin
+
+# Preserve all whitespace (shorthand for -s -t -n)
+./bin/printable_binary -w input.bin > with_whitespace.txt
+
+# Preserve specific characters (e.g., keep ! and " literal)
+./bin/printable_binary -p '!"' input.bin > preserved.txt
+
+# Decode block-formatted input (strip whitespace separators first)
+./bin/printable_binary -d -S formatted_encoded.txt > original.bin
 
 # Use passthrough mode to output both original binary (stdout) and encoded text (stderr)
 # This is useful for binary data processing pipelines that need both representations
