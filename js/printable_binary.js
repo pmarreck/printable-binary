@@ -146,6 +146,10 @@ class PrintableBinary {
    * Encode binary data (Uint8Array or ArrayBuffer) to printable UTF-8 string
    * @param {Uint8Array|ArrayBuffer} binaryData - The binary data to encode
    * @param {Object} options - Optional encoding options
+   * @param {boolean} options.spaces - Preserve literal spaces (don't encode to ␣)
+   * @param {boolean} options.tabs - Preserve literal tabs (don't encode to ⇥)
+   * @param {boolean} options.crlf - Preserve literal CR/LF (don't encode to ⏎/↧)
+   * @param {string} options.preserve - String of specific characters to preserve
    * @param {string} options.format - Format specification (e.g., "8x10" for 8 chars per group, 10 groups per line)
    * @returns {string} The encoded printable string
    */
@@ -166,9 +170,33 @@ class PrintableBinary {
     let currentChunk = [];
 
     const spacesMode = options.spaces === true;
+    const tabsMode = options.tabs === true;
+    const crlfMode = options.crlf === true;
+    const preserveChars = options.preserve || '';
+
+    // Build a Set of byte values to preserve
+    const preserveSet = new Set();
+    for (let i = 0; i < preserveChars.length; i++) {
+      preserveSet.add(preserveChars.charCodeAt(i));
+    }
+
     for (let i = 0; i < binaryData.length; i++) {
       const byte = binaryData[i];
-      const encoded = spacesMode && byte === 0x20 ? ' ' : this.encodeMap.get(byte);
+      let encoded;
+
+      // Check preservation modes
+      if (spacesMode && byte === 0x20) {
+        encoded = ' ';
+      } else if (tabsMode && byte === 0x09) {
+        encoded = '\t';
+      } else if (crlfMode && (byte === 0x0A || byte === 0x0D)) {
+        encoded = String.fromCharCode(byte);
+      } else if (preserveSet.has(byte)) {
+        encoded = String.fromCharCode(byte);
+      } else {
+        encoded = this.encodeMap.get(byte);
+      }
+
       if (encoded !== undefined) {
         currentChunk.push(encoded);
 
@@ -268,6 +296,10 @@ class PrintableBinary {
   /**
    * Decode printable UTF-8 string back to binary data
    * @param {string} printableString - The encoded string to decode
+   * @param {Object} options - Optional decoding options
+   * @param {boolean} options.spaces - Treat literal spaces as data (decode them to space bytes)
+   * @param {boolean} options.stripWhitespace - Strip whitespace before decoding (for block-formatted input)
+   * @param {boolean} options.warnOnIndent - Warn if spaces appear after newlines in spaces mode
    * @returns {Uint8Array} The decoded binary data
    */
   decode(printableString, options = {}) {
@@ -275,12 +307,20 @@ class PrintableBinary {
       throw new Error("Input must be a string");
     }
 
-    // Clean up the input string - remove whitespace
     const spacesMode = options.spaces === true;
+    const stripWhitespace = options.stripWhitespace === true;
+
     if (spacesMode && options.warnOnIndent) {
       warnSpacesAfterNewline(printableString);
     }
-    let cleanedString = printableString.replace(spacesMode ? /[\r\n\t]/g : /[\r\n\t ]/g, '');
+
+    // Only strip whitespace if explicitly requested
+    let cleanedString = printableString;
+    if (stripWhitespace) {
+      cleanedString = spacesMode
+        ? printableString.replace(/[\r\n\t]/g, '')
+        : printableString.replace(/[\r\n\t ]/g, '');
+    }
 
     const result = [];
     let i = 0;
@@ -294,9 +334,9 @@ class PrintableBinary {
       }
       let matched = false;
 
-      // Try to match longest first (up to 3 UTF-16 code units for our charset)
+      // Try to match longest first (up to 4 code points for our charset)
       // In JavaScript, some characters may be represented as surrogate pairs
-      for (let len = Math.min(3, cleanedString.length - i); len >= 1; len--) {
+      for (let len = Math.min(4, cleanedString.length - i); len >= 1; len--) {
         const sub = cleanedString.substring(i, i + len);
         const decoded = this.decodeMap.get(sub);
 
@@ -308,9 +348,23 @@ class PrintableBinary {
         }
       }
 
-      // If we didn't match any character in our map, skip this character
+      // If we didn't match any character in our map, pass through the UTF-8 character intact
       if (!matched) {
-        i++;
+        // Get the code point at current position (handles surrogate pairs)
+        const codePoint = cleanedString.codePointAt(i);
+        if (codePoint !== undefined) {
+          // Encode the code point to UTF-8 bytes and add to result
+          const char = String.fromCodePoint(codePoint);
+          const encoder = new TextEncoder();
+          const bytes = encoder.encode(char);
+          for (const byte of bytes) {
+            result.push(byte);
+          }
+          // Advance by the number of UTF-16 code units (1 for BMP, 2 for supplementary)
+          i += char.length;
+        } else {
+          i++;
+        }
       }
     }
 

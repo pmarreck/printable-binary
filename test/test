@@ -108,8 +108,12 @@ fi
 # Detect feature support from help output (used for cross-implementation compatibility)
 HELP_OUTPUT=$($SCRIPT --help 2>&1)
 SUPPORTS_SPACES=false
+SUPPORTS_STRIP_WHITESPACE=false
 if [[ "$HELP_OUTPUT" == *"--spaces"* || "$HELP_OUTPUT" == *" -s,"* ]]; then
     SUPPORTS_SPACES=true
+fi
+if [[ "$HELP_OUTPUT" == *"--strip-whitespace"* || "$HELP_OUTPUT" == *" -S,"* ]]; then
+    SUPPORTS_STRIP_WHITESPACE=true
 fi
 
 # Test 2c: Spaces passthrough option
@@ -152,10 +156,10 @@ if $SUPPORTS_SPACES; then
     fi
 fi
 
-# Test 2e: Spaces option preserves literal spaces, ignores newlines/tabs
-if $SUPPORTS_SPACES; then
-    echo -e "${BLUE}Test #2e: Spaces decode ignores newlines/tabs${NC}"
-    DECODED=$($SCRIPT --spaces -d <<< $'A B\nC\tD\rE')
+# Test 2e: --spaces with --strip-whitespace strips newlines/tabs but keeps spaces
+if $SUPPORTS_SPACES && $SUPPORTS_STRIP_WHITESPACE; then
+    echo -e "${BLUE}Test #2e: Spaces + strip-whitespace strips newlines/tabs${NC}"
+    DECODED=$($SCRIPT --spaces --strip-whitespace -d <<< $'A B\nC\tD\rE')
     if [[ "$DECODED" == "A BCDE" ]]; then
         echo -e "${GREEN}PASS${NC}"
     else
@@ -164,12 +168,14 @@ if $SUPPORTS_SPACES; then
         echo "Got: $DECODED"
         exit 1
     fi
+elif $SUPPORTS_SPACES; then
+    echo -e "${YELLOW}SKIP${NC}: Test 2e requires --strip-whitespace support"
 fi
 
-# Test 2f: Spaces option warns about indentation
-if $SUPPORTS_SPACES; then
+# Test 2f: Spaces option warns about indentation (only relevant with strip-whitespace)
+if $SUPPORTS_SPACES && $SUPPORTS_STRIP_WHITESPACE; then
     echo -e "${BLUE}Test #2f: Spaces warns about indentation${NC}"
-    $SCRIPT --spaces -d <<< $'A\n  B' >/dev/null 2>"$TMP_STATS_STDERR"
+    $SCRIPT --spaces --strip-whitespace -d <<< $'A\n  B' >/dev/null 2>"$TMP_STATS_STDERR"
     if grep -q "Warning: spaces after newline" "$TMP_STATS_STDERR"; then
         echo -e "${GREEN}PASS${NC}"
     else
@@ -178,6 +184,8 @@ if $SUPPORTS_SPACES; then
         echo "Got: $(cat "$TMP_STATS_STDERR")"
         exit 1
     fi
+elif $SUPPORTS_SPACES; then
+    echo -e "${YELLOW}SKIP${NC}: Test 2f requires --strip-whitespace support"
 fi
 
 # Test 3: Quotes and backslashes
@@ -401,6 +409,7 @@ else
 fi
 
 # Test 13: Decode survives blank lines in encoded text (regression for APE truncation)
+# This tests the block-formatted use case where --strip-whitespace is needed
 echo -e "${BLUE}Test #13: Decode handles blank lines in encoded text${NC}"
 MULTILINE_CONTENT=$'Line one\nLine two\n\nLine four\nLine five\n'
 printf "%s" "$MULTILINE_CONTENT" > "$TMP_BINARY"
@@ -421,7 +430,13 @@ wrapped = text[:first] + "\n" + text[first:second] + "\n\n" + text[second:] + "\
 pathlib.Path(dest).write_text(wrapped)
 PY
 
-$SCRIPT -d "$TMP_ENCODED_WITH_WHITESPACE" > "$TMP_DECODED"
+# Use --strip-whitespace (-S) to strip the injected formatting whitespace
+if $SUPPORTS_STRIP_WHITESPACE; then
+    $SCRIPT -d -S "$TMP_ENCODED_WITH_WHITESPACE" > "$TMP_DECODED"
+else
+    # Fallback for implementations without --strip-whitespace (old behavior)
+    $SCRIPT -d "$TMP_ENCODED_WITH_WHITESPACE" > "$TMP_DECODED"
+fi
 if cmp -s "$TMP_BINARY" "$TMP_DECODED"; then
     echo -e "${GREEN}PASS${NC}"
 else
@@ -676,6 +691,316 @@ fi
 
 # Clean up
 rm "$PASSTHROUGH_BINARY" "$PASSTHROUGH_STDOUT" "$PASSTHROUGH_STDERR"
+
+###############################################################################
+# DECODE PASS-THROUGH TESTS (NEW BEHAVIOR)
+###############################################################################
+
+echo -e "\n${YELLOW}Running decode pass-through tests...${NC}"
+
+# Detect feature support for new flags
+SUPPORTS_STRIP_WHITESPACE=false
+if [[ "$HELP_OUTPUT" == *"--strip-whitespace"* || "$HELP_OUTPUT" == *" -S,"* ]]; then
+    SUPPORTS_STRIP_WHITESPACE=true
+fi
+
+# Test: Unrecognized ASCII passes through on decode
+echo -e "${BLUE}Test: Unrecognized ASCII passes through on decode${NC}"
+# The exclamation mark ! encodes to ǃ, so raw ! is not in decode map
+# With pass-through, raw ! should survive decode unchanged
+RESULT=$(echo -n 'hi there!;' | $SCRIPT -d 2>/dev/null)
+if [[ "$RESULT" == "hi there!;" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: hi there!;"
+    echo "Got: $RESULT"
+    exit 1
+fi
+
+# Test: Whitespace passes through by default on decode (NEW DEFAULT)
+echo -e "${BLUE}Test: Whitespace passes through by default on decode${NC}"
+RESULT=$(echo -n 'hello world' | $SCRIPT -d 2>/dev/null)
+if [[ "$RESULT" == "hello world" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: hello world"
+    echo "Got: $RESULT"
+    exit 1
+fi
+
+# Test: Tabs pass through by default on decode
+echo -e "${BLUE}Test: Tabs pass through by default on decode${NC}"
+RESULT=$(printf 'a\tb' | $SCRIPT -d 2>/dev/null)
+if [[ "$RESULT" == $'a\tb' ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: a<TAB>b"
+    echo "Got: $RESULT"
+    exit 1
+fi
+
+# Test: Newlines pass through by default on decode
+echo -e "${BLUE}Test: Newlines pass through by default on decode${NC}"
+RESULT=$(printf 'a\nb' | $SCRIPT -d 2>/dev/null)
+if [[ "$RESULT" == $'a\nb' ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: a<LF>b"
+    echo "Got: $RESULT"
+    exit 1
+fi
+
+# Test: Decode is idempotent (multiple passes yield same result)
+echo -e "${BLUE}Test: Decode is idempotent${NC}"
+INPUT="hello world!;"
+PASS1=$(echo -n "$INPUT" | $SCRIPT -d 2>/dev/null)
+PASS2=$(echo -n "$PASS1" | $SCRIPT -d 2>/dev/null)
+PASS3=$(echo -n "$PASS2" | $SCRIPT -d 2>/dev/null)
+if [[ "$PASS1" == "$PASS2" && "$PASS2" == "$PASS3" && "$PASS3" == "$INPUT" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Input: $INPUT"
+    echo "Pass1: $PASS1"
+    echo "Pass2: $PASS2"
+    echo "Pass3: $PASS3"
+    exit 1
+fi
+
+# Test: Multi-byte UTF-8 not in decode map passes through intact
+echo -e "${BLUE}Test: Multi-byte UTF-8 passes through intact${NC}"
+# 世界 are not in the encode map, so they should pass through
+RESULT=$(echo -n 'Hello 世界' | $SCRIPT -d 2>/dev/null)
+if [[ "$RESULT" == "Hello 世界" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: Hello 世界"
+    echo "Got: $RESULT"
+    exit 1
+fi
+
+# Test: --strip-whitespace flag strips whitespace before decoding
+if $SUPPORTS_STRIP_WHITESPACE; then
+    echo -e "${BLUE}Test: --strip-whitespace strips whitespace${NC}"
+    RESULT=$(echo -n 'hello world' | $SCRIPT -d --strip-whitespace 2>/dev/null)
+    if [[ "$RESULT" == "helloworld" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: helloworld"
+        echo "Got: $RESULT"
+        exit 1
+    fi
+
+    # Test: --strip-whitespace strips tabs and newlines too
+    echo -e "${BLUE}Test: --strip-whitespace strips tabs and newlines${NC}"
+    RESULT=$(printf 'a\t\nb c' | $SCRIPT -d --strip-whitespace 2>/dev/null)
+    if [[ "$RESULT" == "abc" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: abc"
+        echo "Got: $RESULT"
+        exit 1
+    fi
+
+    # Test: -S short flag works
+    echo -e "${BLUE}Test: -S short flag for --strip-whitespace${NC}"
+    RESULT=$(echo -n 'a b' | $SCRIPT -d -S 2>/dev/null)
+    if [[ "$RESULT" == "ab" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: ab"
+        echo "Got: $RESULT"
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}SKIP${NC}: --strip-whitespace not supported by this implementation"
+fi
+
+# Test: Encoded then decoded roundtrip still works
+echo -e "${BLUE}Test: Encode/decode roundtrip with new behavior${NC}"
+ORIGINAL="Hello, World! Test 123"
+ENCODED=$(echo -n "$ORIGINAL" | $SCRIPT 2>/dev/null)
+# Note: encoded output has no raw spaces/punctuation, so decode should work
+DECODED=$(echo -n "$ENCODED" | $SCRIPT -d 2>/dev/null)
+if [[ "$DECODED" == "$ORIGINAL" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Original: $ORIGINAL"
+    echo "Encoded: $ENCODED"
+    echo "Decoded: $DECODED"
+    exit 1
+fi
+
+###############################################################################
+# ENCODE PRESERVATION FLAGS TESTS (NEW FEATURES)
+###############################################################################
+
+echo -e "\n${YELLOW}Running encode preservation flags tests...${NC}"
+
+# Detect feature support for new encode flags
+SUPPORTS_TABS_FLAG=false
+SUPPORTS_CRLF_FLAG=false
+SUPPORTS_PRESERVE_WHITESPACE=false
+SUPPORTS_PRESERVE_CUSTOM=false
+
+if [[ "$HELP_OUTPUT" == *"--tabs"* || "$HELP_OUTPUT" == *" -t,"* ]]; then
+    SUPPORTS_TABS_FLAG=true
+fi
+if [[ "$HELP_OUTPUT" == *"--crlf"* || "$HELP_OUTPUT" == *"--preserve-newlines"* || "$HELP_OUTPUT" == *" -n,"* ]]; then
+    SUPPORTS_CRLF_FLAG=true
+fi
+if [[ "$HELP_OUTPUT" == *"--preserve-whitespace"* || "$HELP_OUTPUT" == *" -w,"* ]]; then
+    SUPPORTS_PRESERVE_WHITESPACE=true
+fi
+if [[ "$HELP_OUTPUT" == *"--preserve "* || "$HELP_OUTPUT" == *" -p "* ]]; then
+    SUPPORTS_PRESERVE_CUSTOM=true
+fi
+
+# Test: --tabs / -t preserves literal tabs
+if $SUPPORTS_TABS_FLAG; then
+    echo -e "${BLUE}Test: --tabs preserves literal tabs on encode${NC}"
+    RESULT=$(printf 'a\tb' | $SCRIPT --tabs 2>/dev/null)
+    if [[ "$RESULT" == $'a\tb' ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: a<TAB>b (literal tab)"
+        echo "Got: $RESULT"
+        exit 1
+    fi
+
+    echo -e "${BLUE}Test: -t short flag preserves tabs${NC}"
+    RESULT=$(printf 'a\tb' | $SCRIPT -t 2>/dev/null)
+    if [[ "$RESULT" == $'a\tb' ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: a<TAB>b (literal tab)"
+        echo "Got: $RESULT"
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}SKIP${NC}: --tabs not supported by this implementation"
+fi
+
+# Test: --crlf / -n preserves literal CR/LF
+if $SUPPORTS_CRLF_FLAG; then
+    echo -e "${BLUE}Test: --crlf preserves literal newlines on encode${NC}"
+    RESULT=$(printf 'a\nb' | $SCRIPT --crlf 2>/dev/null)
+    if [[ "$RESULT" == $'a\nb' ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: a<LF>b (literal newline)"
+        echo "Got: $RESULT"
+        exit 1
+    fi
+
+    echo -e "${BLUE}Test: --crlf preserves CR too${NC}"
+    RESULT=$(printf 'a\r\nb' | $SCRIPT --crlf 2>/dev/null)
+    if [[ "$RESULT" == $'a\r\nb' ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: a<CR><LF>b"
+        echo "Got: $RESULT"
+        exit 1
+    fi
+
+    echo -e "${BLUE}Test: -n short flag preserves newlines${NC}"
+    RESULT=$(printf 'a\nb' | $SCRIPT -n 2>/dev/null)
+    if [[ "$RESULT" == $'a\nb' ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: a<LF>b"
+        echo "Got: $RESULT"
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}SKIP${NC}: --crlf not supported by this implementation"
+fi
+
+# Test: --preserve-whitespace / -w enables all whitespace preservation
+if $SUPPORTS_PRESERVE_WHITESPACE; then
+    echo -e "${BLUE}Test: --preserve-whitespace preserves all whitespace${NC}"
+    RESULT=$(printf 'a \t\nb' | $SCRIPT --preserve-whitespace 2>/dev/null)
+    if [[ "$RESULT" == $'a \t\nb' ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: a <TAB><LF>b (all literal)"
+        echo "Got: $RESULT"
+        exit 1
+    fi
+
+    echo -e "${BLUE}Test: -w short flag preserves all whitespace${NC}"
+    RESULT=$(printf 'a \t\nb' | $SCRIPT -w 2>/dev/null)
+    if [[ "$RESULT" == $'a \t\nb' ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: a <TAB><LF>b"
+        echo "Got: $RESULT"
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}SKIP${NC}: --preserve-whitespace not supported by this implementation"
+fi
+
+# Test: --preserve / -p with custom characters
+if $SUPPORTS_PRESERVE_CUSTOM; then
+    echo -e "${BLUE}Test: --preserve with custom characters${NC}"
+    # Normally ! encodes to ǃ and " encodes to ˵
+    RESULT=$(echo -n 'hello!"world' | $SCRIPT --preserve '!"' 2>/dev/null)
+    if [[ "$RESULT" == 'hello!"world' ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo 'Expected: hello!"world'
+        echo "Got: $RESULT"
+        exit 1
+    fi
+
+    echo -e "${BLUE}Test: -p short flag with custom characters${NC}"
+    RESULT=$(echo -n 'test;data' | $SCRIPT -p ';' 2>/dev/null)
+    # ; normally encodes to itself (Greek question mark), but let's verify behavior
+    if [[ "$RESULT" == *";"* ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected semicolon to be preserved"
+        echo "Got: $RESULT"
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}SKIP${NC}: --preserve not supported by this implementation"
+fi
+
+# Test: Combined short flags work (e.g., -stn)
+if $SUPPORTS_SPACES && $SUPPORTS_TABS_FLAG && $SUPPORTS_CRLF_FLAG; then
+    echo -e "${BLUE}Test: Combined short flags -stn${NC}"
+    RESULT=$(printf 'a \t\nb' | $SCRIPT -stn 2>/dev/null)
+    if [[ "$RESULT" == $'a \t\nb' ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: a <TAB><LF>b (all literal)"
+        echo "Got: $RESULT"
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}SKIP${NC}: Combined flags test requires -s, -t, -n support"
+fi
 
 # Print summary
 echo -e "\n${BLUE}=== Test Suite Summary ===${NC}"

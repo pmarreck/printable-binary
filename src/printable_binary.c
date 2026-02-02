@@ -95,6 +95,10 @@ typedef struct {
     bool format_mode;
     bool help_mode;
     bool spaces_mode;
+    bool tabs_mode;
+    bool crlf_mode;
+    bool strip_whitespace;
+    char preserve_chars[256];
     int format_group;
     int format_groups_per_line;
     mappings_mode_t mappings_mode;
@@ -557,19 +561,34 @@ static uint8_t utf8_sequence_length(uint8_t first_byte) {
 }
 
 // Encode binary data to printable UTF-8
-static buffer_t encode_data(const uint8_t *input, size_t input_len, bool spaces_mode) {
+static buffer_t encode_data(const uint8_t *input, size_t input_len, const options_t *opts) {
     buffer_t output;
     // Start with reasonable initial size, will grow as needed
     buffer_init(&output, INITIAL_BUFFER_SIZE);
 
+    // Build a lookup table for preserved characters
+    bool preserve_set[256] = {false};
+    for (size_t j = 0; opts->preserve_chars[j] != '\0'; j++) {
+        preserve_set[(unsigned char)opts->preserve_chars[j]] = true;
+    }
+
     for (size_t i = 0; i < input_len; i++) {
-        if (spaces_mode && input[i] == ' ') {
+        uint8_t byte = input[i];
+
+        // Check preservation modes
+        if (opts->spaces_mode && byte == ' ') {
             buffer_append_char(&output, ' ');
-            continue;
-        }
-        utf8_sequence_t seq = encode_table[input[i]];
-        if (seq.length > 0) {
-            buffer_append(&output, seq.bytes, seq.length);
+        } else if (opts->tabs_mode && byte == '\t') {
+            buffer_append_char(&output, '\t');
+        } else if (opts->crlf_mode && (byte == '\n' || byte == '\r')) {
+            buffer_append_char(&output, (char)byte);
+        } else if (preserve_set[byte]) {
+            buffer_append_char(&output, (char)byte);
+        } else {
+            utf8_sequence_t seq = encode_table[byte];
+            if (seq.length > 0) {
+                buffer_append(&output, seq.bytes, seq.length);
+            }
         }
     }
 
@@ -624,8 +643,13 @@ static buffer_t decode_data(const uint8_t *input, size_t input_len, bool spaces_
             }
         }
 
+        // If we didn't match any character in our map, pass through the UTF-8 character intact
         if (!matched) {
-            i++;
+            // Pass through the entire UTF-8 character
+            for (uint8_t j = 0; j < seq_len; j++) {
+                buffer_append_char(&output, (char)input[i + j]);
+            }
+            i += seq_len;
         }
     }
 
@@ -768,8 +792,8 @@ static buffer_t read_file(const char *filename) {
     return buf;
 }
 
-// Clean input for decoding (remove whitespace)
-static buffer_t clean_decode_input(const buffer_t *input, bool spaces_mode) {
+// Clean input for decoding (optionally strip whitespace)
+static buffer_t clean_decode_input(const buffer_t *input, bool spaces_mode, bool strip_whitespace) {
     buffer_t output;
     // Start with reasonable initial size, will grow as needed
     buffer_init(&output, INITIAL_BUFFER_SIZE);
@@ -778,7 +802,6 @@ static buffer_t clean_decode_input(const buffer_t *input, bool spaces_mode) {
     char prev1 = '\0';
     char prev2 = '\0';
 
-    // Simple whitespace removal for now
     for (size_t i = 0; i < input->size; i++) {
         char c = input->data[i];
 
@@ -787,13 +810,19 @@ static buffer_t clean_decode_input(const buffer_t *input, bool spaces_mode) {
             warned = true;
         }
 
-        if (c == '\n' || c == '\r') {
-            // skip
-        } else if (c == '\t') {
-            // skip
-        } else if (c == ' ' && !spaces_mode) {
-            // skip
+        // Only strip whitespace if strip_whitespace is enabled
+        if (strip_whitespace) {
+            if (c == '\n' || c == '\r') {
+                // skip
+            } else if (c == '\t') {
+                // skip
+            } else if (c == ' ' && !spaces_mode) {
+                // skip
+            } else {
+                buffer_append_char(&output, c);
+            }
         } else {
+            // Pass through everything
             buffer_append_char(&output, c);
         }
 
@@ -821,15 +850,23 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "PrintableBinary C - Encode binary data as printable UTF-8 and decode it back\n\n");
     fprintf(stderr, "Usage: %s [options] [file]\n", program_name);
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "  -d, --decode     Decode mode (default is encode mode)\n");
+    fprintf(stderr, "  -d, --decode       Decode mode (default is encode mode)\n");
     fprintf(stderr, "  -p, --passthrough  Pass input to stdout unchanged, send encoded data to stderr\n");
-    fprintf(stderr, "  -s, --spaces     Preserve literal spaces (decoder still ignores tabs/newlines/CR)\n");
+    fprintf(stderr, "\nEncode options (preserve literal characters instead of encoding):\n");
+    fprintf(stderr, "  -s, --spaces       Preserve literal spaces (don't encode to visible glyph)\n");
+    fprintf(stderr, "  -t, --tabs         Preserve literal tabs (don't encode to visible glyph)\n");
+    fprintf(stderr, "  -n, --crlf         Preserve literal CR/LF (don't encode to visible glyph)\n");
+    fprintf(stderr, "  -w, --preserve-whitespace  Shorthand for -stn (preserve all whitespace)\n");
+    fprintf(stderr, "  -P, --preserve=CHARS       Preserve specific characters\n");
+    fprintf(stderr, "\nDecode options:\n");
+    fprintf(stderr, "  -S, --strip-whitespace     Strip whitespace before decoding (for formatted input)\n");
+    fprintf(stderr, "\nFormat and output options:\n");
     fprintf(stderr, "  -f[=NxM], --format[=NxM]   Format output in groups\n");
-    fprintf(stderr, "                    Default: 8x10 (groups of 8 chars, 10 groups per line)\n");
-    fprintf(stderr, "  --mappings       Show the byte-to-character mapping table\n");
-    fprintf(stderr, "  --mappings-json  Output mappings as JSON\n");
-    fprintf(stderr, "  --mappings-csv   Output mappings as CSV\n");
-    fprintf(stderr, "  -h, --help       Show this help\n");
+    fprintf(stderr, "                              Default: 8x10 (groups of 8 chars, 10 groups per line)\n");
+    fprintf(stderr, "  --mappings         Show the byte-to-character mapping table\n");
+    fprintf(stderr, "  --mappings-json    Output mappings as JSON\n");
+    fprintf(stderr, "  --mappings-csv     Output mappings as CSV\n");
+    fprintf(stderr, "  -h, --help         Show this help\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "If no file is specified, input is read from stdin.\n");
     fprintf(stderr, "Output is written to stdout, unless --passthrough is used.\n\n");
@@ -860,6 +897,10 @@ static options_t parse_options(int argc, char *argv[]) {
         .format_mode = false,
         .help_mode = false,
         .spaces_mode = false,
+        .tabs_mode = false,
+        .crlf_mode = false,
+        .strip_whitespace = false,
+        .preserve_chars = "",
         .format_group = 8,
         .format_groups_per_line = 10,
         .mappings_mode = MAPPINGS_NONE,
@@ -901,6 +942,24 @@ static options_t parse_options(int argc, char *argv[]) {
                 opts.passthrough_mode = true;
             } else if (long_option_equals(name, name_len, "spaces")) {
                 opts.spaces_mode = true;
+            } else if (long_option_equals(name, name_len, "tabs")) {
+                opts.tabs_mode = true;
+            } else if (long_option_equals(name, name_len, "crlf")) {
+                opts.crlf_mode = true;
+            } else if (long_option_equals(name, name_len, "strip-whitespace")) {
+                opts.strip_whitespace = true;
+            } else if (long_option_equals(name, name_len, "preserve-whitespace")) {
+                opts.spaces_mode = true;
+                opts.tabs_mode = true;
+                opts.crlf_mode = true;
+            } else if (long_option_equals(name, name_len, "preserve")) {
+                if (value && value[0] != '\0') {
+                    strncpy(opts.preserve_chars, value, sizeof(opts.preserve_chars) - 1);
+                    opts.preserve_chars[sizeof(opts.preserve_chars) - 1] = '\0';
+                } else {
+                    fprintf(stderr, "Error: --preserve requires a value (e.g., --preserve=abc)\n");
+                    exit(1);
+                }
             } else if (long_option_equals(name, name_len, "format")) {
                 if (value && value[0] != '\0') {
                     parse_format_spec(&opts, value);
@@ -938,6 +997,41 @@ static options_t parse_options(int argc, char *argv[]) {
                     opts.spaces_mode = true;
                     pos++;
                     break;
+                case 't':
+                    opts.tabs_mode = true;
+                    pos++;
+                    break;
+                case 'n':
+                    opts.crlf_mode = true;
+                    pos++;
+                    break;
+                case 'w':
+                    opts.spaces_mode = true;
+                    opts.tabs_mode = true;
+                    opts.crlf_mode = true;
+                    pos++;
+                    break;
+                case 'S':
+                    opts.strip_whitespace = true;
+                    pos++;
+                    break;
+                case 'P': {
+                    if (arg[pos + 1] != '\0') {
+                        const char *value = &arg[pos + 1];
+                        strncpy(opts.preserve_chars, value, sizeof(opts.preserve_chars) - 1);
+                        opts.preserve_chars[sizeof(opts.preserve_chars) - 1] = '\0';
+                        pos = strlen(arg);
+                    } else if (i + 1 < argc && argv[i + 1][0] != '-') {
+                        const char *value = argv[++i];
+                        strncpy(opts.preserve_chars, value, sizeof(opts.preserve_chars) - 1);
+                        opts.preserve_chars[sizeof(opts.preserve_chars) - 1] = '\0';
+                        pos = strlen(arg);
+                    } else {
+                        fprintf(stderr, "Error: -P requires a value\n");
+                        exit(1);
+                    }
+                    break;
+                }
                 case 'h':
                     opts.help_mode = true;
                     pos++;
@@ -1002,7 +1096,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Clean input and decode
-        buffer_t cleaned = clean_decode_input(&input, opts.spaces_mode);
+        buffer_t cleaned = clean_decode_input(&input, opts.spaces_mode, opts.strip_whitespace);
         if (stats_enabled) {
             if (opts.spaces_mode) {
                 fprintf(stderr, "After whitespace removal (tabs/newlines/CR): %zu bytes\n", cleaned.size);
@@ -1029,7 +1123,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Encode the data
-        buffer_t encoded = encode_data((uint8_t*)input.data, input.size, opts.spaces_mode);
+        buffer_t encoded = encode_data((uint8_t*)input.data, input.size, &opts);
         if (stats_enabled) {
             fprintf(stderr, "Encoded %zu bytes of input to %zu bytes\n", input.size, encoded.size);
         }

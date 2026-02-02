@@ -147,22 +147,24 @@ console.log('\n--- Edge Case Tests ---');
   assertArrayEquals(Array.from(decoded), Array.from(input), 'NUL bytes encode/decode');
 }
 
-// Test 11: Decode with whitespace (should be ignored)
+// Test 11: Decode with whitespace (stripWhitespace mode strips whitespace)
 console.log('\n--- Whitespace Handling Tests ---');
 {
   const input = "Hello";
   const encoded = encoder.encodeString(input);
   const withWhitespace = encoded.split('').join(' '); // Add spaces between characters
-  const decoded = encoder.decodeToString(withWhitespace);
-  assertEquals(decoded, input, 'Decode with spaces between characters');
+  // With new behavior, need stripWhitespace to strip spaces
+  const decoded = encoder.decodeToString(withWhitespace, { stripWhitespace: true });
+  assertEquals(decoded, input, 'Decode with spaces between characters (stripWhitespace)');
 }
 
 {
   const input = "Test";
   const encoded = encoder.encodeString(input);
   const withNewlines = encoded.split('').join('\n'); // Add newlines
-  const decoded = encoder.decodeToString(withNewlines);
-  assertEquals(decoded, input, 'Decode with newlines between characters');
+  // With new behavior, need stripWhitespace to strip newlines
+  const decoded = encoder.decodeToString(withNewlines, { stripWhitespace: true });
+  assertEquals(decoded, input, 'Decode with newlines between characters (stripWhitespace)');
 }
 
 // Test 11b: Spaces option preserves literal spaces
@@ -181,10 +183,10 @@ console.log('\n--- Whitespace Handling Tests ---');
   assertEquals(decoded, "A B C", 'Decode converts ␣ and literal spaces to space');
 }
 
-// Test 11d: Spaces option ignores newlines/tabs but keeps spaces
+// Test 11d: Spaces option with stripWhitespace ignores newlines/tabs but keeps spaces
 {
-  const decoded = encoder.decodeToString("A B\nC\tD\rE", { spaces: true });
-  assertEquals(decoded, "A BCDE", 'Decode keeps spaces but ignores newlines/tabs');
+  const decoded = encoder.decodeToString("A B\nC\tD\rE", { spaces: true, stripWhitespace: true });
+  assertEquals(decoded, "A BCDE", 'Decode keeps spaces but strips newlines/tabs with stripWhitespace');
 }
 
 // Test 12: Known mappings verification

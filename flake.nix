@@ -41,15 +41,16 @@
 
           src = ./.;
 
-          buildInputs = [ pkgs.gcc ];
+          nativeBuildInputs = [ pkgs.clang ];
 
           buildPhase = ''
-            gcc -O3 -march=native -Wall -Wextra -o printable_binary_c src/printable_binary.c
+            clang -O3 -Wall -Wextra -I. -o printable_binary_c src/printable_binary.c
           '';
 
           installPhase = ''
             mkdir -p $out/bin
             cp printable_binary_c $out/bin/
+            cp character_map.txt $out/bin/character_map.txt
           '';
 
           meta = with pkgs.lib; {
@@ -70,7 +71,7 @@
           buildPhase = ''
             export EM_CACHE="$TMPDIR/emscripten_cache"
             mkdir -p "$EM_CACHE"
-            emcc src/printable_binary.c ${emscriptenFlags} -o printable_binary.wasm
+            emcc -I. src/printable_binary.c ${emscriptenFlags} -o printable_binary.wasm
           '';
 
           installPhase = ''
@@ -86,20 +87,26 @@
           };
         };
 
-        printableBinaryApe = pkgs.stdenv.mkDerivation {
+        # APE build - only works reliably on Linux in pure nix builds
+        # On darwin, cosmocc's APE loader needs system tools; use `nix develop` + make ape
+        printableBinaryApe = pkgs.stdenvNoCC.mkDerivation {
           pname = "printable-binary-ape";
           version = "1.0.0";
 
           src = ./.;
 
           nativeBuildInputs = [
-            pkgs.unzip
             cosmoccBin
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            pkgs.coreutils
           ];
 
           buildPhase = ''
             export PATH=${cosmoccBin}/bin:$PATH
-            cosmocc -O3 -DNDEBUG -o printable_binary_ape.com src/printable_binary.c
+            export HOME=$TMPDIR
+            # Clear any inherited include paths that might conflict
+            unset C_INCLUDE_PATH CPATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH
+            cosmocc -O3 -DNDEBUG -I. -o printable_binary_ape.com src/printable_binary.c
           '';
 
           installPhase = ''
@@ -111,7 +118,35 @@
           meta = with pkgs.lib; {
             description = "PrintableBinary built as an Actually Portable Executable (Cosmopolitan, pinned ${cosmoccVersion})";
             license = licenses.mit;
-            platforms = platforms.all;
+            # APE pure nix build only works reliably on Linux; on darwin use nix develop + make ape
+            platforms = platforms.linux;
+          };
+        };
+
+        # Zig implementation
+        printableBinaryZig = pkgs.stdenv.mkDerivation {
+          pname = "printable-binary-zig";
+          version = "1.0.0";
+
+          src = ./.;
+
+          nativeBuildInputs = [ pkgs.zig ];
+
+          buildPhase = ''
+            export HOME=$TMPDIR
+            zig build -Doptimize=ReleaseFast
+          '';
+
+          installPhase = ''
+            mkdir -p $out/bin
+            cp zig-out/bin/printable_binary_zig $out/bin/
+            cp character_map.txt $out/bin/character_map.txt
+          '';
+
+          meta = with pkgs.lib; {
+            description = "PrintableBinary Zig implementation";
+            license = licenses.mit;
+            platforms = platforms.unix;
           };
         };
       in
@@ -150,6 +185,9 @@
               # Benchmarking and testing
               luajit
               wazero
+
+              # Zig compiler
+              zig
 
               # JavaScript/TypeScript runtime for web implementation
               deno
@@ -206,9 +244,12 @@
         packages = {
           printableBinaryNative = printableBinaryNative;
           printableBinaryWasm = printableBinaryWasm;
+          printableBinaryApe = printableBinaryApe;
+          printableBinaryZig = printableBinaryZig;
           default = pkgs.symlinkJoin {
             name = "printable-binary-suite";
-            paths = [ printableBinaryNative printableBinaryWasm printableBinaryApe ];
+            paths = [ printableBinaryNative printableBinaryWasm printableBinaryZig ]
+              ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ printableBinaryApe ];
           };
         };
       });
