@@ -16,6 +16,7 @@
 #include <errno.h>
 
 #include "character_map_embedded.h"
+#include "printable_binary.h"
 
 #ifdef __EMSCRIPTEN__
 // Standalone WASM builds shouldn't depend on host-provided env functions.
@@ -540,7 +541,6 @@ static void print_mappings(mappings_mode_t mode) {
     }
 }
 
-// Helper function to calculate hash for decode table
 // Initialize encoding and decoding tables
 static void init_tables(const char *argv0) {
     encode_table = calloc(256, sizeof(utf8_sequence_t));
@@ -552,12 +552,130 @@ static void init_tables(const char *argv0) {
     load_character_map(argv0);
 }
 
+// Public initialization function for FFI users
+void pb_init(const char *argv0) {
+    if (encode_table == NULL) {
+        init_tables(argv0);
+    }
+}
+
 // Get UTF-8 sequence length from first byte
 static uint8_t utf8_sequence_length(uint8_t first_byte) {
     if (first_byte < 0x80) return 1;
     if (first_byte < 0xE0) return 2;
     if (first_byte < 0xF0) return 3;
     return 4;
+}
+
+// Decode a UTF-8 sequence to a Unicode codepoint
+static uint32_t decode_utf8_codepoint(const uint8_t *bytes, uint8_t len) {
+    if (len == 0) return 0xFFFD; // Replacement character
+
+    uint8_t first = bytes[0];
+    if (first < 0x80) {
+        return first;
+    } else if (first < 0xE0) {
+        if (len < 2) return 0xFFFD;
+        if ((bytes[1] & 0xC0) != 0x80) return 0xFFFD;
+        return ((uint32_t)(first & 0x1F) << 6) | (bytes[1] & 0x3F);
+    } else if (first < 0xF0) {
+        if (len < 3) return 0xFFFD;
+        if ((bytes[1] & 0xC0) != 0x80 || (bytes[2] & 0xC0) != 0x80) return 0xFFFD;
+        return ((uint32_t)(first & 0x0F) << 12) | ((uint32_t)(bytes[1] & 0x3F) << 6) | (bytes[2] & 0x3F);
+    } else {
+        if (len < 4) return 0xFFFD;
+        if ((bytes[1] & 0xC0) != 0x80 || (bytes[2] & 0xC0) != 0x80 || (bytes[3] & 0xC0) != 0x80) return 0xFFFD;
+        return ((uint32_t)(first & 0x07) << 18) | ((uint32_t)(bytes[1] & 0x3F) << 12) |
+               ((uint32_t)(bytes[2] & 0x3F) << 6) | (bytes[3] & 0x3F);
+    }
+}
+
+// Validate that a string contains only valid printable-binary encoded characters
+pb_validation_result_t pb_validate(const char *input, size_t input_len, unsigned int ws_flags) {
+    pb_validation_result_t result = { .is_valid = 1, .error_position = -1, .error_codepoint = 0 };
+
+    if (input == NULL || input_len == 0) {
+        return result; // Empty input is valid
+    }
+
+    const uint8_t *data = (const uint8_t *)input;
+    size_t i = 0;
+
+    while (i < input_len) {
+        uint8_t byte = data[i];
+
+        // Check whitespace handling
+        if (byte == ' ') {
+            if (ws_flags & PB_WS_ALLOW_SPACE) {
+                i++;
+                continue;
+            }
+        } else if (byte == '\t') {
+            if (ws_flags & PB_WS_ALLOW_TAB) {
+                i++;
+                continue;
+            }
+        } else if (byte == '\n') {
+            if (ws_flags & PB_WS_ALLOW_LF) {
+                i++;
+                continue;
+            }
+        } else if (byte == '\r') {
+            if (ws_flags & PB_WS_ALLOW_CR) {
+                i++;
+                continue;
+            }
+        }
+
+        // Determine UTF-8 sequence length
+        uint8_t seq_len = utf8_sequence_length(byte);
+        size_t remaining = input_len - i;
+
+        // Check for truncated UTF-8 sequence
+        if (seq_len > remaining) {
+            result.is_valid = 0;
+            result.error_position = (int64_t)i;
+            result.error_codepoint = decode_utf8_codepoint(data + i, (uint8_t)remaining);
+            return result;
+        }
+
+        // Validate UTF-8 continuation bytes
+        for (uint8_t j = 1; j < seq_len; j++) {
+            if ((data[i + j] & 0xC0) != 0x80) {
+                result.is_valid = 0;
+                result.error_position = (int64_t)i;
+                result.error_codepoint = decode_utf8_codepoint(data + i, seq_len);
+                return result;
+            }
+        }
+
+        // Look up in decode map using binary search
+        uint64_t key = make_key(data + i, seq_len);
+        bool found = false;
+        size_t left = 0, right = decode_entry_count;
+        while (left < right) {
+            size_t mid = left + (right - left) / 2;
+            if (decode_entries[mid].key == key) {
+                found = true;
+                break;
+            } else if (decode_entries[mid].key < key) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        if (!found) {
+            result.is_valid = 0;
+            result.error_position = (int64_t)i;
+            result.error_codepoint = decode_utf8_codepoint(data + i, seq_len);
+            return result;
+        }
+
+        i += seq_len;
+    }
+
+    return result;
 }
 
 // Encode binary data to printable UTF-8
@@ -1058,6 +1176,7 @@ static options_t parse_options(int argc, char *argv[]) {
 }
 
 
+#ifndef PRINTABLE_BINARY_NO_MAIN
 int main(int argc, char *argv[]) {
     // Parse command line options first (needed for help/usage)
     options_t opts = parse_options(argc, argv);
@@ -1155,3 +1274,4 @@ int main(int argc, char *argv[]) {
     free(input.data);
     return 0;
 }
+#endif /* PRINTABLE_BINARY_NO_MAIN */

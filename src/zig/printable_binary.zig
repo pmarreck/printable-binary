@@ -523,3 +523,131 @@ comptime {
         @compileError("Character map validation failed - not all 256 bytes have valid UTF-8 mappings");
     }
 }
+
+// =============================================================================
+// FFI Validation API
+// =============================================================================
+
+/// Whitespace handling flags for validation (bitfield)
+pub const WhitespaceFlags = enum(c_uint) {
+    reject_all = 0,
+    allow_space = 1 << 0,
+    allow_tab = 1 << 1,
+    allow_lf = 1 << 2,
+    allow_cr = 1 << 3,
+    allow_all = 0x0F,
+};
+
+/// Result of validating a printable-binary encoded string
+pub const ValidationResult = extern struct {
+    is_valid: c_int, // 0 = invalid, 1 = valid
+    error_position: i64, // -1 if valid, else byte offset of first invalid char
+    error_codepoint: u32, // The invalid codepoint, or 0 if valid
+};
+
+/// Decode a UTF-8 sequence to a Unicode codepoint
+fn decodeUtf8Codepoint(bytes: []const u8) ?u32 {
+    if (bytes.len == 0) return null;
+
+    const first = bytes[0];
+    if (first < 0x80) {
+        return first;
+    } else if (first < 0xE0) {
+        if (bytes.len < 2) return null;
+        if ((bytes[1] & 0xC0) != 0x80) return null;
+        return (@as(u32, first & 0x1F) << 6) | (bytes[1] & 0x3F);
+    } else if (first < 0xF0) {
+        if (bytes.len < 3) return null;
+        if ((bytes[1] & 0xC0) != 0x80 or (bytes[2] & 0xC0) != 0x80) return null;
+        return (@as(u32, first & 0x0F) << 12) | (@as(u32, bytes[1] & 0x3F) << 6) | (bytes[2] & 0x3F);
+    } else {
+        if (bytes.len < 4) return null;
+        if ((bytes[1] & 0xC0) != 0x80 or (bytes[2] & 0xC0) != 0x80 or (bytes[3] & 0xC0) != 0x80) return null;
+        return (@as(u32, first & 0x07) << 18) | (@as(u32, bytes[1] & 0x3F) << 12) | (@as(u32, bytes[2] & 0x3F) << 6) | (bytes[3] & 0x3F);
+    }
+}
+
+/// Validate that a string contains only valid printable-binary encoded characters.
+/// Returns validation result with position and codepoint of first error if invalid.
+pub fn validate(input: []const u8, ws_flags: c_uint) ValidationResult {
+    var i: usize = 0;
+
+    while (i < input.len) {
+        const byte = input[i];
+
+        // Check whitespace handling
+        if (byte == ' ') {
+            if ((ws_flags & @intFromEnum(WhitespaceFlags.allow_space)) != 0) {
+                i += 1;
+                continue;
+            }
+        } else if (byte == '\t') {
+            if ((ws_flags & @intFromEnum(WhitespaceFlags.allow_tab)) != 0) {
+                i += 1;
+                continue;
+            }
+        } else if (byte == '\n') {
+            if ((ws_flags & @intFromEnum(WhitespaceFlags.allow_lf)) != 0) {
+                i += 1;
+                continue;
+            }
+        } else if (byte == '\r') {
+            if ((ws_flags & @intFromEnum(WhitespaceFlags.allow_cr)) != 0) {
+                i += 1;
+                continue;
+            }
+        }
+
+        // Determine UTF-8 sequence length
+        const seq_len = utf8SeqLen(byte);
+        const remaining = input.len - i;
+
+        // Check for truncated UTF-8 sequence
+        if (seq_len > remaining) {
+            const codepoint = decodeUtf8Codepoint(input[i..]) orelse 0xFFFD;
+            return ValidationResult{
+                .is_valid = 0,
+                .error_position = @intCast(i),
+                .error_codepoint = codepoint,
+            };
+        }
+
+        const seq = input[i .. i + seq_len];
+
+        // Validate UTF-8 continuation bytes
+        for (seq[1..]) |cont_byte| {
+            if ((cont_byte & 0xC0) != 0x80) {
+                const codepoint = decodeUtf8Codepoint(seq) orelse 0xFFFD;
+                return ValidationResult{
+                    .is_valid = 0,
+                    .error_position = @intCast(i),
+                    .error_codepoint = codepoint,
+                };
+            }
+        }
+
+        // Look up in decode map
+        if (decodeLookup(seq) == null) {
+            const codepoint = decodeUtf8Codepoint(seq) orelse 0xFFFD;
+            return ValidationResult{
+                .is_valid = 0,
+                .error_position = @intCast(i),
+                .error_codepoint = codepoint,
+            };
+        }
+
+        i += seq_len;
+    }
+
+    return ValidationResult{
+        .is_valid = 1,
+        .error_position = -1,
+        .error_codepoint = 0,
+    };
+}
+
+/// C ABI export for validation function
+export fn pb_validate(input: [*]const u8, input_len: usize, ws_flags: c_uint) callconv(.c) ValidationResult {
+    const slice = if (input_len > 0) input[0..input_len] else &[_]u8{};
+    return validate(slice, ws_flags);
+}

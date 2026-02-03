@@ -183,6 +183,14 @@ test: $(TARGET)
 test-ape: $(BIN_DIR)/$(APE_TARGET)
 	cd test && IMPLEMENTATION_TO_TEST=../$(BIN_DIR)/$(APE_TARGET) ./test_all
 
+# Validation FFI tests
+.PHONY: test-validate
+test-validate: $(BIN_DIR)/test_validate
+	$(BIN_DIR)/test_validate
+
+$(BIN_DIR)/test_validate: test/test_validate.c $(SOURCE) | $(BIN_DIR)
+	$(CC) $(CFLAGS_DEBUG) -DPRINTABLE_BINARY_NO_MAIN -I$(CURDIR)/src -o $@ test/test_validate.c $(SOURCE)
+
 # Performance comparison test
 .PHONY: benchmark
 benchmark: $(TARGET)
@@ -327,6 +335,7 @@ help:
 	@echo "Test targets:"
 	@echo "  test          Run basic functionality tests"
 	@echo "  test-ape      Run full suite against the APE binary"
+	@echo "  test-validate Run validation FFI tests"
 	@echo "  benchmark     Run performance benchmark"
 	@echo "  compare       Compare with LuaJIT version"
 	@echo "  hyperfine     Detailed benchmark with hyperfine"
