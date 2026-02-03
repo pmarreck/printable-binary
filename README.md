@@ -316,7 +316,7 @@ printf 'char data[] = "%s";\n' "$(./bin/printable_binary file.bin)"
 
 The replacement glyphs were chosen to balance three competing goals:
 
-1. **Byte Economy** - Prefer shorter UTF-8 sequences (1-2 bytes) where possible to minimize encoding overhead. The encoding averages ~1.85× expansion on typical binaries.
+1. **Byte Economy** - Prefer shorter UTF-8 sequences (1-2 bytes) where possible to minimize encoding overhead. Most printable ASCII passes through at 1:1, so text-heavy data expands minimally; pure random binary averages ~1.85×.
 
 2. **Visual Suggestion** - Each glyph should hint at what it replaces. Examples:
    - `␣` (open box) for space - clearly indicates "there's a space here"
