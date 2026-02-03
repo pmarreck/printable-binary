@@ -170,12 +170,30 @@ function PrintableBinary.encode(binary_data, options)
 
   options = options or {}
   local spaces_mode = options.spaces == true
+  local tabs_mode = options.tabs == true
+  local crlf_mode = options.crlf == true
+  local preserve_chars = options.preserve or ""
   local result = {}
+
+  -- Build a lookup table for preserved characters
+  local preserve_set = {}
+  for i = 1, #preserve_chars do
+    preserve_set[string.byte(preserve_chars, i)] = true
+  end
 
   for i = 1, #binary_data do
     local byte = string.byte(binary_data, i)
+    local char = string.char(byte)
+
+    -- Check preservation modes
     if spaces_mode and byte == 32 then
       result[i] = " "
+    elseif tabs_mode and byte == 9 then
+      result[i] = "\t"
+    elseif crlf_mode and (byte == 10 or byte == 13) then
+      result[i] = char
+    elseif preserve_set[byte] then
+      result[i] = char
     else
       result[i] = encode_map[byte]
     end
@@ -191,6 +209,16 @@ local function warn_spaces_after_newline(str)
   end
 end
 
+-- Helper: determine UTF-8 character length from leading byte
+local function utf8_char_length(byte)
+  if byte < 0x80 then return 1       -- 0xxxxxxx (ASCII)
+  elseif byte < 0xC0 then return 1   -- 10xxxxxx (continuation, treat as 1)
+  elseif byte < 0xE0 then return 2   -- 110xxxxx
+  elseif byte < 0xF0 then return 3   -- 1110xxxx
+  else return 4                       -- 11110xxx
+  end
+end
+
 function PrintableBinary.decode(printable_string, options)
   if type(printable_string) ~= "string" then
     error("Input must be a string")
@@ -198,6 +226,7 @@ function PrintableBinary.decode(printable_string, options)
 
   options = options or {}
   local spaces_mode = options.spaces == true
+  local strip_whitespace = options.strip_whitespace == true
   local skip_clean = options.skip_clean == true
   local warn_on_indent = options.warn_on_indent == true
 
@@ -209,13 +238,13 @@ function PrintableBinary.decode(printable_string, options)
     end
   end
 
-  -- Clean up the input string
+  -- Clean up the input string (only if strip_whitespace is enabled)
   if spaces_mode and warn_on_indent then
     warn_spaces_after_newline(printable_string)
   end
 
   local cleaned_string = printable_string
-  if not skip_clean then
+  if not skip_clean and strip_whitespace then
     if spaces_mode then
       cleaned_string = cleaned_string:gsub("[\r\n\t]", "")
     else
@@ -240,8 +269,7 @@ function PrintableBinary.decode(printable_string, options)
       matched_char = " "
     end
 
-    -- Try to match longest first (3-byte, then 2-byte, then 1-byte)
-    -- Max UTF-8 char length in our set is 3 bytes
+    -- Try to match longest first (4-byte, then 3-byte, then 2-byte, then 1-byte)
     if not matched_char then
       for len = 4, 1, -1 do
         if i + len - 1 <= s_len then
@@ -256,18 +284,22 @@ function PrintableBinary.decode(printable_string, options)
       end
     end
 
-    -- If we didn't match any character in our map, just skip this byte
+    -- If we didn't match any character in our map, pass through the UTF-8 character intact
     if not matched_char then
-      local byte_repr = ""
-      for j = 0, math.min(2, s_len - i) do
-        if i + j <= s_len then
-          local b = string.byte(cleaned_string, i + j)
-          byte_repr = byte_repr .. string.format(" %02X", b)
-        end
+      local byte = string.byte(cleaned_string, i)
+      local char_len = utf8_char_length(byte)
+
+      -- Make sure we don't go past the end of the string
+      if i + char_len - 1 > s_len then
+        char_len = s_len - i + 1
       end
 
-      debug_print("Unrecognized character at position " .. i .. ", bytes:" .. byte_repr)
-      i = i + 1
+      -- Pass through the entire UTF-8 character
+      local utf8_char = string.sub(cleaned_string, i, i + char_len - 1)
+      result_bytes_as_chars[#result_bytes_as_chars + 1] = utf8_char
+
+      debug_print("Passing through unrecognized UTF-8 character at position " .. i .. ": " .. utf8_char)
+      i = i + char_len
     end
   end
 
@@ -286,22 +318,34 @@ if arg then
     io.stderr:write("Usage: " .. progname .. " [options] [file]\n")
     io.stderr:write("Options:\n")
     io.stderr:write("  -d, --decode     Decode mode (default is encode mode)\n")
-    io.stderr:write("  -p, --passthrough  Pass input to stdout unchanged, send encoded data to stderr\n")
-    io.stderr:write("  -s, --spaces     Preserve literal spaces (decoder still ignores tabs/newlines/CR)\n")
+    io.stderr:write("  --passthrough    Pass input to stdout unchanged, send encoded data to stderr\n")
+    io.stderr:write("\n")
+    io.stderr:write("Encode options (preserve literal characters instead of encoding them):\n")
+    io.stderr:write("  -s, --spaces, --preserve-spaces    Preserve literal spaces\n")
+    io.stderr:write("  -t, --tabs, --preserve-tabs        Preserve literal tabs\n")
+    io.stderr:write("  -n, --crlf, --preserve-newlines    Preserve literal CR/LF\n")
+    io.stderr:write("  -w, --preserve-whitespace          Preserve all whitespace (spaces, tabs, CR/LF)\n")
+    io.stderr:write("  -p, --preserve <chars>             Preserve specific characters (e.g., -p '!\"')\n")
+    io.stderr:write("\n")
+    io.stderr:write("Decode options:\n")
+    io.stderr:write("  -S, --strip-whitespace   Strip whitespace before decoding (for block-formatted input)\n")
+    io.stderr:write("\n")
+    io.stderr:write("Output options:\n")
     io.stderr:write("  -f[=NxM], --format[=NxM]   Format output in groups\n")
-    io.stderr:write("                    Default: 8x10 (groups of 8 chars, 10 groups per line)\n")
-    io.stderr:write("  --mappings       Show the current byte-to-character mapping table\n")
-    io.stderr:write("  --mappings-json  Output mappings as JSON\n")
-    io.stderr:write("  --mappings-csv   Output mappings as CSV\n")
-    io.stderr:write("  -h, --help       Show this help\n")
+    io.stderr:write("                              Default: 8x10 (groups of 8 chars, 10 groups per line)\n")
+    io.stderr:write("  --mappings                 Show the current byte-to-character mapping table\n")
+    io.stderr:write("  --mappings-json            Output mappings as JSON\n")
+    io.stderr:write("  --mappings-csv             Output mappings as CSV\n")
+    io.stderr:write("  -h, --help                 Show this help\n")
+    io.stderr:write("\n")
+    io.stderr:write("Short flags can be combined: -stn is equivalent to -s -t -n\n")
     io.stderr:write("\n")
     io.stderr:write("If no file is specified, input is read from stdin.\n")
-    io.stderr:write("Output is written to stdout, unless --passthrough is used (see below).\n\n")
-    io.stderr:write("PrintableBinary encodes every byte (including quotes, backslashes, tabs, CR/LF, etc.) into visible, but clearly related, glyphs.\n")
-    io.stderr:write("You can format the encoded text however you like—spaces, newlines, indentation—because the decoder ignores real whitespace.\n")
-    io.stderr:write("With --spaces, literal spaces are treated as data (and we warn on indented lines).\n")
+    io.stderr:write("Output is written to stdout, unless --passthrough is used.\n\n")
+    io.stderr:write("PrintableBinary encodes every byte into visible, but clearly related, glyphs.\n")
     io.stderr:write("Examples: SPACE→␣, TAB→⇥, CR→⏎, LF→↧, single quote→ʼ, double quote→˵, backslash→⧷.\n\n")
-    io.stderr:write("No shell escaping surprises, and the visually-related glyphs make the context obvious at a glance.\n\n")
+    io.stderr:write("Decode behavior: Unrecognized characters pass through unchanged (idempotent).\n")
+    io.stderr:write("Use --strip-whitespace for block-formatted encoded data with whitespace separators.\n\n")
     io.stderr:write("When --passthrough is used:\n")
     io.stderr:write("  - Original binary data is passed unchanged to stdout\n")
     io.stderr:write("  - Encoded representation is sent to stderr\n")
@@ -312,6 +356,9 @@ if arg then
     io.stderr:write("Examples:\n")
     io.stderr:write("  " .. progname .. " binary_file               # Encode binary to UTF-8\n")
     io.stderr:write("  " .. progname .. " -d encoded_file           # Decode UTF-8 to binary\n")
+    io.stderr:write("  " .. progname .. " -d -S encoded_file        # Decode, stripping whitespace first\n")
+    io.stderr:write("  " .. progname .. " -stn binary_file          # Encode, preserving all whitespace\n")
+    io.stderr:write("  " .. progname .. " -p '!\"' binary_file       # Encode, preserving ! and \"\n")
     io.stderr:write("  " .. progname .. " -f=4x10 binary_file       # Encode with formatting\n")
     io.stderr:write("  " .. progname .. " --passthrough file | tool # Monitor binary stream\n")
   end
@@ -380,32 +427,91 @@ if arg then
   local decode_mode = false
   local format_mode = false
   local file_path = nil
-  local format_mode = false
   local format_spec = nil
   local passthrough_mode = false
   local spaces_mode = false
+  local tabs_mode = false
+  local crlf_mode = false
+  local strip_whitespace = false
+  local preserve_chars = ""
 
   -- Default formatting groups
   local format_group = 8
   local format_groups_per_line = 10
   local mappings_mode = nil
 
-  local i = 1
-  while i <= #arg do
-    if arg[i] == "--help" or arg[i] == "-h" then
+  -- Helper to process a single short flag character
+  local function process_short_flag(flag, get_next_arg)
+    if flag == "h" then
       print_usage()
       os.exit(0)
-    elseif arg[i] == "--decode" or arg[i] == "-d" then
+    elseif flag == "d" then
       decode_mode = true
-    elseif arg[i] == "-p" or arg[i] == "--passthrough" then
-      passthrough_mode = true
-    elseif arg[i] == "-s" or arg[i] == "--spaces" then
+    elseif flag == "s" then
       spaces_mode = true
-    elseif arg[i] == "--format" or arg[i] == "-f" then
+    elseif flag == "t" then
+      tabs_mode = true
+    elseif flag == "n" then
+      crlf_mode = true
+    elseif flag == "w" then
+      spaces_mode = true
+      tabs_mode = true
+      crlf_mode = true
+    elseif flag == "S" then
+      strip_whitespace = true
+    elseif flag == "p" then
+      local next_arg = get_next_arg()
+      if not next_arg then
+        io.stderr:write("Error: -p requires an argument\n")
+        os.exit(1)
+      end
+      preserve_chars = next_arg
+      return true  -- consumed next argument
+    elseif flag == "f" then
       format_mode = true
-    elseif arg[i]:match("^%-f=") then
+    else
+      io.stderr:write("Unknown flag: -" .. flag .. "\n")
+      print_usage()
+      os.exit(1)
+    end
+    return false  -- did not consume next argument
+  end
+
+  local i = 1
+  while i <= #arg do
+    local current_arg = arg[i]
+
+    if current_arg == "--help" or current_arg == "-h" then
+      print_usage()
+      os.exit(0)
+    elseif current_arg == "--decode" then
+      decode_mode = true
+    elseif current_arg == "--passthrough" then
+      passthrough_mode = true
+    elseif current_arg == "--spaces" or current_arg == "--preserve-spaces" then
+      spaces_mode = true
+    elseif current_arg == "--tabs" or current_arg == "--preserve-tabs" then
+      tabs_mode = true
+    elseif current_arg == "--crlf" or current_arg == "--preserve-newlines" then
+      crlf_mode = true
+    elseif current_arg == "--preserve-whitespace" then
+      spaces_mode = true
+      tabs_mode = true
+      crlf_mode = true
+    elseif current_arg == "--strip-whitespace" then
+      strip_whitespace = true
+    elseif current_arg == "--preserve" then
+      i = i + 1
+      if not arg[i] then
+        io.stderr:write("Error: --preserve requires an argument\n")
+        os.exit(1)
+      end
+      preserve_chars = arg[i]
+    elseif current_arg == "--format" then
       format_mode = true
-      format_spec = arg[i]:match("^%-f=(.*)")
+    elseif current_arg:match("^%-f=") then
+      format_mode = true
+      format_spec = current_arg:match("^%-f=(.*)")
       if format_spec then
         local group, groups_per_line = format_spec:match("(%d+)x(%d+)")
         if group and groups_per_line then
@@ -418,9 +524,9 @@ if arg then
           os.exit(1)
         end
       end
-    elseif arg[i]:match("^%-%-format=") then
+    elseif current_arg:match("^%-%-format=") then
       format_mode = true
-      format_spec = arg[i]:match("^%-%-format=(.*)")
+      format_spec = current_arg:match("^%-%-format=(.*)")
       if format_spec then
         local group, groups_per_line = format_spec:match("(%d+)x(%d+)")
         if group and groups_per_line then
@@ -433,28 +539,52 @@ if arg then
           os.exit(1)
         end
       end
-    elseif arg[i] == "--mappings" then
+    elseif current_arg == "--mappings" then
       if mappings_mode and mappings_mode ~= "table" then
         io.stderr:write("Only one mappings output mode can be specified\n")
         os.exit(1)
       end
       mappings_mode = "table"
-    elseif arg[i] == "--mappings-json" then
+    elseif current_arg == "--mappings-json" then
       if mappings_mode and mappings_mode ~= "json" then
         io.stderr:write("Only one mappings output mode can be specified\n")
         os.exit(1)
       end
       mappings_mode = "json"
-    elseif arg[i] == "--mappings-csv" then
+    elseif current_arg == "--mappings-csv" then
       if mappings_mode and mappings_mode ~= "csv" then
         io.stderr:write("Only one mappings output mode can be specified\n")
         os.exit(1)
       end
       mappings_mode = "csv"
-    elseif not file_path and not arg[i]:match("^%-") then
-      file_path = arg[i]
+    elseif current_arg:match("^%-[^-]") then
+      -- Combined short flags like -stn or single flags like -d
+      local flags = current_arg:sub(2)
+      local j = 1
+      while j <= #flags do
+        local flag = flags:sub(j, j)
+        local consumed = process_short_flag(flag, function()
+          -- Check if there's more in this arg group or need next arg
+          if j < #flags then
+            -- Rest of this arg is the value
+            local val = flags:sub(j + 1)
+            j = #flags  -- skip rest
+            return val
+          else
+            -- Need next argument
+            i = i + 1
+            return arg[i]
+          end
+        end)
+        if consumed and j < #flags then
+          break  -- already consumed rest of flags as argument
+        end
+        j = j + 1
+      end
+    elseif not file_path and not current_arg:match("^%-") then
+      file_path = current_arg
     else
-      io.stderr:write("Unknown option: " .. arg[i] .. "\n")
+      io.stderr:write("Unknown option: " .. current_arg .. "\n")
       print_usage()
       os.exit(1)
     end
@@ -490,18 +620,15 @@ if arg then
       warn_spaces_after_newline(input_data)
     end
 
-    -- Simple whitespace removal - we need to preserve all other characters
-    local cleaned_input
-    if spaces_mode then
-      cleaned_input = input_data:gsub("[\r\n\t]", "")
-      stats_write("After whitespace removal (tabs/newlines/CR): " .. #cleaned_input .. " bytes\n")
-    else
-      cleaned_input = input_data:gsub("[\r\n\t ]", "")
-      stats_write("After whitespace removal: " .. #cleaned_input .. " bytes\n")
-    end
+    -- Decode with options (strip_whitespace controls whether whitespace is removed)
+    output = PrintableBinary.decode(input_data, {
+      spaces = spaces_mode,
+      strip_whitespace = strip_whitespace
+    })
 
-    -- Decode directly
-    output = PrintableBinary.decode(cleaned_input, { spaces = spaces_mode, skip_clean = true })
+    if strip_whitespace then
+      stats_write("Decoded with whitespace stripping\n")
+    end
     stats_write("Decoded result size: " .. #output .. " bytes\n")
 
     -- Always output decoded data to stdout in decode mode
@@ -515,7 +642,12 @@ if arg then
     if passthrough_mode then
       io.stdout:write(input_data)
     end
-    output = PrintableBinary.encode(input_data, { spaces = spaces_mode })
+    output = PrintableBinary.encode(input_data, {
+      spaces = spaces_mode,
+      tabs = tabs_mode,
+      crlf = crlf_mode,
+      preserve = preserve_chars
+    })
     stats_write("Encoded " .. #input_data .. " bytes of input to " .. #output .. " bytes\n")
 
     -- Apply formatting if requested
@@ -525,6 +657,12 @@ if arg then
       local chars_in_group = 0
       local groups_in_line = 0
       local group_separator = spaces_mode and "\t" or " "
+
+      -- Build preserve set for formatting
+      local preserve_set = {}
+      for k = 1, #preserve_chars do
+        preserve_set[string.byte(preserve_chars, k)] = true
+      end
 
       -- We need to handle UTF-8 characters properly
       -- For each input byte, we have a corresponding UTF-8 output character
@@ -536,9 +674,16 @@ if arg then
         -- Get the encoded character for this position
         -- and add it to the formatted output
         local byte = string.byte(input_data, i)
+        local char = string.char(byte)
         local encoded_char
         if spaces_mode and byte == 32 then
           encoded_char = " "
+        elseif tabs_mode and byte == 9 then
+          encoded_char = "\t"
+        elseif crlf_mode and (byte == 10 or byte == 13) then
+          encoded_char = char
+        elseif preserve_set[byte] then
+          encoded_char = char
         else
           encoded_char = encode_map[byte]
         end

@@ -22,3 +22,6 @@ bin/printable_binary.wasm
 **/*.elf
 **/*.dbg
 a.out
+zig-out
+bin/*
+.zig-cache
