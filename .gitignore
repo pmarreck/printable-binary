@@ -25,3 +25,5 @@ a.out
 zig-out
 bin/*
 .zig-cache
+result
+result-zig
