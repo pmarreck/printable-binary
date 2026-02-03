@@ -312,6 +312,25 @@ printf 'char data[] = "%s";\n' "$(./bin/printable_binary file.bin)"
 
 **Note:** If your original binary contains problematic characters (like `{`), they'll appear as-is since they're printable ASCII. Use quoted contexts when embedding in structured formats.
 
+## Glyph Selection Design Philosophy
+
+The replacement glyphs were chosen to balance three competing goals:
+
+1. **Byte Economy** - Prefer shorter UTF-8 sequences (1-2 bytes) where possible to minimize encoding overhead. The encoding averages ~1.85× expansion on typical binaries.
+
+2. **Visual Suggestion** - Each glyph should hint at what it replaces. Examples:
+   - `␣` (open box) for space - clearly indicates "there's a space here"
+   - `⏎` for carriage return - universal "return/enter" symbol
+   - `⇥` for tab - arrow pointing to a bar suggests tabulation
+   - `˂˃` for angle brackets - similar shape, clearly related
+
+3. **Unambiguous Distinction** - The glyph must *not* be confused with the original character. This explains choices like:
+   - `˵` for double-quote - renders small in terminals but is only 2 bytes and cannot be mistaken for `"`
+   - `ʼ` for single-quote - modifier letter apostrophe looks similar but is clearly distinct
+   - `⧷` for backslash - has a horizontal stroke through it
+
+**High-byte ordering (0x80-0xFF):** The extended byte mappings are roughly lexically ordered - they begin with variants of A (ă, Ă, Ǎ...) and end with variants of Z (ź, Ź, ž, Ž, ż, Ż). This allows developers to ballpark approximately what byte value is being represented just by glancing at the glyph's base letter.
+
 ## Character Encoding
 
 - **Control Characters (0-31)**: Mapped to visually distinct symbols like ·, ¯, «, », µ, etc.
