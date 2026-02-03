@@ -236,6 +236,32 @@ const test_step = b.step("test", "Run unit tests");
 test_step.dependOn(&run_unit_tests.step);
 ```
 
+### Static Library (for C FFI)
+
+```zig
+// Use addLibrary with .linkage = .static (not addStaticLibrary!)
+const static_lib = b.addLibrary(.{
+    .name = "mylib",
+    .linkage = .static,
+    .root_module = b.createModule(.{
+        .root_source_file = b.path("src/lib.zig"),
+        .target = target,
+        .optimize = optimize,
+    }),
+});
+
+b.installArtifact(static_lib);
+
+// Optional: install header for C consumers
+b.installFile("src/mylib.h", "include/mylib.h");
+
+// Create a library-only build step
+const lib_step = b.step("lib", "Build only the static library");
+lib_step.dependOn(&static_lib.step);
+```
+
+**Note**: `addStaticLibrary()` no longer exists in Zig 0.15. Use `addLibrary()` with `.linkage = .static` instead.
+
 ---
 
 ## 4. Type Reflection
@@ -488,6 +514,7 @@ if (map.get("key")) |value| {
 | Export symbol | `@export(&func, .{ .name = "name" });` |
 | Page size | `std.heap.pageSize()` (runtime) |
 | Build executable | `b.addExecutable(.{ .name = "x", .root_module = b.createModule(.{ ... }) });` |
+| Build static lib | `b.addLibrary(.{ .name = "x", .linkage = .static, .root_module = ... });` |
 
 ---
 
@@ -499,6 +526,7 @@ if (map.get("key")) |value| {
 4. **Using uppercase type tags** - `.Int` is now `.int`, `.Struct` is now `.@"struct"`
 5. **Using `std.io.getStdOut()`** - Use `std.fs.File.stdout().writer(&buffer)` instead
 6. **Using old build.zig patterns** - Use `root_module` with `b.createModule()`, not `root_source_file` directly
+7. **Using `addStaticLibrary()`** - This doesn't exist in 0.15; use `addLibrary(.{ .linkage = .static, ... })` instead
 
 ---
 

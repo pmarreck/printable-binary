@@ -14,6 +14,27 @@ pub fn build(b: *std.Build) void {
     });
 
     // =========================================================================
+    // Static Library with C ABI (for FFI consumers like Cosmopolitan)
+    // =========================================================================
+    const static_lib_mod = b.createModule(.{
+        .root_source_file = b.path("src/zig/printable_binary.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const static_lib = b.addLibrary(.{
+        .name = "printable_binary",
+        .linkage = .static,
+        .root_module = static_lib_mod,
+    });
+
+    // Install the static library
+    b.installArtifact(static_lib);
+
+    // Also install the header for convenience
+    b.installFile("src/printable_binary.h", "include/printable_binary.h");
+
+    // =========================================================================
     // CLI Executable (Zig 0.15 style with root_module)
     // =========================================================================
     const cli_mod = b.createModule(.{
@@ -61,4 +82,10 @@ pub fn build(b: *std.Build) void {
     const run_lib_tests = b.addRunArtifact(lib_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_tests.step);
+
+    // =========================================================================
+    // Library-only step (for Makefile integration)
+    // =========================================================================
+    const lib_step = b.step("lib", "Build only the static library");
+    lib_step.dependOn(&static_lib.step);
 }

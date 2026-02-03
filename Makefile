@@ -1,17 +1,32 @@
-# Makefile for PrintableBinary C Implementation
+# Makefile for PrintableBinary
 # Supports multiple compilers, optimization levels, and cross-platform builds
+#
+# Architecture:
+#   Zig core (all business logic) <- C FFI <- C CLI (dogfooding the FFI)
+#
+# Build targets:
+#   make zig-cli       - Build the pure Zig CLI
+#   make ffi-cli       - Build the C CLI using Zig FFI
+#   make ape-ffi       - Build Cosmopolitan APE using Zig FFI
+#   make c-cli         - Build the standalone C CLI (legacy)
 
 # Default compiler and flags
 CC ?= gcc
-CFLAGS = -std=c99 -Wall -Wextra -Wpedantic -I$(CURDIR)
-LDFLAGS = 
+CFLAGS = -std=c99 -Wall -Wextra -Wpedantic -I$(CURDIR) -I$(CURDIR)/src
+LDFLAGS =
 BIN_DIR = bin
 TARGET = printable_binary_c
 SOURCE = src/printable_binary.c
+FFI_MAIN_SOURCE = src/printable_binary_ffi_main.c
 WASM_TARGET = printable_binary.wasm
 APE_TARGET = printable_binary_ape.com
+APE_FFI_TARGET = printable_binary_ape_ffi.com
 MAP_COPY = $(BIN_DIR)/character_map.txt
 STRIP ?= strip
+
+# Zig build outputs
+ZIG_LIB = zig-out/lib/libprintable_binary.a
+ZIG_CLI = zig-out/bin/printable_binary_zig
 
 COSMOCC_VERSION ?= 4.0.2
 COSMOCC_URL ?= https://cosmo.zip/pub/cosmocc/cosmocc-$(COSMOCC_VERSION).zip
@@ -174,6 +189,60 @@ $(BIN_DIR)/$(APE_TARGET): $(SOURCE) $(MAP_COPY) $(APE_CC_DEP) | $(BIN_DIR)
 		$(STRIP) -s $@; \
 	fi
 
+# =============================================================================
+# Zig Core + C FFI Targets
+# =============================================================================
+
+# Build the Zig static library with C ABI exports
+.PHONY: zig-lib
+zig-lib: $(ZIG_LIB)
+
+$(ZIG_LIB):
+	zig build lib -Doptimize=ReleaseFast
+
+# Build the pure Zig CLI (uses Zig's main.zig)
+.PHONY: zig-cli
+zig-cli: $(ZIG_CLI)
+
+$(ZIG_CLI):
+	zig build -Doptimize=ReleaseFast
+
+# Build the C CLI that uses Zig FFI (dogfooding)
+.PHONY: ffi-cli
+ffi-cli: $(BIN_DIR)/printable_binary_ffi
+
+$(BIN_DIR)/printable_binary_ffi: $(FFI_MAIN_SOURCE) $(ZIG_LIB) | $(BIN_DIR)
+	$(CC) $(CFLAGS_RELEASE) -o $@ $(FFI_MAIN_SOURCE) $(ZIG_LIB)
+
+# Build Cosmopolitan APE using Zig FFI
+# This requires cross-compiling the Zig library for x86_64-linux-gnu
+.PHONY: ape-ffi
+ape-ffi: $(BIN_DIR)/$(APE_FFI_TARGET)
+
+# Zig library cross-compiled for x86_64-linux (for Cosmopolitan linking)
+ZIG_LIB_LINUX = zig-out/lib/libprintable_binary_linux.a
+
+$(ZIG_LIB_LINUX):
+	zig build lib -Doptimize=ReleaseFast -Dtarget=x86_64-linux-gnu
+	@mkdir -p zig-out/lib
+	@if [ -f zig-out/lib/libprintable_binary.a ]; then \
+		mv zig-out/lib/libprintable_binary.a $(ZIG_LIB_LINUX); \
+	fi
+
+$(BIN_DIR)/$(APE_FFI_TARGET): $(FFI_MAIN_SOURCE) $(ZIG_LIB_LINUX) $(APE_CC_DEP) | $(BIN_DIR)
+	$(APE_CC) $(APE_FLAGS) -I$(CURDIR)/src -o $@ $(FFI_MAIN_SOURCE) $(ZIG_LIB_LINUX)
+	chmod +x $@
+	@if ! strings -a $@ | grep -q '.aarch64.elf'; then \
+		echo "Warning: cosmocc may not have embedded the aarch64 slice"; \
+	fi
+	@if [ "$(APE_STRIP)" != "0" ]; then \
+		$(STRIP) -s $@; \
+	fi
+
+# Alias for the legacy standalone C CLI
+.PHONY: c-cli
+c-cli: release
+
 # Test targets
 .PHONY: test
 test: $(TARGET)
@@ -182,6 +251,16 @@ test: $(TARGET)
 .PHONY: test-ape
 test-ape: $(BIN_DIR)/$(APE_TARGET)
 	cd test && IMPLEMENTATION_TO_TEST=../$(BIN_DIR)/$(APE_TARGET) ./test_all
+
+# Test the C CLI using Zig FFI
+.PHONY: test-ffi
+test-ffi: ffi-cli
+	cd test && IMPLEMENTATION_TO_TEST=../$(BIN_DIR)/printable_binary_ffi ./test_all
+
+# Test the Zig CLI
+.PHONY: test-zig
+test-zig: zig-cli
+	cd test && IMPLEMENTATION_TO_TEST=../$(ZIG_CLI) ./test_all
 
 # Validation FFI tests
 .PHONY: test-validate
@@ -314,13 +393,19 @@ help:
 	@echo "PrintableBinary C Implementation Makefile"
 	@echo "========================================"
 	@echo ""
-	@echo "Build targets:"
-	@echo "  all           Build optimized release version (default)"
-	@echo "  release       Build optimized release version"
-	@echo "  debug         Build debug version with symbols"
-	@echo "  size          Build size-optimized version"
-	@echo "  wasm          Build WebAssembly module"
-	@echo "  ape           Build Actually Portable Executable via cosmocc"
+	@echo "Build targets (Zig core + C FFI):"
+	@echo "  zig-cli       Build pure Zig CLI"
+	@echo "  ffi-cli       Build C CLI using Zig FFI (dogfooding)"
+	@echo "  ape-ffi       Build Cosmopolitan APE using Zig FFI"
+	@echo "  zig-lib       Build Zig static library only"
+	@echo ""
+	@echo "Build targets (standalone C):"
+	@echo "  all           Build optimized C release version (default)"
+	@echo "  release       Build optimized C release version"
+	@echo "  debug         Build C debug version with symbols"
+	@echo "  size          Build C size-optimized version"
+	@echo "  wasm          Build WebAssembly module (C)"
+	@echo "  ape           Build Actually Portable Executable (C) via cosmocc"
 	@echo "  gcc           Build with GCC"
 	@echo "  clang         Build with Clang"
 	@echo "  windows       Cross-compile for Windows"
@@ -333,9 +418,11 @@ help:
 	@echo "  memcheck      Run Valgrind memory check"
 	@echo ""
 	@echo "Test targets:"
-	@echo "  test          Run basic functionality tests"
-	@echo "  test-ape      Run full suite against the APE binary"
-	@echo "  test-validate Run validation FFI tests"
+	@echo "  test          Run tests against standalone C implementation"
+	@echo "  test-zig      Run tests against pure Zig CLI"
+	@echo "  test-ffi      Run tests against C CLI using Zig FFI"
+	@echo "  test-ape      Run tests against the APE binary"
+	@echo "  test-validate Run validation FFI unit tests"
 	@echo "  benchmark     Run performance benchmark"
 	@echo "  compare       Compare with LuaJIT version"
 	@echo "  hyperfine     Detailed benchmark with hyperfine"

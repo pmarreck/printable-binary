@@ -1,6 +1,10 @@
 /*
  * PrintableBinary - FFI Header
  * C API for encoding/decoding binary data as printable UTF-8
+ *
+ * This header can be used with either:
+ * - The C implementation (src/printable_binary.c)
+ * - The Zig implementation built as a library (src/zig/printable_binary.zig)
  */
 
 #ifndef PRINTABLE_BINARY_H
@@ -12,6 +16,10 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* ============================================================================
+ * Validation API
+ * ============================================================================ */
 
 /**
  * Whitespace handling flags for validation.
@@ -36,39 +44,141 @@ typedef struct {
 } pb_validation_result_t;
 
 /**
- * Initialize the printable-binary library.
- * Must be called before using pb_validate().
- *
- * @param argv0 Path to the executable (for finding character map), or NULL
- */
-void pb_init(const char *argv0);
-
-/**
  * Validate that a string contains only valid printable-binary encoded characters.
- *
- * This function checks if the input consists entirely of:
- * - Valid UTF-8 sequences that are in the printable-binary character map
- * - Optionally, whitespace characters as specified by ws_flags
  *
  * @param input     Pointer to the UTF-8 encoded string to validate
  * @param input_len Length of the input in bytes
  * @param ws_flags  Bitfield of pb_whitespace_flags_t values
  * @return          Validation result with error details if invalid
- *
- * Example:
- * @code
- *   pb_init(NULL);
- *   const char *encoded = "Hello␣World";
- *   pb_validation_result_t result = pb_validate(encoded, strlen(encoded), PB_WS_REJECT_ALL);
- *   if (result.is_valid) {
- *       printf("Valid printable-binary string\n");
- *   } else {
- *       printf("Invalid at position %lld, codepoint U+%04X\n",
- *              (long long)result.error_position, result.error_codepoint);
- *   }
- * @endcode
  */
 pb_validation_result_t pb_validate(const char *input, size_t input_len, unsigned int ws_flags);
+
+/* ============================================================================
+ * Encode/Decode/Format API (Zig FFI)
+ * ============================================================================ */
+
+/**
+ * Encode flags - control which characters are preserved as-is.
+ * Can be combined with bitwise OR.
+ */
+typedef enum {
+    PB_ENCODE_NONE = 0,                 /**< Encode everything */
+    PB_ENCODE_PRESERVE_SPACES = 1 << 0, /**< Preserve literal spaces */
+    PB_ENCODE_PRESERVE_TABS = 1 << 1,   /**< Preserve literal tabs */
+    PB_ENCODE_PRESERVE_CRLF = 1 << 2,   /**< Preserve literal CR/LF */
+    PB_ENCODE_PRESERVE_ALL_WS = 0x07    /**< Preserve all whitespace */
+} pb_encode_flags_t;
+
+/**
+ * Decode flags - control decoding behavior.
+ * Can be combined with bitwise OR.
+ */
+typedef enum {
+    PB_DECODE_NONE = 0,              /**< Default decoding */
+    PB_DECODE_SPACES_MODE = 1 << 0,  /**< Treat literal spaces as data */
+    PB_DECODE_STRIP_WS = 1 << 1      /**< Strip whitespace before decoding */
+} pb_decode_flags_t;
+
+/**
+ * Result structure for FFI functions that return allocated data.
+ * Caller must call pb_free() on data when done.
+ */
+typedef struct {
+    char *data;       /**< Pointer to allocated data, or NULL on error */
+    size_t len;       /**< Length of data in bytes, or 0 on error */
+    int error_code;   /**< 0 = success, non-zero = error */
+} pb_ffi_result_t;
+
+/**
+ * Free memory allocated by pb_encode, pb_decode, or pb_format.
+ *
+ * @param ptr Pointer returned by pb_encode/pb_decode/pb_format
+ * @param len Length that was returned with the pointer
+ */
+void pb_free(char *ptr, size_t len);
+
+/**
+ * Encode binary data to printable UTF-8.
+ * Caller must call pb_free() on result.data when done.
+ *
+ * @param input             Pointer to binary data to encode
+ * @param input_len         Length of input in bytes
+ * @param flags             Bitfield of pb_encode_flags_t values
+ * @param preserve_chars    Additional characters to preserve (or NULL)
+ * @param preserve_chars_len Length of preserve_chars
+ * @return                  Result with encoded data or error
+ */
+pb_ffi_result_t pb_encode(
+    const char *input,
+    size_t input_len,
+    unsigned int flags,
+    const char *preserve_chars,
+    size_t preserve_chars_len
+);
+
+/**
+ * Decode printable UTF-8 back to binary data.
+ * Caller must call pb_free() on result.data when done.
+ *
+ * @param input     Pointer to encoded UTF-8 string
+ * @param input_len Length of input in bytes
+ * @param flags     Bitfield of pb_decode_flags_t values
+ * @return          Result with decoded data or error
+ */
+pb_ffi_result_t pb_decode(
+    const char *input,
+    size_t input_len,
+    unsigned int flags
+);
+
+/**
+ * Format encoded output into groups for readability.
+ * Caller must call pb_free() on result.data when done.
+ *
+ * @param input           Pointer to encoded data
+ * @param input_len       Length of input in bytes
+ * @param group_size      Characters per group (default: 8)
+ * @param groups_per_line Groups per line (default: 10)
+ * @param use_tabs        Use tabs instead of spaces between groups
+ * @return                Result with formatted data or error
+ */
+pb_ffi_result_t pb_format(
+    const char *input,
+    size_t input_len,
+    size_t group_size,
+    size_t groups_per_line,
+    int use_tabs
+);
+
+/**
+ * Get the UTF-8 mapping for a byte value.
+ * Returns a pointer to static data - do not free.
+ *
+ * @param byte The byte value (0-255)
+ * @return     Pointer to UTF-8 string
+ */
+const char *pb_get_mapping(uint8_t byte);
+
+/**
+ * Get the length of the UTF-8 mapping for a byte value.
+ *
+ * @param byte The byte value (0-255)
+ * @return     Length in bytes of the mapping
+ */
+size_t pb_get_mapping_len(uint8_t byte);
+
+/* ============================================================================
+ * C Implementation Only
+ * ============================================================================ */
+
+/**
+ * Initialize the printable-binary library (C implementation only).
+ * Must be called before using pb_validate() with the C implementation.
+ * Not needed when using the Zig implementation.
+ *
+ * @param argv0 Path to the executable (for finding character map), or NULL
+ */
+void pb_init(const char *argv0);
 
 #ifdef __cplusplus
 }
