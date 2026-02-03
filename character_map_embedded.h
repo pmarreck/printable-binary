@@ -45,7 +45,7 @@ static const char *embedded_character_map[256] = {
     "❩",
     "⁎",
     "⨦",
-    ",",
+    "٫",
     "˗",
     ".",
     "⁄",

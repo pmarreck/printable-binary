@@ -65,7 +65,7 @@ pub const character_map = [256][]const u8{
     "❩",
     "⁎",
     "⨦",
-    ",",
+    "٫",
     "˗",
     ".",
     "⁄",

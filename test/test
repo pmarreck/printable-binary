@@ -597,11 +597,11 @@ fi
 
 # Check if stderr contains the encoded data
 STDERR_CONTENT=$(cat "$PASSTHROUGH_STDERR" | grep -v "Encoding" | grep -v "Encoded to")
-if [[ "$STDERR_CONTENT" == *"Hello,␣Worldǃ"* ]]; then
+if [[ "$STDERR_CONTENT" == *"Hello٫␣Worldǃ"* ]]; then
     echo -e "${GREEN}PASS: Encoded data correctly sent to stderr${NC}"
 else
     echo -e "${RED}FAIL: Encoded data not found in stderr${NC}"
-    echo "Expected to find: Hello,␣Worldǃ"
+    echo "Expected to find: Hello٫␣Worldǃ"
     echo "Got: $STDERR_CONTENT"
     exit 1
 fi
