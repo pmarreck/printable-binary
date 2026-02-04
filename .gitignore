@@ -28,3 +28,7 @@ bin/*
 result
 result-zig
 ZIG_RECENT_API_CHANGES_2025.md
+
+# Nix result symlinks
+result
+result-*
