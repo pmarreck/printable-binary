@@ -160,7 +160,6 @@
               # C compilation/tools
               gcc
               clang
-              gdb
 
               # Build systems
               gnumake
@@ -195,7 +194,9 @@
 
               # WebAssembly toolchain
               emscripten
-            ] ++ linuxOnly;
+            ]  ++ lib.optionals stdenv.isDarwin [ lldb ]
+               ++ lib.optionals (!stdenv.isDarwin) [ gdb ]
+               ++ linuxOnly;
 
           shellHook = ''
             echo "PrintableBinary Development Environment"
