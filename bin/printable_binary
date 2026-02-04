@@ -162,6 +162,81 @@ end
 -- Build the encoding maps when module is loaded
 build_maps()
 
+-- Build set of "high-confidence" glyphs for double-encode detection
+-- These are glyphs unlikely to appear in normal text, signaling already-encoded data
+local high_confidence_glyphs = {}
+local function build_detection_set()
+  -- Control character glyphs (0x00-0x1F) - very unlikely in normal text
+  for byte = 0, 31 do
+    if encode_map[byte] then
+      high_confidence_glyphs[encode_map[byte]] = true
+    end
+  end
+  -- High-byte glyphs (0x80-0xFF) - Latin Extended chars specific to PB
+  for byte = 128, 255 do
+    if encode_map[byte] then
+      high_confidence_glyphs[encode_map[byte]] = true
+    end
+  end
+  -- DEL (0x7F)
+  if encode_map[127] then
+    high_confidence_glyphs[encode_map[127]] = true
+  end
+  -- Replaced ASCII glyphs (space, punctuation replacements)
+  -- These are less reliable but still useful: ␣ ǃ ˵ ♯ etc.
+  local replaced_ascii = {32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+                          58, 60, 61, 62, 63, 91, 92, 93, 96, 123, 124, 125, 126}
+  for _, byte in ipairs(replaced_ascii) do
+    if encode_map[byte] then
+      high_confidence_glyphs[encode_map[byte]] = true
+    end
+  end
+end
+build_detection_set()
+
+-- Detect if input appears to be already printable-binary encoded
+-- Returns: is_likely_encoded (bool), confidence (float 0-1)
+function PrintableBinary.detect_double_encode(input_string, threshold)
+  threshold = threshold or 0.05  -- 5% default
+  if type(input_string) ~= "string" or #input_string == 0 then
+    return false, 0
+  end
+
+  local glyph_count = 0
+  local char_count = 0
+  local i = 1
+  local len = #input_string
+
+  while i <= len do
+    local byte = string.byte(input_string, i)
+    local char_len = 1
+
+    -- Determine UTF-8 character length
+    if byte >= 0xF0 then char_len = 4
+    elseif byte >= 0xE0 then char_len = 3
+    elseif byte >= 0xC0 then char_len = 2
+    end
+
+    -- Extract the full UTF-8 character
+    if i + char_len - 1 <= len then
+      local char = string.sub(input_string, i, i + char_len - 1)
+      char_count = char_count + 1
+      if high_confidence_glyphs[char] then
+        glyph_count = glyph_count + 1
+      end
+    end
+
+    i = i + char_len
+  end
+
+  if char_count == 0 then
+    return false, 0
+  end
+
+  local confidence = glyph_count / char_count
+  return confidence >= threshold, confidence
+end
+
 -- Encode binary data to printable UTF-8
 function PrintableBinary.encode(binary_data, options)
   if type(binary_data) ~= "string" then
@@ -326,6 +401,7 @@ if arg then
     io.stderr:write("  -n, --crlf, --preserve-newlines    Preserve literal CR/LF\n")
     io.stderr:write("  -w, --preserve-whitespace          Preserve all whitespace (spaces, tabs, CR/LF)\n")
     io.stderr:write("  -p, --preserve <chars>             Preserve specific characters (e.g., -p '!\"')\n")
+    io.stderr:write("  --no-double-encode-check           Skip detection of already-encoded input\n")
     io.stderr:write("\n")
     io.stderr:write("Decode options:\n")
     io.stderr:write("  -S, --strip-whitespace   Strip whitespace before decoding (for block-formatted input)\n")
@@ -434,6 +510,7 @@ if arg then
   local crlf_mode = false
   local strip_whitespace = false
   local preserve_chars = ""
+  local skip_double_encode_check = false
 
   -- Default formatting groups
   local format_group = 8
@@ -500,6 +577,8 @@ if arg then
       crlf_mode = true
     elseif current_arg == "--strip-whitespace" then
       strip_whitespace = true
+    elseif current_arg == "--no-double-encode-check" then
+      skip_double_encode_check = true
     elseif current_arg == "--preserve" then
       i = i + 1
       if not arg[i] then
@@ -638,6 +717,18 @@ if arg then
     -- Set a flag to prevent duplicate output later
     output_already_written = true
   else
+    -- Check for double-encoding (unless disabled)
+    if not skip_double_encode_check then
+      local is_likely_encoded, confidence = PrintableBinary.detect_double_encode(input_data)
+      if is_likely_encoded then
+        io.stderr:write(string.format(
+          "Warning: Input appears to already be printable-binary encoded (%.1f%% detection).\n" ..
+          "         Use --no-double-encode-check to suppress this warning.\n",
+          confidence * 100
+        ))
+      end
+    end
+
     -- In passthrough mode, the original binary data goes to stdout
     if passthrough_mode then
       io.stdout:write(input_data)

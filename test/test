@@ -1014,6 +1014,101 @@ else
     echo -e "${YELLOW}SKIP${NC}: Combined flags test requires -s, -t, -n support"
 fi
 
+###############################################################################
+# DOUBLE-ENCODING DETECTION TESTS
+###############################################################################
+
+echo -e "\n${YELLOW}Running double-encoding detection tests...${NC}"
+
+# Detect feature support for double-encode check
+SUPPORTS_DOUBLE_ENCODE_CHECK=false
+if [[ "$HELP_OUTPUT" == *"--no-double-encode-check"* ]]; then
+    SUPPORTS_DOUBLE_ENCODE_CHECK=true
+fi
+
+# Test: Double-encoding produces warning to stderr
+if $SUPPORTS_DOUBLE_ENCODE_CHECK; then
+    echo -e "${BLUE}Test: Double-encoding produces warning to stderr${NC}"
+    # Create single-encoded output, then try to encode it again
+    SINGLE_ENCODED=$(echo -n -e '\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f' | $SCRIPT 2>/dev/null)
+    # Now encode again - should produce warning
+    STDERR_OUTPUT=$($SCRIPT 2>&1 >/dev/null <<< "$SINGLE_ENCODED")
+    if [[ "$STDERR_OUTPUT" == *"already"*"encoded"* ]] || [[ "$STDERR_OUTPUT" == *"double"*"encod"* ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected warning about double-encoding in stderr"
+        echo "Got stderr: $STDERR_OUTPUT"
+        exit 1
+    fi
+
+    # Test: Warning still produces output (non-blocking)
+    echo -e "${BLUE}Test: Double-encoding warning is non-blocking (still produces output)${NC}"
+    DOUBLE_ENCODED=$(echo -n "$SINGLE_ENCODED" | $SCRIPT 2>/dev/null)
+    if [[ -n "$DOUBLE_ENCODED" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected double-encoding to still produce output"
+        exit 1
+    fi
+
+    # Test: --no-double-encode-check suppresses warning
+    echo -e "${BLUE}Test: --no-double-encode-check suppresses warning${NC}"
+    STDERR_OUTPUT=$($SCRIPT --no-double-encode-check 2>&1 >/dev/null <<< "$SINGLE_ENCODED")
+    if [[ "$STDERR_OUTPUT" != *"already"*"encoded"* ]] && [[ "$STDERR_OUTPUT" != *"double"*"encod"* ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected no warning with --no-double-encode-check"
+        echo "Got stderr: $STDERR_OUTPUT"
+        exit 1
+    fi
+
+    # Test: Pure ASCII does NOT trigger warning (identity case)
+    echo -e "${BLUE}Test: Pure ASCII input does not trigger double-encode warning${NC}"
+    STDERR_OUTPUT=$($SCRIPT 2>&1 >/dev/null <<< "Hello World this is plain ASCII text")
+    if [[ "$STDERR_OUTPUT" != *"already"*"encoded"* ]] && [[ "$STDERR_OUTPUT" != *"double"*"encod"* ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Pure ASCII should not trigger double-encode warning"
+        echo "Got stderr: $STDERR_OUTPUT"
+        exit 1
+    fi
+
+    # Test: Low percentage of PB glyphs does NOT trigger warning
+    echo -e "${BLUE}Test: Low percentage of PB glyphs does not trigger warning${NC}"
+    # One PB glyph (·) among many ASCII chars - well under 5%
+    STDERR_OUTPUT=$($SCRIPT 2>&1 >/dev/null <<< "This is mostly ASCII with one middot · character in a very long string of text")
+    if [[ "$STDERR_OUTPUT" != *"already"*"encoded"* ]] && [[ "$STDERR_OUTPUT" != *"double"*"encod"* ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Low percentage of PB glyphs should not trigger warning"
+        echo "Got stderr: $STDERR_OUTPUT"
+        exit 1
+    fi
+
+    # Test: Threshold boundary - just above 5% should warn
+    echo -e "${BLUE}Test: Above 5% threshold triggers warning${NC}"
+    # Create input that's >5% high-confidence PB glyphs
+    # 6 glyphs out of ~100 chars = 6%
+    HIGH_GLYPH_INPUT="aaaaaaaaaa·¯«»ϟ¿aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    STDERR_OUTPUT=$($SCRIPT 2>&1 >/dev/null <<< "$HIGH_GLYPH_INPUT")
+    if [[ "$STDERR_OUTPUT" == *"already"*"encoded"* ]] || [[ "$STDERR_OUTPUT" == *"double"*"encod"* ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Above 5% threshold should trigger warning"
+        echo "Got stderr: $STDERR_OUTPUT"
+        exit 1
+    fi
+
+else
+    echo -e "${YELLOW}SKIP${NC}: --no-double-encode-check not supported by this implementation"
+fi
+
 # Print summary
 echo -e "\n${BLUE}=== Test Suite Summary ===${NC}"
 echo -e "${GREEN}All tests passed!${NC}"
