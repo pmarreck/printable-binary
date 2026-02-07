@@ -36,6 +36,10 @@ typedef struct {
     int mappings_mode; /* 0=none, 1=table, 2=json, 3=csv */
     char *preserve_chars;
     char *input_file;
+    bool has_range_start;
+    bool has_range_end;
+    int64_t range_start;
+    int64_t range_end;
 } options_t;
 
 static bool env_var_truthy(const char *value) {
@@ -62,6 +66,13 @@ static void print_usage(const char *name) {
     fprintf(stderr, "  -n, --crlf         Preserve literal CR/LF\n");
     fprintf(stderr, "  -w, --preserve-whitespace  Shorthand for -stn\n");
     fprintf(stderr, "  -P, --preserve=CHARS       Preserve specific characters\n");
+    fprintf(stderr, "\nRange options (select byte range from input before processing):\n");
+    fprintf(stderr, "  --range X-Y              Byte range, 0-indexed inclusive (e.g., --range 0-9)\n");
+    fprintf(stderr, "  --start X                Start offset (negative = from end, like xxd -s)\n");
+    fprintf(stderr, "  --end Y                  End offset (inclusive)\n");
+    fprintf(stderr, "  X-Y (positional)         Shorthand for --range X-Y\n");
+    fprintf(stderr, "  Hex offsets supported: --range 0x0A-0xFF\n");
+    fprintf(stderr, "  Omitted bounds: --range -9 (first 10 bytes), --range 10- (byte 10 to EOF)\n");
     fprintf(stderr, "\nDecode options:\n");
     fprintf(stderr, "  -S, --strip-whitespace     Strip whitespace before decoding\n");
     fprintf(stderr, "\nFormat and output options:\n");
@@ -88,6 +99,75 @@ static void parse_format_spec(options_t *opts, const char *spec) {
     opts->format_groups_per_line = per_line;
 }
 
+// Parse offset value (supports hex 0x prefix and decimal, optionally negative)
+static bool parse_offset_value(const char *s, int64_t *out) {
+    if (!s || !*s) return false;
+    char *endptr;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        unsigned long long v = strtoull(s, &endptr, 16);
+        if (*endptr != '\0') return false;
+        *out = (int64_t)v;
+        return true;
+    }
+    long long v = strtoll(s, &endptr, 10);
+    if (*endptr != '\0') return false;
+    *out = (int64_t)v;
+    return true;
+}
+
+// Parse a range spec "X-Y", "-Y", "X-"
+static bool parse_range_spec(const char *spec, bool *has_start, int64_t *start, bool *has_end, int64_t *end) {
+    if (!spec || !*spec) return false;
+    const char *sep = NULL;
+    if (spec[0] == '-') {
+        sep = spec;
+    } else {
+        const char *p = spec;
+        if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+            p += 2;
+            while (*p && isxdigit((unsigned char)*p)) p++;
+        } else {
+            while (*p && isdigit((unsigned char)*p)) p++;
+        }
+        if (*p == '-') {
+            sep = p;
+        } else {
+            return false;
+        }
+    }
+    *has_start = false;
+    *has_end = false;
+    if (sep > spec) {
+        char start_buf[64];
+        size_t slen = (size_t)(sep - spec);
+        if (slen >= sizeof(start_buf)) return false;
+        memcpy(start_buf, spec, slen);
+        start_buf[slen] = '\0';
+        if (!parse_offset_value(start_buf, start)) return false;
+        *has_start = true;
+    }
+    const char *end_str = sep + 1;
+    if (*end_str != '\0') {
+        if (!parse_offset_value(end_str, end)) return false;
+        *has_end = true;
+    }
+    return true;
+}
+
+static bool is_positional_range(const char *s) {
+    if (!s || !*s || s[0] == '-') return false;
+    const char *p = s;
+    if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+        p += 2;
+        while (*p && isxdigit((unsigned char)*p)) p++;
+    } else if (isdigit((unsigned char)*p)) {
+        while (*p && isdigit((unsigned char)*p)) p++;
+    } else {
+        return false;
+    }
+    return *p == '-';
+}
+
 static options_t parse_options(int argc, char *argv[]) {
     options_t opts = {
         .decode_mode = false,
@@ -102,7 +182,11 @@ static options_t parse_options(int argc, char *argv[]) {
         .format_groups_per_line = 10,
         .mappings_mode = 0,
         .preserve_chars = NULL,
-        .input_file = NULL
+        .input_file = NULL,
+        .has_range_start = false,
+        .has_range_end = false,
+        .range_start = 0,
+        .range_end = 0
     };
 
     for (int i = 1; i < argc; i++) {
@@ -114,6 +198,15 @@ static options_t parse_options(int argc, char *argv[]) {
         }
 
         if (arg[0] != '-' || strcmp(arg, "-") == 0) {
+            if (is_positional_range(arg)) {
+                bool hs, he;
+                int64_t sv, ev;
+                if (parse_range_spec(arg, &hs, &sv, &he, &ev)) {
+                    if (hs) { opts.has_range_start = true; opts.range_start = sv; }
+                    if (he) { opts.has_range_end = true; opts.range_end = ev; }
+                    continue;
+                }
+            }
             if (opts.input_file) {
                 fprintf(stderr, "Error: Multiple input files\n");
                 exit(1);
@@ -143,6 +236,63 @@ static options_t parse_options(int argc, char *argv[]) {
                 opts.spaces_mode = opts.tabs_mode = opts.crlf_mode = true;
             } else if (strcmp(name, "strip-whitespace") == 0) {
                 opts.strip_whitespace = true;
+            } else if (strcmp(name, "range") == 0) {
+                if (i + 1 < argc) {
+                    bool hs, he;
+                    int64_t sv, ev;
+                    if (!parse_range_spec(argv[++i], &hs, &sv, &he, &ev)) {
+                        fprintf(stderr, "Error: Invalid range specification: %s\n", argv[i]);
+                        exit(1);
+                    }
+                    if (hs) { opts.has_range_start = true; opts.range_start = sv; }
+                    if (he) { opts.has_range_end = true; opts.range_end = ev; }
+                } else {
+                    fprintf(stderr, "Error: --range requires an argument\n");
+                    exit(1);
+                }
+            } else if (strncmp(name, "range=", 6) == 0) {
+                bool hs, he;
+                int64_t sv, ev;
+                if (!parse_range_spec(name + 6, &hs, &sv, &he, &ev)) {
+                    fprintf(stderr, "Error: Invalid range specification: %s\n", name + 6);
+                    exit(1);
+                }
+                if (hs) { opts.has_range_start = true; opts.range_start = sv; }
+                if (he) { opts.has_range_end = true; opts.range_end = ev; }
+            } else if (strcmp(name, "start") == 0) {
+                if (i + 1 < argc) {
+                    if (!parse_offset_value(argv[++i], &opts.range_start)) {
+                        fprintf(stderr, "Error: Invalid start offset: %s\n", argv[i]);
+                        exit(1);
+                    }
+                    opts.has_range_start = true;
+                } else {
+                    fprintf(stderr, "Error: --start requires an argument\n");
+                    exit(1);
+                }
+            } else if (strncmp(name, "start=", 6) == 0) {
+                if (!parse_offset_value(name + 6, &opts.range_start)) {
+                    fprintf(stderr, "Error: Invalid start offset: %s\n", name + 6);
+                    exit(1);
+                }
+                opts.has_range_start = true;
+            } else if (strcmp(name, "end") == 0) {
+                if (i + 1 < argc) {
+                    if (!parse_offset_value(argv[++i], &opts.range_end)) {
+                        fprintf(stderr, "Error: Invalid end offset: %s\n", argv[i]);
+                        exit(1);
+                    }
+                    opts.has_range_end = true;
+                } else {
+                    fprintf(stderr, "Error: --end requires an argument\n");
+                    exit(1);
+                }
+            } else if (strncmp(name, "end=", 4) == 0) {
+                if (!parse_offset_value(name + 4, &opts.range_end)) {
+                    fprintf(stderr, "Error: Invalid end offset: %s\n", name + 4);
+                    exit(1);
+                }
+                opts.has_range_end = true;
             } else if (strcmp(name, "format") == 0) {
                 opts.format_mode = true;
             } else if (strcmp(name, "mappings") == 0) {
@@ -329,6 +479,37 @@ int main(int argc, char *argv[]) {
     /* Read input */
     size_t input_len;
     char *input = read_input(opts.input_file, &input_len);
+
+    /* Apply byte range if specified */
+    if (opts.has_range_start || opts.has_range_end) {
+        int64_t start = opts.has_range_start ? opts.range_start : 0;
+        int64_t end = opts.has_range_end ? opts.range_end : (int64_t)input_len - 1;
+
+        if (start < 0) {
+            start = (int64_t)input_len + start;
+            if (start < 0) start = 0;
+        }
+
+        if (start >= (int64_t)input_len) {
+            fprintf(stderr, "Warning: start offset %lld exceeds input size %zu\n",
+                    (long long)start, input_len);
+            input_len = 0;
+        } else if (start > end) {
+            fprintf(stderr, "Warning: start offset exceeds end offset, empty range\n");
+            input_len = 0;
+        } else {
+            if (end >= (int64_t)input_len) {
+                fprintf(stderr, "Warning: end offset %lld exceeds input size %zu, clamping to %zu\n",
+                        (long long)end, input_len, input_len - 1);
+                end = (int64_t)input_len - 1;
+            }
+            size_t new_len = (size_t)(end - start + 1);
+            if (start > 0) {
+                memmove(input, input + start, new_len);
+            }
+            input_len = new_len;
+        }
+    }
 
     if (opts.decode_mode) {
         if (opts.passthrough_mode) {

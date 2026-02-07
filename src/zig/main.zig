@@ -25,6 +25,8 @@ const Options = struct {
     mappings_mode: MappingsMode = .none,
     input_file: ?[]const u8 = null,
     preserve_chars: ?[]const u8 = null, // null = not set, allocated if set
+    range_start: ?i64 = null,
+    range_end: ?i64 = null,
 };
 
 const MappingsMode = enum { none, table, json, csv };
@@ -86,6 +88,74 @@ fn parseFormatSpec(spec: []const u8) !struct { group: usize, per_line: usize } {
     return .{ .group = group, .per_line = per_line };
 }
 
+// Parse offset value (supports hex 0x prefix and decimal, optionally negative)
+fn parseOffsetValue(s: []const u8) !i64 {
+    if (s.len == 0) return error.InvalidFormat;
+    if (s[0] == '-') {
+        // Negative value
+        const abs = try parseOffsetValue(s[1..]);
+        return -abs;
+    }
+    if (s.len > 2 and s[0] == '0' and (s[1] == 'x' or s[1] == 'X')) {
+        const val = std.fmt.parseInt(u64, s[2..], 16) catch return error.InvalidFormat;
+        return @intCast(val);
+    }
+    const val = std.fmt.parseInt(i64, s, 10) catch return error.InvalidFormat;
+    return val;
+}
+
+// Parse range spec "X-Y", "-Y", "X-"
+fn parseRangeSpec(spec: []const u8) !struct { start: ?i64, end: ?i64 } {
+    if (spec.len == 0) return error.InvalidFormat;
+
+    // Find separator hyphen (not inside hex prefix)
+    var sep_idx: ?usize = null;
+    var i: usize = 0;
+    // Skip hex prefix if present
+    if (spec.len > 2 and spec[0] == '0' and (spec[1] == 'x' or spec[1] == 'X')) {
+        i = 2;
+        while (i < spec.len and std.ascii.isHex(spec[i])) : (i += 1) {}
+    } else {
+        while (i < spec.len and std.ascii.isDigit(spec[i])) : (i += 1) {}
+    }
+    if (i < spec.len and spec[i] == '-') {
+        sep_idx = i;
+    } else if (spec[0] == '-') {
+        sep_idx = 0;
+    } else {
+        return error.InvalidFormat;
+    }
+
+    const sep = sep_idx.?;
+    var start: ?i64 = null;
+    var end_val: ?i64 = null;
+
+    if (sep > 0) {
+        start = try parseOffsetValue(spec[0..sep]);
+    }
+    if (sep + 1 < spec.len) {
+        end_val = try parseOffsetValue(spec[sep + 1 ..]);
+    }
+
+    return .{ .start = start, .end = end_val };
+}
+
+// Check if string looks like a positional range
+fn isPositionalRange(s: []const u8) bool {
+    if (s.len == 0 or s[0] == '-') return false;
+    var i: usize = 0;
+    // Skip hex prefix or digits
+    if (s.len > 2 and s[0] == '0' and (s[1] == 'x' or s[1] == 'X')) {
+        i = 2;
+        while (i < s.len and std.ascii.isHex(s[i])) : (i += 1) {}
+    } else if (std.ascii.isDigit(s[0])) {
+        while (i < s.len and std.ascii.isDigit(s[i])) : (i += 1) {}
+    } else {
+        return false;
+    }
+    return i < s.len and s[i] == '-';
+}
+
 fn parseArgs(allocator: std.mem.Allocator) !Options {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -102,6 +172,13 @@ fn parseArgs(allocator: std.mem.Allocator) !Options {
         }
 
         if (arg.len == 0 or arg[0] != '-' or std.mem.eql(u8, arg, "-")) {
+            if (isPositionalRange(arg)) {
+                if (parseRangeSpec(arg)) |parsed| {
+                    if (parsed.start) |s| opts.range_start = s;
+                    if (parsed.end) |e| opts.range_end = e;
+                    continue;
+                } else |_| {}
+            }
             if (opts.input_file != null) return error.MultipleInputFiles;
             opts.input_file = try allocator.dupe(u8, arg);
             continue;
@@ -140,6 +217,37 @@ fn parseArgs(allocator: std.mem.Allocator) !Options {
                 opts.crlf_mode = true;
             } else if (std.mem.eql(u8, name, "strip-whitespace")) {
                 opts.strip_whitespace = true;
+            } else if (std.mem.eql(u8, name, "range")) {
+                if (i + 1 < args.len) {
+                    i += 1;
+                    const parsed = parseRangeSpec(args[i]) catch return error.InvalidFormat;
+                    if (parsed.start) |s| opts.range_start = s;
+                    if (parsed.end) |e| opts.range_end = e;
+                } else {
+                    return error.MissingValue;
+                }
+            } else if (std.mem.startsWith(u8, name, "range=")) {
+                const parsed = parseRangeSpec(name[6..]) catch return error.InvalidFormat;
+                if (parsed.start) |s| opts.range_start = s;
+                if (parsed.end) |e| opts.range_end = e;
+            } else if (std.mem.eql(u8, name, "start")) {
+                if (i + 1 < args.len) {
+                    i += 1;
+                    opts.range_start = parseOffsetValue(args[i]) catch return error.InvalidFormat;
+                } else {
+                    return error.MissingValue;
+                }
+            } else if (std.mem.startsWith(u8, name, "start=")) {
+                opts.range_start = parseOffsetValue(name[6..]) catch return error.InvalidFormat;
+            } else if (std.mem.eql(u8, name, "end")) {
+                if (i + 1 < args.len) {
+                    i += 1;
+                    opts.range_end = parseOffsetValue(args[i]) catch return error.InvalidFormat;
+                } else {
+                    return error.MissingValue;
+                }
+            } else if (std.mem.startsWith(u8, name, "end=")) {
+                opts.range_end = parseOffsetValue(name[4..]) catch return error.InvalidFormat;
             } else if (std.mem.eql(u8, name, "format")) {
                 opts.format_mode = true;
             } else if (std.mem.eql(u8, name, "mappings")) {
@@ -220,6 +328,14 @@ fn printUsage() void {
         \\  -n, --crlf         Preserve literal CR/LF (don't encode to visible glyph)
         \\  -w, --preserve-whitespace  Shorthand for -stn (preserve all whitespace)
         \\  -P, --preserve=CHARS       Preserve specific characters
+        \\
+        \\Range options (select byte range from input before processing):
+        \\  --range X-Y              Byte range, 0-indexed inclusive (e.g., --range 0-9)
+        \\  --start X                Start offset (negative = from end, like xxd -s)
+        \\  --end Y                  End offset (inclusive)
+        \\  X-Y (positional)         Shorthand for --range X-Y
+        \\  Hex offsets supported: --range 0x0A-0xFF
+        \\  Omitted bounds: --range -9 (first 10 bytes), --range 10- (byte 10 to EOF)
         \\
         \\Decode options:
         \\  -S, --strip-whitespace     Strip whitespace before decoding (for formatted input)
@@ -344,11 +460,41 @@ pub fn main() !void {
     }
 
     // Read input (I/O boundary)
-    const input = readInput(allocator, opts.input_file) catch |err| {
+    const raw_input = readInput(allocator, opts.input_file) catch |err| {
         writeStats("Error reading input: {}\n", .{err});
         std.process.exit(1);
     };
-    defer allocator.free(input);
+    defer allocator.free(raw_input);
+
+    // Apply byte range if specified
+    var input: []const u8 = raw_input;
+    if (opts.range_start != null or opts.range_end != null) {
+        const input_len: i64 = @intCast(raw_input.len);
+        var start: i64 = opts.range_start orelse 0;
+        var end_val: i64 = opts.range_end orelse (input_len - 1);
+
+        // Handle negative start (from end)
+        if (start < 0) {
+            start = input_len + start;
+            if (start < 0) start = 0;
+        }
+
+        if (start >= input_len) {
+            writeStats("Warning: start offset {d} exceeds input size {d}\n", .{ start, raw_input.len });
+            input = raw_input[0..0];
+        } else if (start > end_val) {
+            writeStats("Warning: start offset exceeds end offset, empty range\n", .{});
+            input = raw_input[0..0];
+        } else {
+            if (end_val >= input_len) {
+                writeStats("Warning: end offset {d} exceeds input size {d}, clamping to {d}\n", .{ end_val, raw_input.len, raw_input.len - 1 });
+                end_val = input_len - 1;
+            }
+            const s: usize = @intCast(start);
+            const e: usize = @intCast(end_val);
+            input = raw_input[s .. e + 1];
+        }
+    }
 
     if (opts.decode_mode) {
         // Decode mode - call core library

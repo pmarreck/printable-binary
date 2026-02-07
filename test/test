@@ -1109,6 +1109,224 @@ else
     echo -e "${YELLOW}SKIP${NC}: --no-double-encode-check not supported by this implementation"
 fi
 
+###############################################################################
+# BYTE-RANGE TESTS
+###############################################################################
+
+echo -e "\n${YELLOW}Running byte-range tests...${NC}"
+
+# Detect feature support for range options
+SUPPORTS_RANGE=false
+if [[ "$HELP_OUTPUT" == *"--range"* ]]; then
+    SUPPORTS_RANGE=true
+fi
+
+if $SUPPORTS_RANGE; then
+    # Standard 26-byte input for all range tests
+    RANGE_INPUT="abcdefghijklmnopqrstuvwxyz"
+    TMP_RANGE_INPUT=$(mktemp)
+    TMP_RANGE_OUTPUT=$(mktemp)
+    TMP_RANGE_STDERR=$(mktemp)
+    TMP_RANGE_DECODED=$(mktemp)
+
+    printf '%s' "$RANGE_INPUT" > "$TMP_RANGE_INPUT"
+
+    # Helper: encode a known slice and compare
+    range_encode() {
+        printf '%s' "$1" | $SCRIPT 2>/dev/null
+    }
+
+    # R1: Basic range --range 0-9 -> first 10 bytes
+    echo -e "${BLUE}Test R1: Basic range (--range 0-9)${NC}"
+    RESULT=$($SCRIPT --range 0-9 "$TMP_RANGE_INPUT" 2>/dev/null)
+    EXPECTED=$(range_encode "abcdefghij")
+    if [[ "$RESULT" == "$EXPECTED" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: $EXPECTED"
+        echo "Got:      $RESULT"
+        exit 1
+    fi
+
+    # R2: Omitted start --range -4 -> bytes 0-4
+    echo -e "${BLUE}Test R2: Omitted start (--range -4)${NC}"
+    RESULT=$($SCRIPT --range -4 "$TMP_RANGE_INPUT" 2>/dev/null)
+    EXPECTED=$(range_encode "abcde")
+    if [[ "$RESULT" == "$EXPECTED" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: $EXPECTED"
+        echo "Got:      $RESULT"
+        exit 1
+    fi
+
+    # R3: Omitted end --range 20- -> byte 20 to EOF
+    echo -e "${BLUE}Test R3: Omitted end (--range 20-)${NC}"
+    RESULT=$($SCRIPT --range 20- "$TMP_RANGE_INPUT" 2>/dev/null)
+    EXPECTED=$(range_encode "uvwxyz")
+    if [[ "$RESULT" == "$EXPECTED" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: $EXPECTED"
+        echo "Got:      $RESULT"
+        exit 1
+    fi
+
+    # R4: Hex range --range 0x00-0x09 -> same as R1
+    echo -e "${BLUE}Test R4: Hex range (--range 0x00-0x09)${NC}"
+    RESULT=$($SCRIPT --range 0x00-0x09 "$TMP_RANGE_INPUT" 2>/dev/null)
+    EXPECTED=$(range_encode "abcdefghij")
+    if [[ "$RESULT" == "$EXPECTED" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: $EXPECTED"
+        echo "Got:      $RESULT"
+        exit 1
+    fi
+
+    # R5: OOB end --range 0-999 -> full data + stderr warning
+    echo -e "${BLUE}Test R5: Out-of-bounds end (--range 0-999)${NC}"
+    RESULT=$($SCRIPT --range 0-999 "$TMP_RANGE_INPUT" 2>"$TMP_RANGE_STDERR")
+    EXPECTED=$(range_encode "$RANGE_INPUT")
+    if [[ "$RESULT" == "$EXPECTED" ]]; then
+        if grep -q "clamping" "$TMP_RANGE_STDERR"; then
+            echo -e "${GREEN}PASS${NC}"
+        else
+            echo -e "${RED}FAIL${NC}"
+            echo "Missing clamping warning in stderr"
+            echo "Stderr: $(cat "$TMP_RANGE_STDERR")"
+            exit 1
+        fi
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: $EXPECTED"
+        echo "Got:      $RESULT"
+        exit 1
+    fi
+
+    # R6: OOB start --range 999-1000 -> empty + stderr warning
+    echo -e "${BLUE}Test R6: Out-of-bounds start (--range 999-1000)${NC}"
+    RESULT=$($SCRIPT --range 999-1000 "$TMP_RANGE_INPUT" 2>"$TMP_RANGE_STDERR")
+    if [[ -z "$RESULT" ]]; then
+        if grep -q "exceeds input size" "$TMP_RANGE_STDERR"; then
+            echo -e "${GREEN}PASS${NC}"
+        else
+            echo -e "${RED}FAIL${NC}"
+            echo "Missing warning about start exceeding input size"
+            echo "Stderr: $(cat "$TMP_RANGE_STDERR")"
+            exit 1
+        fi
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected empty output, got: $RESULT"
+        exit 1
+    fi
+
+    # R7: Start > end --range 10-5 -> empty + stderr warning
+    echo -e "${BLUE}Test R7: Start > end (--range 10-5)${NC}"
+    RESULT=$($SCRIPT --range 10-5 "$TMP_RANGE_INPUT" 2>"$TMP_RANGE_STDERR")
+    if [[ -z "$RESULT" ]]; then
+        if grep -q "empty range" "$TMP_RANGE_STDERR"; then
+            echo -e "${GREEN}PASS${NC}"
+        else
+            echo -e "${RED}FAIL${NC}"
+            echo "Missing warning about empty range"
+            echo "Stderr: $(cat "$TMP_RANGE_STDERR")"
+            exit 1
+        fi
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected empty output, got: $RESULT"
+        exit 1
+    fi
+
+    # R8: Negative start --start -5 -> last 5 bytes
+    echo -e "${BLUE}Test R8: Negative start (--start -5)${NC}"
+    RESULT=$($SCRIPT --start -5 "$TMP_RANGE_INPUT" 2>/dev/null)
+    EXPECTED=$(range_encode "vwxyz")
+    if [[ "$RESULT" == "$EXPECTED" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: $EXPECTED"
+        echo "Got:      $RESULT"
+        exit 1
+    fi
+
+    # R9: Separate start/end --start 5 --end 9
+    echo -e "${BLUE}Test R9: Separate start/end (--start 5 --end 9)${NC}"
+    RESULT=$($SCRIPT --start 5 --end 9 "$TMP_RANGE_INPUT" 2>/dev/null)
+    EXPECTED=$(range_encode "fghij")
+    if [[ "$RESULT" == "$EXPECTED" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: $EXPECTED"
+        echo "Got:      $RESULT"
+        exit 1
+    fi
+
+    # R10: Positional range 5-9
+    echo -e "${BLUE}Test R10: Positional range (5-9)${NC}"
+    RESULT=$($SCRIPT 5-9 "$TMP_RANGE_INPUT" 2>/dev/null)
+    EXPECTED=$(range_encode "fghij")
+    if [[ "$RESULT" == "$EXPECTED" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: $EXPECTED"
+        echo "Got:      $RESULT"
+        exit 1
+    fi
+
+    # R11: Range with stdin
+    echo -e "${BLUE}Test R11: Range with stdin (--range 0-4)${NC}"
+    RESULT=$(printf '%s' "$RANGE_INPUT" | $SCRIPT --range 0-4 2>/dev/null)
+    EXPECTED=$(range_encode "abcde")
+    if [[ "$RESULT" == "$EXPECTED" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: $EXPECTED"
+        echo "Got:      $RESULT"
+        exit 1
+    fi
+
+    # R12: Range roundtrip - encode range then decode
+    echo -e "${BLUE}Test R12: Range roundtrip (encode range then decode)${NC}"
+    ENCODED=$($SCRIPT --range 5-14 "$TMP_RANGE_INPUT" 2>/dev/null)
+    DECODED=$(printf '%s' "$ENCODED" | $SCRIPT -d 2>/dev/null)
+    if [[ "$DECODED" == "fghijklmno" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: fghijklmno"
+        echo "Got:      $DECODED"
+        exit 1
+    fi
+
+    # R13: Single byte --range 5-5
+    echo -e "${BLUE}Test R13: Single byte (--range 5-5)${NC}"
+    RESULT=$($SCRIPT --range 5-5 "$TMP_RANGE_INPUT" 2>/dev/null)
+    EXPECTED=$(range_encode "f")
+    if [[ "$RESULT" == "$EXPECTED" ]]; then
+        echo -e "${GREEN}PASS${NC}"
+    else
+        echo -e "${RED}FAIL${NC}"
+        echo "Expected: $EXPECTED"
+        echo "Got:      $RESULT"
+        exit 1
+    fi
+
+    rm -f "$TMP_RANGE_INPUT" "$TMP_RANGE_OUTPUT" "$TMP_RANGE_STDERR" "$TMP_RANGE_DECODED"
+else
+    echo -e "${YELLOW}SKIP${NC}: --range not supported by this implementation"
+fi
+
 # Print summary
 echo -e "\n${BLUE}=== Test Suite Summary ===${NC}"
 echo -e "${GREEN}All tests passed!${NC}"

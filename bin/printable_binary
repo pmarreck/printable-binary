@@ -403,6 +403,14 @@ if arg then
     io.stderr:write("  -p, --preserve <chars>             Preserve specific characters (e.g., -p '!\"')\n")
     io.stderr:write("  --no-double-encode-check           Skip detection of already-encoded input\n")
     io.stderr:write("\n")
+    io.stderr:write("Range options (select byte range from input before processing):\n")
+    io.stderr:write("  --range X-Y              Byte range, 0-indexed inclusive (e.g., --range 0-9)\n")
+    io.stderr:write("  --start X                Start offset (negative = from end, like xxd -s)\n")
+    io.stderr:write("  --end Y                  End offset (inclusive)\n")
+    io.stderr:write("  X-Y (positional)         Shorthand for --range X-Y\n")
+    io.stderr:write("  Hex offsets supported: --range 0x0A-0xFF\n")
+    io.stderr:write("  Omitted bounds: --range -9 (first 10 bytes), --range 10- (byte 10 to EOF)\n")
+    io.stderr:write("\n")
     io.stderr:write("Decode options:\n")
     io.stderr:write("  -S, --strip-whitespace   Strip whitespace before decoding (for block-formatted input)\n")
     io.stderr:write("\n")
@@ -511,6 +519,51 @@ if arg then
   local strip_whitespace = false
   local preserve_chars = ""
   local skip_double_encode_check = false
+  local range_start = nil  -- nil means not set
+  local range_end = nil    -- nil means not set
+
+  -- Parse a range value (supports hex 0x prefix and decimal)
+  local function parse_range_value(s)
+    if not s or s == "" then return nil end
+    if s:match("^0[xX]") then
+      return tonumber(s, 16)
+    else
+      return tonumber(s)
+    end
+  end
+
+  -- Parse a range spec like "X-Y", "-Y", "X-", or "X"
+  -- In --range form, hyphen is separator (no negatives)
+  local function parse_range_spec(spec)
+    -- Find the separator hyphen
+    -- Could be "0x0A-0xFF" so we need to find the right hyphen
+    -- Strategy: find first hyphen that is not inside a 0x prefix
+    local start_str, end_str
+    -- Try to match patterns
+    if spec:match("^(0[xX]%x+)%-(.*)$") then
+      start_str, end_str = spec:match("^(0[xX]%x+)%-(.*)$")
+    elseif spec:match("^(%d+)%-(.*)$") then
+      start_str, end_str = spec:match("^(%d+)%-(.*)$")
+    elseif spec:match("^%-(.+)$") then
+      -- "-Y" form (omitted start)
+      start_str = nil
+      end_str = spec:match("^%-(.+)$")
+    else
+      -- Could be just a number (error)
+      io.stderr:write("Error: Invalid range specification: " .. spec .. "\n")
+      os.exit(1)
+    end
+
+    local s = start_str and parse_range_value(start_str) or nil
+    local e = end_str and end_str ~= "" and parse_range_value(end_str) or nil
+
+    return s, e
+  end
+
+  -- Check if a string looks like a positional range (e.g., "5-9", "0x0A-0xFF")
+  local function is_positional_range(s)
+    return s:match("^(0[xX]%x+%-%S*)$") or s:match("^(%d+%-%S*)$")
+  end
 
   -- Default formatting groups
   local format_group = 8
@@ -579,6 +632,37 @@ if arg then
       strip_whitespace = true
     elseif current_arg == "--no-double-encode-check" then
       skip_double_encode_check = true
+    elseif current_arg == "--range" then
+      i = i + 1
+      if not arg[i] then
+        io.stderr:write("Error: --range requires an argument\n")
+        os.exit(1)
+      end
+      local s, e = parse_range_spec(arg[i])
+      if s then range_start = s end
+      if e then range_end = e end
+    elseif current_arg == "--start" then
+      i = i + 1
+      if not arg[i] then
+        io.stderr:write("Error: --start requires an argument\n")
+        os.exit(1)
+      end
+      range_start = tonumber(arg[i])
+      if not range_start then
+        io.stderr:write("Error: --start value must be a number\n")
+        os.exit(1)
+      end
+    elseif current_arg == "--end" then
+      i = i + 1
+      if not arg[i] then
+        io.stderr:write("Error: --end requires an argument\n")
+        os.exit(1)
+      end
+      range_end = parse_range_value(arg[i])
+      if not range_end then
+        io.stderr:write("Error: --end value must be a number\n")
+        os.exit(1)
+      end
     elseif current_arg == "--preserve" then
       i = i + 1
       if not arg[i] then
@@ -661,7 +745,14 @@ if arg then
         j = j + 1
       end
     elseif not file_path and not current_arg:match("^%-") then
-      file_path = current_arg
+      -- Check if this is a positional range like "5-9" or "0x0A-0xFF"
+      if is_positional_range(current_arg) then
+        local s, e = parse_range_spec(current_arg)
+        if s then range_start = s end
+        if e then range_end = e end
+      else
+        file_path = current_arg
+      end
     else
       io.stderr:write("Unknown option: " .. current_arg .. "\n")
       print_usage()
@@ -681,6 +772,39 @@ if arg then
     input_data = read_file(file_path)
   else
     input_data = read_stdin()
+  end
+
+  -- Apply byte range if specified
+  if range_start ~= nil or range_end ~= nil then
+    local input_len = #input_data
+
+    -- Handle negative start (from end)
+    if range_start and range_start < 0 then
+      range_start = input_len + range_start
+      if range_start < 0 then range_start = 0 end
+    end
+
+    -- Default start to 0
+    if range_start == nil then range_start = 0 end
+    -- Default end to last byte
+    if range_end == nil then range_end = input_len - 1 end
+
+    -- Warnings and clamping
+    if range_start >= input_len then
+      io.stderr:write(string.format("Warning: start offset %d exceeds input size %d\n", range_start, input_len))
+      input_data = ""
+    elseif range_start > range_end then
+      io.stderr:write("Warning: start offset exceeds end offset, empty range\n")
+      input_data = ""
+    else
+      if range_end >= input_len then
+        io.stderr:write(string.format("Warning: end offset %d exceeds input size %d, clamping to %d\n",
+          range_end, input_len, input_len - 1))
+        range_end = input_len - 1
+      end
+      -- Lua strings are 1-indexed, so convert from 0-indexed
+      input_data = input_data:sub(range_start + 1, range_end + 1)
+    end
   end
 
   -- Process data according to mode

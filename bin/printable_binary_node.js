@@ -30,6 +30,14 @@ Options:
   --mappings-csv        Output the mappings as CSV
   -h, --help            Show this help
 
+Range options (select byte range from input before processing):
+  --range X-Y              Byte range, 0-indexed inclusive (e.g., --range 0-9)
+  --start X                Start offset (negative = from end, like xxd -s)
+  --end Y                  End offset (inclusive)
+  X-Y (positional)         Shorthand for --range X-Y
+  Hex offsets supported: --range 0x0A-0xFF
+  Omitted bounds: --range -9 (first 10 bytes), --range 10- (byte 10 to EOF)
+
 Encoded output is whitespace-agnostic: you can reflow, indent, or wrap it freely because the decoder ignores real whitespace while rendering quotes, backslashes, tabs, and control bytes as visible, but clearly related, glyphs (e.g., SPACE→␣, TAB→⇥, CR→⏎, LF→↧, single quote→ʼ, double quote→˵, backslash→⧷). With --spaces, literal spaces are treated as data (and we warn on indented lines).
 
 If no file is specified, input is read from stdin.
@@ -71,6 +79,52 @@ function outputMappings(entries, format) {
   }
 }
 
+function parseOffsetValue(s) {
+  if (!s || s.length === 0) return null;
+  if (s.startsWith('0x') || s.startsWith('0X')) {
+    const val = parseInt(s, 16);
+    return isNaN(val) ? null : val;
+  }
+  const val = parseInt(s, 10);
+  return isNaN(val) ? null : val;
+}
+
+function parseRangeSpec(spec) {
+  if (!spec || spec.length === 0) return null;
+  // Find separator hyphen (not inside hex prefix)
+  let sepIdx = -1;
+  let i = 0;
+  if (spec.length > 2 && spec[0] === '0' && (spec[1] === 'x' || spec[1] === 'X')) {
+    i = 2;
+    while (i < spec.length && /[0-9a-fA-F]/.test(spec[i])) i++;
+  } else {
+    while (i < spec.length && /[0-9]/.test(spec[i])) i++;
+  }
+  if (i < spec.length && spec[i] === '-') {
+    sepIdx = i;
+  } else if (spec[0] === '-') {
+    sepIdx = 0;
+  } else {
+    return null;
+  }
+
+  let start = null;
+  let end = null;
+  if (sepIdx > 0) {
+    start = parseOffsetValue(spec.slice(0, sepIdx));
+  }
+  const endStr = spec.slice(sepIdx + 1);
+  if (endStr.length > 0) {
+    end = parseOffsetValue(endStr);
+  }
+  return { start, end };
+}
+
+function isPositionalRange(s) {
+  if (!s || s.length === 0 || s[0] === '-') return false;
+  return /^(0x[0-9a-fA-F]+|\d+)-/.test(s);
+}
+
 function parseArgs(argv) {
   let decodeMode = false;
   let formatSpec = null;
@@ -78,6 +132,8 @@ function parseArgs(argv) {
   let mappingsFormat = null;
   let passthrough = false;
   let spacesMode = false;
+  let rangeStart = null;
+  let rangeEnd = null;
 
   const setMappingsFormat = (mode) => {
     if (mappingsFormat && mappingsFormat !== mode) {
@@ -115,10 +171,57 @@ function parseArgs(argv) {
       setMappingsFormat('csv');
     } else if (arg === '-p' || arg === '--passthrough') {
       passthrough = true;
+    } else if (arg === '--range') {
+      if (i + 1 >= argv.length) {
+        process.stderr.write('Error: --range requires an argument\n');
+        process.exit(1);
+      }
+      const parsed = parseRangeSpec(argv[++i]);
+      if (!parsed) {
+        process.stderr.write(`Error: Invalid range specification: ${argv[i]}\n`);
+        process.exit(1);
+      }
+      if (parsed.start !== null) rangeStart = parsed.start;
+      if (parsed.end !== null) rangeEnd = parsed.end;
+    } else if (arg.startsWith('--range=')) {
+      const parsed = parseRangeSpec(arg.slice(8));
+      if (!parsed) {
+        process.stderr.write(`Error: Invalid range specification: ${arg.slice(8)}\n`);
+        process.exit(1);
+      }
+      if (parsed.start !== null) rangeStart = parsed.start;
+      if (parsed.end !== null) rangeEnd = parsed.end;
+    } else if (arg === '--start') {
+      if (i + 1 >= argv.length) {
+        process.stderr.write('Error: --start requires an argument\n');
+        process.exit(1);
+      }
+      rangeStart = parseOffsetValue(argv[++i]);
+    } else if (arg.startsWith('--start=')) {
+      rangeStart = parseOffsetValue(arg.slice(8));
+    } else if (arg === '--end') {
+      if (i + 1 >= argv.length) {
+        process.stderr.write('Error: --end requires an argument\n');
+        process.exit(1);
+      }
+      rangeEnd = parseOffsetValue(argv[++i]);
+    } else if (arg.startsWith('--end=')) {
+      rangeEnd = parseOffsetValue(arg.slice(6));
     } else if (arg.startsWith('-')) {
       process.stderr.write(`Error: Unknown option ${arg}\n`);
       printUsage();
       process.exit(1);
+    } else if (isPositionalRange(arg)) {
+      const parsed = parseRangeSpec(arg);
+      if (parsed) {
+        if (parsed.start !== null) rangeStart = parsed.start;
+        if (parsed.end !== null) rangeEnd = parsed.end;
+      } else if (!filePath) {
+        filePath = arg;
+      } else {
+        process.stderr.write(`Error: Unexpected argument ${arg}\n`);
+        process.exit(1);
+      }
     } else if (!filePath) {
       filePath = arg;
     } else {
@@ -127,7 +230,7 @@ function parseArgs(argv) {
     }
   }
 
-  return { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode };
+  return { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, rangeStart, rangeEnd };
 }
 
 async function readInput(filePath) {
@@ -144,7 +247,7 @@ async function readInput(filePath) {
 }
 
 async function main() {
-  const { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode } = parseArgs(process.argv.slice(2));
+  const { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, rangeStart, rangeEnd } = parseArgs(process.argv.slice(2));
   const pb = new PrintableBinary();
 
   try {
@@ -154,7 +257,34 @@ async function main() {
       return;
     }
 
-    const input = await readInput(filePath);
+    let input = await readInput(filePath);
+
+    // Apply byte range if specified
+    if (rangeStart !== null || rangeEnd !== null) {
+      const inputLen = input.length;
+      let start = rangeStart !== null ? rangeStart : 0;
+      let end = rangeEnd !== null ? rangeEnd : inputLen - 1;
+
+      // Handle negative start (from end)
+      if (start < 0) {
+        start = inputLen + start;
+        if (start < 0) start = 0;
+      }
+
+      if (start >= inputLen) {
+        process.stderr.write(`Warning: start offset ${start} exceeds input size ${inputLen}\n`);
+        input = Buffer.alloc(0);
+      } else if (start > end) {
+        process.stderr.write('Warning: start offset exceeds end offset, empty range\n');
+        input = Buffer.alloc(0);
+      } else {
+        if (end >= inputLen) {
+          process.stderr.write(`Warning: end offset ${end} exceeds input size ${inputLen}, clamping to ${inputLen - 1}\n`);
+          end = inputLen - 1;
+        }
+        input = input.subarray(start, end + 1);
+      }
+    }
 
     if (decodeMode) {
       if (passthrough) {

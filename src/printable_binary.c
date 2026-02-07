@@ -104,6 +104,10 @@ typedef struct {
     int format_groups_per_line;
     mappings_mode_t mappings_mode;
     char *input_file;
+    bool has_range_start;
+    bool has_range_end;
+    int64_t range_start;
+    int64_t range_end;
 } options_t;
 
 static void parse_format_spec(options_t *opts, const char *format_str) {
@@ -976,6 +980,13 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  -n, --crlf         Preserve literal CR/LF (don't encode to visible glyph)\n");
     fprintf(stderr, "  -w, --preserve-whitespace  Shorthand for -stn (preserve all whitespace)\n");
     fprintf(stderr, "  -P, --preserve=CHARS       Preserve specific characters\n");
+    fprintf(stderr, "\nRange options (select byte range from input before processing):\n");
+    fprintf(stderr, "  --range X-Y              Byte range, 0-indexed inclusive (e.g., --range 0-9)\n");
+    fprintf(stderr, "  --start X                Start offset (negative = from end, like xxd -s)\n");
+    fprintf(stderr, "  --end Y                  End offset (inclusive)\n");
+    fprintf(stderr, "  X-Y (positional)         Shorthand for --range X-Y\n");
+    fprintf(stderr, "  Hex offsets supported: --range 0x0A-0xFF\n");
+    fprintf(stderr, "  Omitted bounds: --range -9 (first 10 bytes), --range 10- (byte 10 to EOF)\n");
     fprintf(stderr, "\nDecode options:\n");
     fprintf(stderr, "  -S, --strip-whitespace     Strip whitespace before decoding (for formatted input)\n");
     fprintf(stderr, "\nFormat and output options:\n");
@@ -1007,6 +1018,86 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  %s --passthrough file | tool # Monitor binary stream\n", program_name);
 }
 
+// Parse offset value (supports hex 0x prefix and decimal, optionally negative)
+static bool parse_offset_value(const char *s, int64_t *out) {
+    if (!s || !*s) return false;
+    char *endptr;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        unsigned long long v = strtoull(s, &endptr, 16);
+        if (*endptr != '\0') return false;
+        *out = (int64_t)v;
+        return true;
+    }
+    long long v = strtoll(s, &endptr, 10);
+    if (*endptr != '\0') return false;
+    *out = (int64_t)v;
+    return true;
+}
+
+// Parse a range spec "X-Y", "-Y", "X-"
+static bool parse_range_spec(const char *spec, bool *has_start, int64_t *start, bool *has_end, int64_t *end) {
+    if (!spec || !*spec) return false;
+
+    // Find the separator hyphen (not part of 0x prefix)
+    const char *sep = NULL;
+    if (spec[0] == '-') {
+        // "-Y" form
+        sep = spec;
+    } else {
+        // Find first hyphen after the start value
+        const char *p = spec;
+        if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+            p += 2;
+            while (*p && isxdigit((unsigned char)*p)) p++;
+        } else {
+            while (*p && isdigit((unsigned char)*p)) p++;
+        }
+        if (*p == '-') {
+            sep = p;
+        } else {
+            return false;
+        }
+    }
+
+    // Parse start (before separator)
+    *has_start = false;
+    *has_end = false;
+    if (sep > spec) {
+        char start_buf[64];
+        size_t slen = (size_t)(sep - spec);
+        if (slen >= sizeof(start_buf)) return false;
+        memcpy(start_buf, spec, slen);
+        start_buf[slen] = '\0';
+        if (!parse_offset_value(start_buf, start)) return false;
+        *has_start = true;
+    }
+
+    // Parse end (after separator)
+    const char *end_str = sep + 1;
+    if (*end_str != '\0') {
+        if (!parse_offset_value(end_str, end)) return false;
+        *has_end = true;
+    }
+
+    return true;
+}
+
+// Check if string matches positional range pattern
+static bool is_positional_range(const char *s) {
+    if (!s || !*s || s[0] == '-') return false;
+    // Must contain a hyphen that's not the first character
+    const char *p = s;
+    if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
+        p += 2;
+        while (*p && isxdigit((unsigned char)*p)) p++;
+    } else if (isdigit((unsigned char)*p)) {
+        while (*p && isdigit((unsigned char)*p)) p++;
+    } else {
+        return false;
+    }
+    return *p == '-';
+}
+
 // Parse command line options
 static options_t parse_options(int argc, char *argv[]) {
     options_t opts = {
@@ -1022,7 +1113,11 @@ static options_t parse_options(int argc, char *argv[]) {
         .format_group = 8,
         .format_groups_per_line = 10,
         .mappings_mode = MAPPINGS_NONE,
-        .input_file = NULL
+        .input_file = NULL,
+        .has_range_start = false,
+        .has_range_end = false,
+        .range_start = 0,
+        .range_end = 0
     };
 
     for (int i = 1; i < argc; i++) {
@@ -1040,6 +1135,15 @@ static options_t parse_options(int argc, char *argv[]) {
         }
 
         if (arg[0] != '-' || strcmp(arg, "-") == 0) {
+            if (is_positional_range(arg)) {
+                bool hs, he;
+                int64_t sv, ev;
+                if (parse_range_spec(arg, &hs, &sv, &he, &ev)) {
+                    if (hs) { opts.has_range_start = true; opts.range_start = sv; }
+                    if (he) { opts.has_range_end = true; opts.range_end = ev; }
+                    continue;
+                }
+            }
             if (opts.input_file) {
                 fprintf(stderr, "Error: Multiple input files specified (%s)\n", arg);
                 exit(1);
@@ -1066,6 +1170,66 @@ static options_t parse_options(int argc, char *argv[]) {
                 opts.crlf_mode = true;
             } else if (long_option_equals(name, name_len, "strip-whitespace")) {
                 opts.strip_whitespace = true;
+            } else if (long_option_equals(name, name_len, "range")) {
+                if (value && value[0] != '\0') {
+                    bool hs, he;
+                    int64_t sv, ev;
+                    if (!parse_range_spec(value, &hs, &sv, &he, &ev)) {
+                        fprintf(stderr, "Error: Invalid range specification: %s\n", value);
+                        exit(1);
+                    }
+                    if (hs) { opts.has_range_start = true; opts.range_start = sv; }
+                    if (he) { opts.has_range_end = true; opts.range_end = ev; }
+                } else if (i + 1 < argc) {
+                    i++;
+                    bool hs, he;
+                    int64_t sv, ev;
+                    if (!parse_range_spec(argv[i], &hs, &sv, &he, &ev)) {
+                        fprintf(stderr, "Error: Invalid range specification: %s\n", argv[i]);
+                        exit(1);
+                    }
+                    if (hs) { opts.has_range_start = true; opts.range_start = sv; }
+                    if (he) { opts.has_range_end = true; opts.range_end = ev; }
+                } else {
+                    fprintf(stderr, "Error: --range requires an argument\n");
+                    exit(1);
+                }
+            } else if (long_option_equals(name, name_len, "start")) {
+                if (value && value[0] != '\0') {
+                    if (!parse_offset_value(value, &opts.range_start)) {
+                        fprintf(stderr, "Error: Invalid start offset: %s\n", value);
+                        exit(1);
+                    }
+                    opts.has_range_start = true;
+                } else if (i + 1 < argc) {
+                    i++;
+                    if (!parse_offset_value(argv[i], &opts.range_start)) {
+                        fprintf(stderr, "Error: Invalid start offset: %s\n", argv[i]);
+                        exit(1);
+                    }
+                    opts.has_range_start = true;
+                } else {
+                    fprintf(stderr, "Error: --start requires an argument\n");
+                    exit(1);
+                }
+            } else if (long_option_equals(name, name_len, "end")) {
+                if (value && value[0] != '\0') {
+                    if (!parse_offset_value(value, &opts.range_end)) {
+                        fprintf(stderr, "Error: Invalid end offset: %s\n", value);
+                        exit(1);
+                    }
+                    opts.has_range_end = true;
+                } else if (i + 1 < argc) {
+                    i++;
+                    if (!parse_offset_value(argv[i], &opts.range_end)) {
+                        fprintf(stderr, "Error: Invalid end offset: %s\n", argv[i]);
+                        exit(1);
+                    }
+                    opts.has_range_end = true;
+                } else {
+                    fprintf(stderr, "Error: --end requires an argument\n");
+                    exit(1);
+                }
             } else if (long_option_equals(name, name_len, "preserve-whitespace")) {
                 opts.spaces_mode = true;
                 opts.tabs_mode = true;
@@ -1204,6 +1368,38 @@ int main(int argc, char *argv[]) {
 
     // Read input
     buffer_t input = read_file(opts.input_file);
+
+    // Apply byte range if specified
+    if (opts.has_range_start || opts.has_range_end) {
+        int64_t start = opts.has_range_start ? opts.range_start : 0;
+        int64_t end = opts.has_range_end ? opts.range_end : (int64_t)input.size - 1;
+
+        // Handle negative start (from end)
+        if (start < 0) {
+            start = (int64_t)input.size + start;
+            if (start < 0) start = 0;
+        }
+
+        if (start >= (int64_t)input.size) {
+            fprintf(stderr, "Warning: start offset %lld exceeds input size %zu\n",
+                    (long long)start, input.size);
+            input.size = 0;
+        } else if (start > end) {
+            fprintf(stderr, "Warning: start offset exceeds end offset, empty range\n");
+            input.size = 0;
+        } else {
+            if (end >= (int64_t)input.size) {
+                fprintf(stderr, "Warning: end offset %lld exceeds input size %zu, clamping to %zu\n",
+                        (long long)end, input.size, input.size - 1);
+                end = (int64_t)input.size - 1;
+            }
+            size_t new_size = (size_t)(end - start + 1);
+            if (start > 0) {
+                memmove(input.data, input.data + start, new_size);
+            }
+            input.size = new_size;
+        }
+    }
 
     if (opts.decode_mode) {
         if (opts.passthrough_mode) {
