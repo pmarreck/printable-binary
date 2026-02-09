@@ -309,6 +309,68 @@ pub const FormatOptions = struct {
     use_tabs: bool = false,
 };
 
+// =============================================================================
+// Range API — pure function for resolving byte-range arguments
+// =============================================================================
+
+/// Warning codes returned by applyRange
+pub const RangeWarning = enum(c_uint) {
+    none = 0,
+    start_exceeds_input = 1,
+    empty_range = 2,
+    end_clamped = 3,
+};
+
+/// Result of applying a byte range to an input
+pub const RangeResult = extern struct {
+    offset: usize, // byte offset to start from
+    length: usize, // number of bytes in range
+    warning: RangeWarning,
+};
+
+/// Resolve optional start/end byte-range arguments against an input length.
+/// Pure function — no I/O, no allocations.
+///
+/// Semantics:
+///  - start/end are inclusive byte offsets (matching CLI --start/--end)
+///  - Negative start counts from end of input
+///  - If start is null, defaults to 0; if end is null, defaults to input_len - 1
+///  - OOB end is clamped with a warning
+///  - start >= input_len or start > end yields an empty range with a warning
+pub fn applyRange(input_len: usize, opt_start: ?i64, opt_end: ?i64) RangeResult {
+    if (input_len == 0) {
+        return RangeResult{ .offset = 0, .length = 0, .warning = .none };
+    }
+
+    const ilen: i64 = @intCast(input_len);
+    var start: i64 = opt_start orelse 0;
+    var end_val: i64 = opt_end orelse (ilen - 1);
+
+    // Handle negative start (from end)
+    if (start < 0) {
+        start = ilen + start;
+        if (start < 0) start = 0;
+    }
+
+    if (start >= ilen) {
+        return RangeResult{ .offset = 0, .length = 0, .warning = .start_exceeds_input };
+    }
+
+    if (start > end_val) {
+        return RangeResult{ .offset = 0, .length = 0, .warning = .empty_range };
+    }
+
+    var warning: RangeWarning = .none;
+    if (end_val >= ilen) {
+        end_val = ilen - 1;
+        warning = .end_clamped;
+    }
+
+    const s: usize = @intCast(start);
+    const e: usize = @intCast(end_val);
+    return RangeResult{ .offset = s, .length = e - s + 1, .warning = warning };
+}
+
 // Decode map built at comptime for O(log n) reverse lookup
 const DecodeEntry = struct {
     key: u64,
@@ -340,6 +402,77 @@ fn buildDecodeMap() [256]DecodeEntry {
 }
 
 const decode_map = buildDecodeMap();
+
+// =============================================================================
+// Double-Encoding Detection
+// =============================================================================
+
+/// High-confidence set: bytes whose PB glyph differs from the raw byte.
+/// Computed at comptime from the character map.
+const high_confidence_set: [256]bool = blk: {
+    @setEvalBranchQuota(100000);
+    var set = [_]bool{false} ** 256;
+    for (0..256) |i| {
+        const mapping = character_map[i];
+        if (mapping.len != 1 or mapping[0] != @as(u8, @intCast(i))) {
+            set[i] = true;
+        }
+    }
+    break :blk set;
+};
+
+/// Result of double-encoding detection
+pub const DoubleEncodeInfo = extern struct {
+    detected: c_int, // 0 = not detected, 1 = detected
+    confidence: f32, // 0.0 to 1.0 — ratio of high-confidence glyphs
+};
+
+/// Detect whether input appears to be already printable-binary encoded.
+/// Iterates input as UTF-8 characters, checks each against the decode map,
+/// and if matched, checks whether the decoded byte is in the high-confidence set.
+/// Returns detection result with confidence ratio.
+pub fn detectDoubleEncode(input: []const u8, threshold: f32) DoubleEncodeInfo {
+    if (input.len == 0) {
+        return DoubleEncodeInfo{ .detected = 0, .confidence = 0.0 };
+    }
+
+    var glyph_count: usize = 0;
+    var char_count: usize = 0;
+    var i: usize = 0;
+
+    while (i < input.len) {
+        const seq_len = utf8SeqLen(input[i]);
+        const remaining = input.len - i;
+        const actual_len: usize = if (seq_len > remaining) remaining else seq_len;
+
+        char_count += 1;
+
+        // Try to decode this UTF-8 character via the PB decode map
+        if (decodeLookup(input[i .. i + actual_len])) |byte_val| {
+            if (high_confidence_set[byte_val]) {
+                glyph_count += 1;
+            }
+        }
+
+        i += actual_len;
+    }
+
+    if (char_count == 0) {
+        return DoubleEncodeInfo{ .detected = 0, .confidence = 0.0 };
+    }
+
+    const confidence: f32 = @as(f32, @floatFromInt(glyph_count)) / @as(f32, @floatFromInt(char_count));
+    return DoubleEncodeInfo{
+        .detected = if (confidence >= threshold) @as(c_int, 1) else @as(c_int, 0),
+        .confidence = confidence,
+    };
+}
+
+/// C ABI export for double-encoding detection
+export fn pb_detect_double_encode(input: [*]const u8, input_len: usize, threshold: f32) callconv(.c) DoubleEncodeInfo {
+    const slice = if (input_len > 0) input[0..input_len] else &[_]u8{};
+    return detectDoubleEncode(slice, threshold);
+}
 
 /// Get UTF-8 sequence length from first byte
 pub fn utf8SeqLen(first_byte: u8) u3 {
@@ -652,6 +785,13 @@ export fn pb_validate(input: [*]const u8, input_len: usize, ws_flags: c_uint) ca
     return validate(slice, ws_flags);
 }
 
+/// C ABI export for range resolution function
+export fn pb_apply_range(input_len: usize, has_start: c_int, start: i64, has_end: c_int, end: i64) callconv(.c) RangeResult {
+    const opt_start: ?i64 = if (has_start != 0) start else null;
+    const opt_end: ?i64 = if (has_end != 0) end else null;
+    return applyRange(input_len, opt_start, opt_end);
+}
+
 // =============================================================================
 // FFI Encode/Decode/Format API
 // =============================================================================
@@ -663,6 +803,7 @@ pub const EncodeFlags = enum(c_uint) {
     preserve_tabs = 1 << 1,
     preserve_crlf = 1 << 2,
     preserve_all_whitespace = 0x07,
+    skip_double_encode_check = 1 << 3,
 };
 
 /// Decode flags for C ABI (matches DecodeOptions)
@@ -783,4 +924,124 @@ export fn pb_get_mapping(byte: u8) callconv(.c) [*]const u8 {
 /// Get the length of a mapping for a byte value
 export fn pb_get_mapping_len(byte: u8) callconv(.c) usize {
     return character_map[byte].len;
+}
+
+// =============================================================================
+// Unit Tests
+// =============================================================================
+
+test "applyRange: no range specified returns full input" {
+    const r = applyRange(100, null, null);
+    try std.testing.expectEqual(@as(usize, 0), r.offset);
+    try std.testing.expectEqual(@as(usize, 100), r.length);
+    try std.testing.expectEqual(RangeWarning.none, r.warning);
+}
+
+test "applyRange: explicit start and end" {
+    const r = applyRange(100, 10, 19);
+    try std.testing.expectEqual(@as(usize, 10), r.offset);
+    try std.testing.expectEqual(@as(usize, 10), r.length);
+    try std.testing.expectEqual(RangeWarning.none, r.warning);
+}
+
+test "applyRange: negative start counts from end" {
+    const r = applyRange(100, -10, null);
+    try std.testing.expectEqual(@as(usize, 90), r.offset);
+    try std.testing.expectEqual(@as(usize, 10), r.length);
+    try std.testing.expectEqual(RangeWarning.none, r.warning);
+}
+
+test "applyRange: negative start beyond input clamps to 0" {
+    const r = applyRange(10, -20, null);
+    try std.testing.expectEqual(@as(usize, 0), r.offset);
+    try std.testing.expectEqual(@as(usize, 10), r.length);
+    try std.testing.expectEqual(RangeWarning.none, r.warning);
+}
+
+test "applyRange: start exceeds input length" {
+    const r = applyRange(10, 15, null);
+    try std.testing.expectEqual(@as(usize, 0), r.offset);
+    try std.testing.expectEqual(@as(usize, 0), r.length);
+    try std.testing.expectEqual(RangeWarning.start_exceeds_input, r.warning);
+}
+
+test "applyRange: start equals input length" {
+    const r = applyRange(10, 10, null);
+    try std.testing.expectEqual(@as(usize, 0), r.offset);
+    try std.testing.expectEqual(@as(usize, 0), r.length);
+    try std.testing.expectEqual(RangeWarning.start_exceeds_input, r.warning);
+}
+
+test "applyRange: start > end yields empty range" {
+    const r = applyRange(100, 50, 40);
+    try std.testing.expectEqual(@as(usize, 0), r.offset);
+    try std.testing.expectEqual(@as(usize, 0), r.length);
+    try std.testing.expectEqual(RangeWarning.empty_range, r.warning);
+}
+
+test "applyRange: end exceeds input is clamped" {
+    const r = applyRange(10, 5, 20);
+    try std.testing.expectEqual(@as(usize, 5), r.offset);
+    try std.testing.expectEqual(@as(usize, 5), r.length);
+    try std.testing.expectEqual(RangeWarning.end_clamped, r.warning);
+}
+
+test "applyRange: zero-length input returns empty" {
+    const r = applyRange(0, null, null);
+    try std.testing.expectEqual(@as(usize, 0), r.offset);
+    try std.testing.expectEqual(@as(usize, 0), r.length);
+    try std.testing.expectEqual(RangeWarning.none, r.warning);
+}
+
+test "applyRange: single byte range" {
+    const r = applyRange(100, 42, 42);
+    try std.testing.expectEqual(@as(usize, 42), r.offset);
+    try std.testing.expectEqual(@as(usize, 1), r.length);
+    try std.testing.expectEqual(RangeWarning.none, r.warning);
+}
+
+// =============================================================================
+// Double-Encoding Detection Tests
+// =============================================================================
+
+test "detectDoubleEncode: empty input returns not detected" {
+    const r = detectDoubleEncode("", 0.05);
+    try std.testing.expectEqual(@as(c_int, 0), r.detected);
+    try std.testing.expect(r.confidence == 0.0);
+}
+
+test "detectDoubleEncode: pure ASCII not detected" {
+    const r = detectDoubleEncode("Hello World this is plain ASCII text", 0.05);
+    try std.testing.expectEqual(@as(c_int, 0), r.detected);
+}
+
+test "detectDoubleEncode: encoded control chars detected" {
+    // Encode bytes 0x00-0x0F — all are high-confidence
+    const allocator = std.testing.allocator;
+    var input_bytes: [16]u8 = undefined;
+    for (0..16) |i| {
+        input_bytes[i] = @intCast(i);
+    }
+    const encoded = try encode(allocator, &input_bytes, .{});
+    defer allocator.free(encoded);
+
+    const r = detectDoubleEncode(encoded, 0.05);
+    try std.testing.expectEqual(@as(c_int, 1), r.detected);
+    try std.testing.expect(r.confidence > 0.5);
+}
+
+test "detectDoubleEncode: low percentage not detected" {
+    // One middle-dot (·, PB for NUL) among many plain ASCII chars
+    const input = "This is mostly ASCII with one middot \xc2\xb7 character in a very long string of text that goes on and on";
+    const r = detectDoubleEncode(input, 0.05);
+    try std.testing.expectEqual(@as(c_int, 0), r.detected);
+}
+
+test "detectDoubleEncode: threshold boundary" {
+    // 6 high-confidence glyphs among ~94 ASCII chars = ~6.4%
+    // · = \xc2\xb7, ¯ = \xc2\xaf, « = \xc2\xab, » = \xc2\xbb, ϟ = \xcf\x9f, ¿ = \xc2\xbf
+    const input = "aaaaaaaaaa\xc2\xb7\xc2\xaf\xc2\xab\xc2\xbb\xcf\x9f\xc2\xbfaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const r = detectDoubleEncode(input, 0.05);
+    try std.testing.expectEqual(@as(c_int, 1), r.detected);
+    try std.testing.expect(r.confidence > 0.05);
 }

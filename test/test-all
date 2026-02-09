@@ -52,8 +52,9 @@ echo -e "${BLUE}═════════════════════�
 
 # Test each implementation
 test_implementation "Lua (reference)" "./bin/printable_binary" || true
-test_implementation "C (native)" "./bin/printable_binary_c" || true
-test_implementation "Zig" "./bin/printable_binary_zig" || true
+test_implementation "Node.js" "./bin/printable_binary_node.js" || true
+test_implementation "C (standalone)" "./result/bin/printable_binary_c" || true
+test_implementation "Zig" "./result/bin/printable_binary_zig" || true
 
 # WASM via wazero wrapper (if available)
 if [[ -f bin/printable_binary.wasm ]]; then

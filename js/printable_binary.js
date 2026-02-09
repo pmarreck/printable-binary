@@ -372,6 +372,56 @@ class PrintableBinary {
   }
 
   /**
+   * Detect whether input appears to be already printable-binary encoded.
+   * Iterates input as UTF-8 characters, checks each against the decode map,
+   * and counts high-confidence glyphs (those whose encoding differs from
+   * the raw byte value).
+   *
+   * @param {string} input - The UTF-8 string to check
+   * @param {number} threshold - Confidence threshold (default 0.05 for 5%)
+   * @returns {{ detected: boolean, confidence: number }}
+   */
+  detectDoubleEncode(input, threshold = 0.05) {
+    if (typeof input !== 'string' || input.length === 0) {
+      return { detected: false, confidence: 0 };
+    }
+
+    // Build high-confidence set lazily
+    if (!this._highConfidenceSet) {
+      this._highConfidenceSet = new Set();
+      for (let i = 0; i < 256; i++) {
+        const glyph = this.encodeMap.get(i);
+        // High confidence if the glyph is not a single-char identity mapping
+        if (glyph.length !== 1 || glyph.charCodeAt(0) !== i) {
+          this._highConfidenceSet.add(glyph);
+        }
+      }
+    }
+
+    let glyphCount = 0;
+    let charCount = 0;
+
+    // Iterate by unicode characters (handles surrogate pairs)
+    for (const char of input) {
+      charCount++;
+      if (this.decodeMap.has(char)) {
+        const byteVal = this.decodeMap.get(char);
+        const glyph = this.encodeMap.get(byteVal);
+        if (this._highConfidenceSet.has(glyph)) {
+          glyphCount++;
+        }
+      }
+    }
+
+    if (charCount === 0) {
+      return { detected: false, confidence: 0 };
+    }
+
+    const confidence = glyphCount / charCount;
+    return { detected: confidence >= threshold, confidence };
+  }
+
+  /**
    * Encode a string (treating it as UTF-8) to printable format
    * This is a convenience method for string input
    * @param {string} str - The string to encode

@@ -22,12 +22,18 @@ Usage: ${progname} [options] [file]
 Options:
   -d, --decode          Decode mode (default is encode mode)
   -s, --spaces          Preserve literal spaces (decoder still ignores tabs/newlines/CR)
+  -t, --tabs            Preserve literal tabs on encode
+  -n, --crlf            Preserve literal CR/LF on encode
+  -w, --preserve-whitespace  Preserve all whitespace (spaces + tabs + CRLF)
+  -P, --preserve=CHARS  Preserve specific characters on encode
+  -S, --strip-whitespace  Strip whitespace before decoding (for block-formatted input)
   -p, --passthrough     Pass input to stdout unchanged, send encoded data to stderr
   -f, --format NxM      Format output in groups (e.g. 75x1)
   -f=NXM, --format=NXM  Alternate syntax for specifying formatting
   --mappings            Show the byte-to-character mapping table
   --mappings-json       Output the mappings as JSON
   --mappings-csv        Output the mappings as CSV
+  --no-double-encode-check   Skip detection of already-encoded input
   -h, --help            Show this help
 
 Range options (select byte range from input before processing):
@@ -134,6 +140,11 @@ function parseArgs(argv) {
   let spacesMode = false;
   let rangeStart = null;
   let rangeEnd = null;
+  let noDoubleEncodeCheck = false;
+  let stripWhitespace = false;
+  let tabsMode = false;
+  let crlfMode = false;
+  let preserveChars = '';
 
   const setMappingsFormat = (mode) => {
     if (mappingsFormat && mappingsFormat !== mode) {
@@ -171,6 +182,26 @@ function parseArgs(argv) {
       setMappingsFormat('csv');
     } else if (arg === '-p' || arg === '--passthrough') {
       passthrough = true;
+    } else if (arg === '-S' || arg === '--strip-whitespace') {
+      stripWhitespace = true;
+    } else if (arg === '-t' || arg === '--tabs') {
+      tabsMode = true;
+    } else if (arg === '-n' || arg === '--crlf') {
+      crlfMode = true;
+    } else if (arg === '-w' || arg === '--preserve-whitespace') {
+      spacesMode = true;
+      tabsMode = true;
+      crlfMode = true;
+    } else if (arg === '-P' || arg === '--preserve') {
+      if (i + 1 >= argv.length) {
+        process.stderr.write('Error: --preserve requires a value\n');
+        process.exit(1);
+      }
+      preserveChars = argv[++i];
+    } else if (arg.startsWith('--preserve=')) {
+      preserveChars = arg.slice(11);
+    } else if (arg === '--no-double-encode-check') {
+      noDoubleEncodeCheck = true;
     } else if (arg === '--range') {
       if (i + 1 >= argv.length) {
         process.stderr.write('Error: --range requires an argument\n');
@@ -207,6 +238,24 @@ function parseArgs(argv) {
       rangeEnd = parseOffsetValue(argv[++i]);
     } else if (arg.startsWith('--end=')) {
       rangeEnd = parseOffsetValue(arg.slice(6));
+    } else if (arg.startsWith('-') && !arg.startsWith('--') && arg.length > 2) {
+      // Combined short flags like -stn
+      const flags = arg.slice(1);
+      for (const ch of flags) {
+        switch (ch) {
+          case 's': spacesMode = true; break;
+          case 't': tabsMode = true; break;
+          case 'n': crlfMode = true; break;
+          case 'w': spacesMode = true; tabsMode = true; crlfMode = true; break;
+          case 'd': decodeMode = true; break;
+          case 'p': passthrough = true; break;
+          case 'S': stripWhitespace = true; break;
+          default:
+            process.stderr.write(`Error: Unknown option -${ch}\n`);
+            printUsage();
+            process.exit(1);
+        }
+      }
     } else if (arg.startsWith('-')) {
       process.stderr.write(`Error: Unknown option ${arg}\n`);
       printUsage();
@@ -230,7 +279,7 @@ function parseArgs(argv) {
     }
   }
 
-  return { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, rangeStart, rangeEnd };
+  return { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, stripWhitespace, tabsMode, crlfMode, preserveChars, rangeStart, rangeEnd, noDoubleEncodeCheck };
 }
 
 async function readInput(filePath) {
@@ -246,8 +295,18 @@ async function readInput(filePath) {
   return Buffer.concat(chunks);
 }
 
+function muteStats() {
+  return process.env.PRINTABLE_BINARY_MUTE_STATS === '1';
+}
+
+function stats(msg) {
+  if (!muteStats()) {
+    process.stderr.write(msg + '\n');
+  }
+}
+
 async function main() {
-  const { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, rangeStart, rangeEnd } = parseArgs(process.argv.slice(2));
+  const { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, stripWhitespace, tabsMode, crlfMode, preserveChars, rangeStart, rangeEnd, noDoubleEncodeCheck } = parseArgs(process.argv.slice(2));
   const pb = new PrintableBinary();
 
   try {
@@ -290,17 +349,39 @@ async function main() {
       if (passthrough) {
         process.stderr.write('Warning: --passthrough ignored in decode mode\n');
       }
-      const decoded = pb.decode(input.toString('utf8'), {
+      const inputStr = input.toString('utf8');
+      stats(`Decoding mode: Input size is ${input.length} bytes`);
+      if (stripWhitespace) {
+        stats('Decoded with whitespace stripping');
+      }
+      const decoded = pb.decode(inputStr, {
         spaces: spacesMode,
-        warnOnIndent: spacesMode
+        stripWhitespace: stripWhitespace,
+        warnOnIndent: spacesMode && stripWhitespace
       });
+      stats(`Decoded result size: ${decoded.length} bytes`);
       process.stdout.write(Buffer.from(decoded));
     } else {
-      const options = { spaces: spacesMode };
+      // Check for double-encoding
+      if (!noDoubleEncodeCheck) {
+        const deInfo = pb.detectDoubleEncode(input.toString('utf8'));
+        if (deInfo.detected) {
+          process.stderr.write(
+            `Warning: Input appears to already be printable-binary encoded (${(deInfo.confidence * 100).toFixed(1)}% detection).\n` +
+            `         Use --no-double-encode-check to suppress this warning.\n`
+          );
+        }
+      }
+
+      const options = { spaces: spacesMode, tabs: tabsMode, crlf: crlfMode };
+      if (preserveChars) {
+        options.preserve = preserveChars;
+      }
       if (formatSpec) {
         options.format = formatSpec;
       }
       const encoded = pb.encode(input, options);
+      stats(`Encoded ${input.length} bytes of input to ${Buffer.byteLength(encoded, 'utf8')} bytes`);
       if (passthrough) {
         process.stdout.write(input);
         process.stderr.write(encoded);

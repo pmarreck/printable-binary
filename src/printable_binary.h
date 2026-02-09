@@ -54,6 +54,42 @@ typedef struct {
 pb_validation_result_t pb_validate(const char *input, size_t input_len, unsigned int ws_flags);
 
 /* ============================================================================
+ * Range API
+ * ============================================================================ */
+
+/**
+ * Warning codes from range resolution.
+ */
+typedef enum {
+    PB_RANGE_OK              = 0, /**< No warning */
+    PB_RANGE_START_EXCEEDS   = 1, /**< Start offset >= input length */
+    PB_RANGE_EMPTY           = 2, /**< Start > end (empty range) */
+    PB_RANGE_END_CLAMPED     = 3  /**< End was clamped to input length */
+} pb_range_warning_t;
+
+/**
+ * Result of resolving byte-range arguments against an input length.
+ */
+typedef struct {
+    size_t offset;               /**< Byte offset to start from */
+    size_t length;               /**< Number of bytes in range */
+    pb_range_warning_t warning;  /**< Warning code */
+} pb_range_result_t;
+
+/**
+ * Resolve optional start/end byte-range arguments against an input length.
+ * Pure function — no I/O, no allocations.
+ *
+ * @param input_len  Length of the input data in bytes
+ * @param has_start  Non-zero if start is specified
+ * @param start      Start byte offset (inclusive; negative counts from end)
+ * @param has_end    Non-zero if end is specified
+ * @param end        End byte offset (inclusive)
+ * @return           Range result with offset, length, and warning
+ */
+pb_range_result_t pb_apply_range(size_t input_len, int has_start, int64_t start, int has_end, int64_t end);
+
+/* ============================================================================
  * Encode/Decode/Format API (Zig FFI)
  * ============================================================================ */
 
@@ -66,7 +102,8 @@ typedef enum {
     PB_ENCODE_PRESERVE_SPACES = 1 << 0, /**< Preserve literal spaces */
     PB_ENCODE_PRESERVE_TABS = 1 << 1,   /**< Preserve literal tabs */
     PB_ENCODE_PRESERVE_CRLF = 1 << 2,   /**< Preserve literal CR/LF */
-    PB_ENCODE_PRESERVE_ALL_WS = 0x07    /**< Preserve all whitespace */
+    PB_ENCODE_PRESERVE_ALL_WS = 0x07,   /**< Preserve all whitespace */
+    PB_ENCODE_SKIP_DOUBLE_CHECK = 1 << 3 /**< Skip double-encoding detection */
 } pb_encode_flags_t;
 
 /**
@@ -166,6 +203,31 @@ const char *pb_get_mapping(uint8_t byte);
  * @return     Length in bytes of the mapping
  */
 size_t pb_get_mapping_len(uint8_t byte);
+
+/* ============================================================================
+ * Double-Encoding Detection API
+ * ============================================================================ */
+
+/**
+ * Result of double-encoding detection.
+ */
+typedef struct {
+    int detected;     /**< 0 = not detected, 1 = detected */
+    float confidence; /**< 0.0 to 1.0 — ratio of high-confidence PB glyphs */
+} pb_double_encode_info_t;
+
+/**
+ * Detect whether input appears to be already printable-binary encoded.
+ * Iterates input as UTF-8 characters, checks each against the decode map,
+ * and counts high-confidence glyphs (those whose encoding differs from
+ * the raw byte).
+ *
+ * @param input     Pointer to the UTF-8 input to check
+ * @param input_len Length of the input in bytes
+ * @param threshold Confidence threshold (e.g. 0.05 for 5%)
+ * @return          Detection result with confidence ratio
+ */
+pb_double_encode_info_t pb_detect_double_encode(const char *input, size_t input_len, float threshold);
 
 /* ============================================================================
  * C Implementation Only

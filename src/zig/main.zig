@@ -27,6 +27,7 @@ const Options = struct {
     preserve_chars: ?[]const u8 = null, // null = not set, allocated if set
     range_start: ?i64 = null,
     range_end: ?i64 = null,
+    no_double_encode_check: bool = false,
 };
 
 const MappingsMode = enum { none, table, json, csv };
@@ -256,6 +257,8 @@ fn parseArgs(allocator: std.mem.Allocator) !Options {
                 opts.mappings_mode = .json;
             } else if (std.mem.eql(u8, name, "mappings-csv")) {
                 opts.mappings_mode = .csv;
+            } else if (std.mem.eql(u8, name, "no-double-encode-check")) {
+                opts.no_double_encode_check = true;
             } else if (std.mem.eql(u8, name, "help")) {
                 opts.help_mode = true;
             } else {
@@ -336,6 +339,9 @@ fn printUsage() void {
         \\  X-Y (positional)         Shorthand for --range X-Y
         \\  Hex offsets supported: --range 0x0A-0xFF
         \\  Omitted bounds: --range -9 (first 10 bytes), --range 10- (byte 10 to EOF)
+        \\
+        \\Encode detection:
+        \\  --no-double-encode-check   Skip detection of already-encoded input
         \\
         \\Decode options:
         \\  -S, --strip-whitespace     Strip whitespace before decoding (for formatted input)
@@ -466,34 +472,21 @@ pub fn main() !void {
     };
     defer allocator.free(raw_input);
 
-    // Apply byte range if specified
+    // Apply byte range if specified (policy logic lives in core library)
     var input: []const u8 = raw_input;
     if (opts.range_start != null or opts.range_end != null) {
-        const input_len: i64 = @intCast(raw_input.len);
-        var start: i64 = opts.range_start orelse 0;
-        var end_val: i64 = opts.range_end orelse (input_len - 1);
-
-        // Handle negative start (from end)
-        if (start < 0) {
-            start = input_len + start;
-            if (start < 0) start = 0;
+        const range = pb.applyRange(raw_input.len, opts.range_start, opts.range_end);
+        switch (range.warning) {
+            .start_exceeds_input => writeStats("Warning: start offset {d} exceeds input size {d}\n", .{
+                opts.range_start orelse 0, raw_input.len,
+            }),
+            .empty_range => writeStats("Warning: start offset exceeds end offset, empty range\n", .{}),
+            .end_clamped => writeStats("Warning: end offset {d} exceeds input size {d}, clamping to {d}\n", .{
+                opts.range_end orelse 0, raw_input.len, raw_input.len - 1,
+            }),
+            .none => {},
         }
-
-        if (start >= input_len) {
-            writeStats("Warning: start offset {d} exceeds input size {d}\n", .{ start, raw_input.len });
-            input = raw_input[0..0];
-        } else if (start > end_val) {
-            writeStats("Warning: start offset exceeds end offset, empty range\n", .{});
-            input = raw_input[0..0];
-        } else {
-            if (end_val >= input_len) {
-                writeStats("Warning: end offset {d} exceeds input size {d}, clamping to {d}\n", .{ end_val, raw_input.len, raw_input.len - 1 });
-                end_val = input_len - 1;
-            }
-            const s: usize = @intCast(start);
-            const e: usize = @intCast(end_val);
-            input = raw_input[s .. e + 1];
-        }
+        input = raw_input[range.offset .. range.offset + range.length];
     }
 
     if (opts.decode_mode) {
@@ -530,7 +523,16 @@ pub fn main() !void {
         writeStats("Decoded result size: {d} bytes\n", .{decoded.len});
         try writeOutput(decoded, false);
     } else {
-        // Encode mode - call core library
+        // Encode mode - check for double-encoding first
+        if (!opts.no_double_encode_check) {
+            const de_info = pb.detectDoubleEncode(input, 0.05);
+            if (de_info.detected != 0) {
+                var msg_buf: [256]u8 = undefined;
+                const msg = std.fmt.bufPrint(&msg_buf, "Warning: Input appears to already be printable-binary encoded ({d:.1}% detection).\n         Use --no-double-encode-check to suppress this warning.\n", .{de_info.confidence * 100.0}) catch unreachable;
+                _ = std.posix.write(std.posix.STDERR_FILENO, msg) catch {};
+            }
+        }
+
         if (opts.passthrough_mode) {
             try writeOutput(input, false);
         }

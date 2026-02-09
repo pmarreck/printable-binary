@@ -40,6 +40,7 @@ typedef struct {
     bool has_range_end;
     int64_t range_start;
     int64_t range_end;
+    bool no_double_encode_check;
 } options_t;
 
 static bool env_var_truthy(const char *value) {
@@ -73,6 +74,8 @@ static void print_usage(const char *name) {
     fprintf(stderr, "  X-Y (positional)         Shorthand for --range X-Y\n");
     fprintf(stderr, "  Hex offsets supported: --range 0x0A-0xFF\n");
     fprintf(stderr, "  Omitted bounds: --range -9 (first 10 bytes), --range 10- (byte 10 to EOF)\n");
+    fprintf(stderr, "\nEncode detection:\n");
+    fprintf(stderr, "  --no-double-encode-check   Skip detection of already-encoded input\n");
     fprintf(stderr, "\nDecode options:\n");
     fprintf(stderr, "  -S, --strip-whitespace     Strip whitespace before decoding\n");
     fprintf(stderr, "\nFormat and output options:\n");
@@ -186,7 +189,8 @@ static options_t parse_options(int argc, char *argv[]) {
         .has_range_start = false,
         .has_range_end = false,
         .range_start = 0,
-        .range_end = 0
+        .range_end = 0,
+        .no_double_encode_check = false
     };
 
     for (int i = 1; i < argc; i++) {
@@ -293,6 +297,8 @@ static options_t parse_options(int argc, char *argv[]) {
                     exit(1);
                 }
                 opts.has_range_end = true;
+            } else if (strcmp(name, "no-double-encode-check") == 0) {
+                opts.no_double_encode_check = true;
             } else if (strcmp(name, "format") == 0) {
                 opts.format_mode = true;
             } else if (strcmp(name, "mappings") == 0) {
@@ -480,35 +486,30 @@ int main(int argc, char *argv[]) {
     size_t input_len;
     char *input = read_input(opts.input_file, &input_len);
 
-    /* Apply byte range if specified */
+    /* Apply byte range if specified (policy logic lives in Zig core) */
     if (opts.has_range_start || opts.has_range_end) {
-        int64_t start = opts.has_range_start ? opts.range_start : 0;
-        int64_t end = opts.has_range_end ? opts.range_end : (int64_t)input_len - 1;
-
-        if (start < 0) {
-            start = (int64_t)input_len + start;
-            if (start < 0) start = 0;
-        }
-
-        if (start >= (int64_t)input_len) {
+        pb_range_result_t range = pb_apply_range(input_len,
+            opts.has_range_start, opts.range_start,
+            opts.has_range_end, opts.range_end);
+        switch (range.warning) {
+        case PB_RANGE_START_EXCEEDS:
             fprintf(stderr, "Warning: start offset %lld exceeds input size %zu\n",
-                    (long long)start, input_len);
-            input_len = 0;
-        } else if (start > end) {
+                    (long long)(opts.has_range_start ? opts.range_start : 0), input_len);
+            break;
+        case PB_RANGE_EMPTY:
             fprintf(stderr, "Warning: start offset exceeds end offset, empty range\n");
-            input_len = 0;
-        } else {
-            if (end >= (int64_t)input_len) {
-                fprintf(stderr, "Warning: end offset %lld exceeds input size %zu, clamping to %zu\n",
-                        (long long)end, input_len, input_len - 1);
-                end = (int64_t)input_len - 1;
-            }
-            size_t new_len = (size_t)(end - start + 1);
-            if (start > 0) {
-                memmove(input, input + start, new_len);
-            }
-            input_len = new_len;
+            break;
+        case PB_RANGE_END_CLAMPED:
+            fprintf(stderr, "Warning: end offset %lld exceeds input size %zu, clamping to %zu\n",
+                    (long long)(opts.has_range_end ? opts.range_end : 0), input_len, input_len - 1);
+            break;
+        case PB_RANGE_OK:
+            break;
         }
+        if (range.offset > 0) {
+            memmove(input, input + range.offset, range.length);
+        }
+        input_len = range.length;
     }
 
     if (opts.decode_mode) {
@@ -554,6 +555,18 @@ int main(int argc, char *argv[]) {
         pb_free(result.data, result.len);
     } else {
         /* Encode mode */
+
+        /* Check for double-encoding */
+        if (!opts.no_double_encode_check) {
+            pb_double_encode_info_t de_info = pb_detect_double_encode(input, input_len, 0.05f);
+            if (de_info.detected) {
+                fprintf(stderr,
+                    "Warning: Input appears to already be printable-binary encoded (%.1f%% detection).\n"
+                    "         Use --no-double-encode-check to suppress this warning.\n",
+                    de_info.confidence * 100.0f);
+            }
+        }
+
         if (opts.passthrough_mode) {
             fwrite(input, 1, input_len, stdout);
         }

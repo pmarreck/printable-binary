@@ -82,6 +82,10 @@ typedef struct {
 static decode_entry_t decode_entries[256];
 static size_t decode_entry_count = 0;
 
+// High-confidence set for double-encoding detection.
+// A byte is high-confidence if its PB glyph differs from the raw byte.
+static bool high_confidence_set[256];
+
 typedef enum {
     MAPPINGS_NONE = 0,
     MAPPINGS_TABLE,
@@ -108,6 +112,7 @@ typedef struct {
     bool has_range_end;
     int64_t range_start;
     int64_t range_end;
+    bool no_double_encode_check;
 } options_t;
 
 static void parse_format_spec(options_t *opts, const char *format_str) {
@@ -343,6 +348,15 @@ static void finalize_decode_entries(void) {
         if (decode_entries[i].key == decode_entries[i - 1].key) {
             fprintf(stderr, "Error: duplicate character mapping detected\n");
             exit(1);
+        }
+    }
+
+    // Build high-confidence set: any byte whose glyph is not the identity mapping
+    memset(high_confidence_set, 0, sizeof(high_confidence_set));
+    for (int i = 0; i < 256; i++) {
+        utf8_sequence_t seq = encode_table[i];
+        if (seq.length != 1 || seq.bytes[0] != (uint8_t)i) {
+            high_confidence_set[i] = true;
         }
     }
 }
@@ -682,6 +696,59 @@ pb_validation_result_t pb_validate(const char *input, size_t input_len, unsigned
     return result;
 }
 
+// Detect if input appears to be already printable-binary encoded
+static pb_double_encode_info_t detect_double_encode(const char *input, size_t input_len, float threshold) {
+    pb_double_encode_info_t result = { .detected = 0, .confidence = 0.0f };
+    if (!input || input_len == 0) return result;
+
+    const uint8_t *data = (const uint8_t *)input;
+    size_t glyph_count = 0;
+    size_t char_count = 0;
+    size_t i = 0;
+
+    while (i < input_len) {
+        uint8_t first_byte = data[i];
+        uint8_t seq_len = utf8_sequence_length(first_byte);
+        size_t remaining = input_len - i;
+        if (seq_len > remaining) seq_len = (uint8_t)remaining;
+
+        char_count++;
+
+        // Try to look up this UTF-8 char in the decode map
+        if (seq_len >= 1 && seq_len <= MAX_UTF8_BYTES) {
+            uint64_t key = make_key(data + i, seq_len);
+            size_t left = 0, right = decode_entry_count;
+            while (left < right) {
+                size_t mid = left + (right - left) / 2;
+                if (decode_entries[mid].key == key) {
+                    uint8_t byte_val = decode_entries[mid].value;
+                    if (high_confidence_set[byte_val]) {
+                        glyph_count++;
+                    }
+                    break;
+                } else if (decode_entries[mid].key < key) {
+                    left = mid + 1;
+                } else {
+                    right = mid;
+                }
+            }
+        }
+
+        i += seq_len;
+    }
+
+    if (char_count == 0) return result;
+
+    result.confidence = (float)glyph_count / (float)char_count;
+    result.detected = (result.confidence >= threshold) ? 1 : 0;
+    return result;
+}
+
+// Standalone C implementation of pb_detect_double_encode for FFI header compatibility
+pb_double_encode_info_t pb_detect_double_encode(const char *input, size_t input_len, float threshold) {
+    return detect_double_encode(input, input_len, threshold);
+}
+
 // Encode binary data to printable UTF-8
 static buffer_t encode_data(const uint8_t *input, size_t input_len, const options_t *opts) {
     buffer_t output;
@@ -987,6 +1054,8 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  X-Y (positional)         Shorthand for --range X-Y\n");
     fprintf(stderr, "  Hex offsets supported: --range 0x0A-0xFF\n");
     fprintf(stderr, "  Omitted bounds: --range -9 (first 10 bytes), --range 10- (byte 10 to EOF)\n");
+    fprintf(stderr, "\nEncode detection:\n");
+    fprintf(stderr, "  --no-double-encode-check   Skip detection of already-encoded input\n");
     fprintf(stderr, "\nDecode options:\n");
     fprintf(stderr, "  -S, --strip-whitespace     Strip whitespace before decoding (for formatted input)\n");
     fprintf(stderr, "\nFormat and output options:\n");
@@ -1117,7 +1186,8 @@ static options_t parse_options(int argc, char *argv[]) {
         .has_range_start = false,
         .has_range_end = false,
         .range_start = 0,
-        .range_end = 0
+        .range_end = 0,
+        .no_double_encode_check = false
     };
 
     for (int i = 1; i < argc; i++) {
@@ -1254,6 +1324,8 @@ static options_t parse_options(int argc, char *argv[]) {
                 set_mappings_mode(&opts, MAPPINGS_JSON);
             } else if (long_option_equals(name, name_len, "mappings-csv")) {
                 set_mappings_mode(&opts, MAPPINGS_CSV);
+            } else if (long_option_equals(name, name_len, "no-double-encode-check")) {
+                opts.no_double_encode_check = true;
             } else if (long_option_equals(name, name_len, "help")) {
                 opts.help_mode = true;
             } else {
@@ -1432,6 +1504,18 @@ int main(int argc, char *argv[]) {
         free(decoded.data);
     } else {
         // Encode mode
+
+        // Check for double-encoding
+        if (!opts.no_double_encode_check) {
+            pb_double_encode_info_t de_info = detect_double_encode(input.data, input.size, 0.05f);
+            if (de_info.detected) {
+                fprintf(stderr,
+                    "Warning: Input appears to already be printable-binary encoded (%.1f%% detection).\n"
+                    "         Use --no-double-encode-check to suppress this warning.\n",
+                    de_info.confidence * 100.0f);
+            }
+        }
+
         if (opts.passthrough_mode) {
             // Write original data to stdout
             fwrite(input.data, 1, input.size, stdout);
