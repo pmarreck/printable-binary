@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [yolo]
+  pull_request:
+    branches: [yolo]
+
+jobs:
+  nix-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            system: x86_64-linux
+          - runner: ubuntu-24.04-arm
+            system: aarch64-linux
+          - runner: macos-14
+            system: aarch64-darwin
+
+    runs-on: ${{ matrix.runner }}
+    name: nix (${{ matrix.system }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build all packages
+        run: nix build -L
+
+      - name: Run checks
+        run: |
+          for check in $(nix eval .#checks.${{ matrix.system }} --apply 'cs: builtins.attrNames cs' --json | jq -r '.[]'); do
+            echo "::group::check: $check"
+            nix build -L ".#checks.${{ matrix.system }}.$check"
+            echo "::endgroup::"
+          done
+
+      - name: Upload C binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: printable_binary_c-${{ matrix.system }}
+          path: result/bin/printable_binary_c
+
+      - name: Upload Zig binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: printable_binary_zig-${{ matrix.system }}
+          path: result/bin/printable_binary_zig
+
+      - name: Upload APE binary (Linux only)
+        if: matrix.system == 'x86_64-linux'
+        run: nix build .#printableBinaryApe -L
+        # APE is already in the default suite on Linux, but build explicitly to be sure
+
+      - name: Upload APE artifact
+        if: matrix.system == 'x86_64-linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: printable_binary_ape-${{ matrix.system }}
+          path: result/bin/printable_binary_ape.com
+
+      - name: Build WASM (x86_64-linux only)
+        if: matrix.system == 'x86_64-linux'
+        run: nix build .#printableBinaryWasm -L
+
+      - name: Upload WASM artifact
+        if: matrix.system == 'x86_64-linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: printable_binary_wasm
+          path: result/bin/printable_binary.wasm
+
+  windows-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: x86_64
+          - runner: windows-11-arm
+            arch: aarch64
+
+    runs-on: ${{ matrix.runner }}
+    name: windows (${{ matrix.arch }})
+    continue-on-error: true  # ARM runner may be in preview
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Build Zig CLI
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Build C via zig cc
+        shell: bash
+        run: |
+          zig cc -O3 -I. -o printable_binary_c.exe src/printable_binary.c
+
+      - name: Run Zig unit tests
+        run: zig build test
+
+      - name: Smoke test (roundtrip)
+        shell: bash
+        run: |
+          echo -n "Hello, World!" > /tmp/test_input.bin
+          ./zig-out/bin/printable_binary_zig.exe /tmp/test_input.bin > /tmp/test_encoded.txt
+          ./zig-out/bin/printable_binary_zig.exe -d /tmp/test_encoded.txt > /tmp/test_decoded.bin
+          if cmp -s /tmp/test_input.bin /tmp/test_decoded.bin; then
+            echo "Roundtrip PASS"
+          else
+            echo "Roundtrip FAIL"
+            exit 1
+          fi
+
+      - name: Upload Zig binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: printable_binary_zig-${{ matrix.arch }}-windows
+          path: zig-out/bin/printable_binary_zig.exe
+
+      - name: Upload C binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: printable_binary_c-${{ matrix.arch }}-windows
+          path: printable_binary_c.exe

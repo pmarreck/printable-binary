@@ -1,5 +1,8 @@
 # PrintableBinary
 
+[![Garnix CI](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fpmarreck%2Fprintable-binary%3Fbranch%3Dyolo)](https://garnix.io/repo/pmarreck/printable-binary)
+[![GitHub CI](https://github.com/pmarreck/printable-binary/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/printable-binary/actions/workflows/ci.yml)
+
 A cross-platform utility (LuaJIT, C, Zig, and JavaScript implementations) for encoding arbitrary binary data into human-readable UTF-8 text, and then decoding it back to the original binary data.
 
 ## Overview

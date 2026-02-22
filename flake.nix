@@ -253,5 +253,56 @@
               ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ printableBinaryApe ];
           };
         };
+
+        checks = {
+          test-c = pkgs.stdenv.mkDerivation {
+            name = "test-c";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ clang python3 xxd hexdump ];
+            buildPhase = ''
+              clang -O3 -Wall -Wextra -I. -o printable_binary_c src/printable_binary.c
+              IMPLEMENTATION_TO_TEST=./printable_binary_c bash ./test/test
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
+          test-zig-unit = pkgs.stdenv.mkDerivation {
+            name = "test-zig-unit";
+            src = ./.;
+            nativeBuildInputs = [ pkgs.zig ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              zig build test
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
+          test-zig = pkgs.stdenv.mkDerivation {
+            name = "test-zig";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ zig python3 xxd hexdump ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              zig build -Doptimize=ReleaseFast
+              IMPLEMENTATION_TO_TEST=./zig-out/bin/printable_binary_zig bash ./test/test
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+        } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+          test-ape = pkgs.stdenvNoCC.mkDerivation {
+            name = "test-ape";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ cosmoccBin coreutils python3 xxd hexdump bash ];
+            buildPhase = ''
+              export PATH=${cosmoccBin}/bin:$PATH
+              export HOME=$TMPDIR
+              unset C_INCLUDE_PATH CPATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH
+              cosmocc -O3 -DNDEBUG -I. -o printable_binary_ape.com src/printable_binary.c
+              chmod +x printable_binary_ape.com
+              IMPLEMENTATION_TO_TEST=./printable_binary_ape.com bash ./test/test
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+        };
       });
 }
