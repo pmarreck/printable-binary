@@ -16,7 +16,7 @@ PrintableBinary is available in multiple high-performance implementations:
 - **Actually Portable Executable**: Single binary that runs on Linux, macOS, *and* Windows
 - **Zero dependencies**: Bundles Cosmopolitan libc, so it works even on stripped-down hosts
 - **CLI parity**: Same flags, environment variables, and character map behavior as the ELF build
-- **Great for distribution**: Ship one file (`printable_binary_ape.com`) and it just works
+- **Great for distribution**: Ship one file (`printable-binary-ape.com`) and it just works
 
 ### 🦎 **Zig Implementation** (Modern, Memory-Safe)
 - **Memory-safe**: Zig's safety features catch bugs at compile time and runtime
@@ -58,9 +58,9 @@ PrintableBinary is available in multiple high-performance implementations:
 make release
 
 # Use exactly like the LuaJIT version
-./bin/printable_binary_c file.bin
-./bin/printable_binary_c -d encoded_file.txt
-./bin/printable_binary_c --passthrough file.bin | other_tool
+./bin/printable-binary-c file.bin
+./bin/printable-binary-c -d encoded_file.txt
+./bin/printable-binary-c --passthrough file.bin | other_tool
 
 # Install (optional)
 ./install_c_version.sh
@@ -73,8 +73,8 @@ make release
 make ape
 
 # Run it directly (works on Linux/macOS/Windows)
-./bin/printable_binary_ape.com file.bin
-./bin/printable_binary_ape.com -d encoded.txt > decoded.bin
+./bin/printable-binary-ape.com file.bin
+./bin/printable-binary-ape.com -d encoded.txt > decoded.bin
 
 # Run the full automated test suite against the APE binary
 make test-ape
@@ -85,19 +85,19 @@ make test-ape
 ```bash
 # Build with Nix
 nix build .#printableBinaryZig
-./result-zig/bin/printable_binary_zig file.bin
+./result-zig/bin/printable-binary-zig file.bin
 
 # Or build directly with Zig
 zig build -Doptimize=ReleaseFast
-./zig-out/bin/printable_binary_zig file.bin
+./zig-out/bin/printable-binary-zig file.bin
 ```
 
 ### LuaJIT Implementation
 
 ```bash
 # Already optimized and ready to use
-./bin/printable_binary file.bin
-./bin/printable_binary -d encoded_file.txt
+./bin/printable-binary file.bin
+./bin/printable-binary -d encoded_file.txt
 ```
 
 ## Installation Options
@@ -110,7 +110,7 @@ zig build -Doptimize=ReleaseFast
 
 Interactive installer that offers:
 - Replace LuaJIT version (with backup)
-- Install alongside as `printable_binary_c`
+- Install alongside as `printable-binary-c`
 - Install to custom location
 - Manual setup instructions
 
@@ -146,16 +146,16 @@ nix build .#default                 # Suite: native + APE + WASM
 
 ## Command-Line Usage
 
-All compiled variants (ELF, APE, WASM via wazero) share **identical** command-line interfaces. Use whichever binary suits your platform (`./bin/printable_binary_c`, `./bin/printable_binary_ape.com`, etc.).
+All compiled variants (ELF, APE, WASM via wazero) share **identical** command-line interfaces. Use whichever binary suits your platform (`./bin/printable-binary-c`, `./bin/printable-binary-ape.com`, etc.).
 
 ### Basic Operations
 
 ```bash
 # Encode binary file to UTF-8
-./bin/printable_binary file.bin > encoded.txt
+./bin/printable-binary file.bin > encoded.txt
 
 # Decode UTF-8 back to binary
-./bin/printable_binary -d encoded.txt > decoded.bin
+./bin/printable-binary -d encoded.txt > decoded.bin
 
 # Verify round-trip
 cmp file.bin decoded.bin && echo "✓ Perfect round-trip"
@@ -165,14 +165,14 @@ cmp file.bin decoded.bin && echo "✓ Perfect round-trip"
 
 ```bash
 # Passthrough mode (monitor binary data in pipelines)
-./bin/printable_binary --passthrough file.bin | other_tool
+./bin/printable-binary --passthrough file.bin | other_tool
 
 # Formatted output
-./bin/printable_binary -f=4x10 file.bin    # 4 chars per group, 10 groups per line
+./bin/printable-binary -f=4x10 file.bin    # 4 chars per group, 10 groups per line
 
 # Piped input
-cat file.bin | ./bin/printable_binary
-echo "Hello" | ./bin/printable_binary | ./bin/printable_binary -d
+cat file.bin | ./bin/printable-binary
+echo "Hello" | ./bin/printable-binary | ./bin/printable-binary -d
 ```
 
 ### Complete Options Reference
@@ -363,8 +363,8 @@ make LDFLAGS=-static release
 make profile
 
 # Run with profiling
-./bin/printable_binary_profile large_file.bin
-gprof printable_binary_profile gmon.out > profile.txt
+./bin/printable-binary_profile large_file.bin
+gprof printable-binary-profile gmon.out > profile.txt
 
 # Memory profiling with Valgrind
 make memcheck
@@ -416,8 +416,8 @@ make memcheck
 ./test/test_all             # Full runner (fuzz, WASM, JS, etc.)
 
 # C implementation
-make test                   # Builds bin/printable_binary_c and runs ./test/test_all against it
-cd test && IMPLEMENTATION_TO_TEST=../bin/printable_binary_c ./test_all
+make test                   # Builds bin/printable-binary-c and runs ./test/test_all against it
+cd test && IMPLEMENTATION_TO_TEST=../bin/printable-binary-c ./test_all
 
 # Compatibility verification
 ./bm/benchmark_c_vs_lua.sh  # Performance + encode/decode parity
@@ -427,15 +427,15 @@ cd test && IMPLEMENTATION_TO_TEST=../bin/printable_binary_c ./test_all
 
 ```bash
 # Quick round-trip test
-echo "Hello, World! 🌍" | ./bin/printable_binary_c | ./bin/printable_binary_c -d
+echo "Hello, World! 🌍" | ./bin/printable-binary-c | ./bin/printable-binary-c -d
 
 # Large file test
 dd if=/dev/urandom of=test.bin bs=1M count=1
-./bin/printable_binary_c test.bin | ./bin/printable_binary_c -d | cmp test.bin -
+./bin/printable-binary-c test.bin | ./bin/printable-binary-c -d | cmp test.bin -
 
 # Binary compatibility test
-./bin/printable_binary_c test.bin > c_output.txt
-./bin/printable_binary test.bin > lua_output.txt
+./bin/printable-binary-c test.bin > c_output.txt
+./bin/printable-binary test.bin > lua_output.txt
 cmp c_output.txt lua_output.txt && echo "✓ Outputs identical"
 ```
 
@@ -451,19 +451,19 @@ xcode-select --install                # macOS
 
 # Permission errors
 chmod +x install_c_version.sh
-chmod +x bin/printable_binary_c
+chmod +x bin/printable-binary-c
 ```
 
 **Runtime Issues:**
 ```bash
 # Test basic functionality
-echo "test" | ./bin/printable_binary_c
+echo "test" | ./bin/printable-binary-c
 
 # Check file permissions
-ls -la bin/printable_binary_c
+ls -la bin/printable-binary-c
 
 # Verify binary works
-./bin/printable_binary_c --help
+./bin/printable-binary-c --help
 ```
 
 **Performance Issues:**
@@ -527,7 +527,7 @@ Both implementations are released under the same license as the original project
 ### Getting Help
 
 1. **Check this README** for common usage patterns
-2. **Run built-in help**: `./bin/printable_binary --help`
+2. **Run built-in help**: `./bin/printable-binary --help`
 3. **Review test suites** for usage examples
 4. **Check performance docs** for optimization tips
 

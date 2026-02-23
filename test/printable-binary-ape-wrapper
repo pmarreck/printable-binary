@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-APE_BIN="${APE_BIN:-$REPO_ROOT/bin/printable_binary_ape.com}"
+APE_BIN="${APE_BIN:-$REPO_ROOT/bin/printable-binary-ape.com}"
 if [[ ! -x "$APE_BIN" ]]; then
   echo "Error: APE binary not found or not executable: $APE_BIN" >&2
   exit 1

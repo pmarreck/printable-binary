@@ -42,14 +42,14 @@ jobs:
       - name: Upload C binary
         uses: actions/upload-artifact@v4
         with:
-          name: printable_binary_c-${{ matrix.system }}
-          path: result/bin/printable_binary_c
+          name: printable-binary-c-${{ matrix.system }}
+          path: result/bin/printable-binary-c
 
       - name: Upload Zig binary
         uses: actions/upload-artifact@v4
         with:
-          name: printable_binary_zig-${{ matrix.system }}
-          path: result/bin/printable_binary_zig
+          name: printable-binary-zig-${{ matrix.system }}
+          path: result/bin/printable-binary-zig
 
       - name: Upload APE binary (Linux only)
         if: matrix.system == 'x86_64-linux'
@@ -60,8 +60,8 @@ jobs:
         if: matrix.system == 'x86_64-linux'
         uses: actions/upload-artifact@v4
         with:
-          name: printable_binary_ape-${{ matrix.system }}
-          path: result/bin/printable_binary_ape.com
+          name: printable-binary-ape-${{ matrix.system }}
+          path: result/bin/printable-binary-ape.com
 
       - name: Build WASM (x86_64-linux only)
         if: matrix.system == 'x86_64-linux'
@@ -71,8 +71,8 @@ jobs:
         if: matrix.system == 'x86_64-linux'
         uses: actions/upload-artifact@v4
         with:
-          name: printable_binary_wasm
-          path: result/bin/printable_binary.wasm
+          name: printable-binary-wasm
+          path: result/bin/printable-binary.wasm
 
   windows-build:
     strategy:
@@ -101,7 +101,7 @@ jobs:
       - name: Build C via zig cc
         shell: bash
         run: |
-          zig cc -O3 -I. -o printable_binary_c.exe src/printable_binary.c
+          zig cc -O3 -I. -o printable-binary-c.exe src/printable_binary.c
 
       - name: Run Zig unit tests
         run: zig build test
@@ -110,8 +110,8 @@ jobs:
         shell: bash
         run: |
           echo -n "Hello, World!" > /tmp/test_input.bin
-          ./zig-out/bin/printable_binary_zig.exe /tmp/test_input.bin > /tmp/test_encoded.txt
-          ./zig-out/bin/printable_binary_zig.exe -d /tmp/test_encoded.txt > /tmp/test_decoded.bin
+          ./zig-out/bin/printable-binary-zig.exe /tmp/test_input.bin > /tmp/test_encoded.txt
+          ./zig-out/bin/printable-binary-zig.exe -d /tmp/test_encoded.txt > /tmp/test_decoded.bin
           if cmp -s /tmp/test_input.bin /tmp/test_decoded.bin; then
             echo "Roundtrip PASS"
           else
@@ -122,11 +122,11 @@ jobs:
       - name: Upload Zig binary
         uses: actions/upload-artifact@v4
         with:
-          name: printable_binary_zig-${{ matrix.arch }}-windows
-          path: zig-out/bin/printable_binary_zig.exe
+          name: printable-binary-zig-${{ matrix.arch }}-windows
+          path: zig-out/bin/printable-binary-zig.exe
 
       - name: Upload C binary
         uses: actions/upload-artifact@v4
         with:
-          name: printable_binary_c-${{ matrix.arch }}-windows
-          path: printable_binary_c.exe
+          name: printable-binary-c-${{ matrix.arch }}-windows
+          path: printable-binary-c.exe

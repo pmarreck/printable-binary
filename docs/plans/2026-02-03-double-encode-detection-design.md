@@ -35,7 +35,7 @@ Scan input for "high-confidence" PB glyphs—characters that are:
 ### Behavior
 
 ```
-$ echo -n -e '\x00' | ./bin/printable_binary | ./bin/printable_binary
+$ echo -n -e '\x00' | ./bin/printable-binary | ./bin/printable-binary
 Warning: Input appears to already be printable-binary encoded (8% detection).
          Use --no-double-encode-check to suppress this warning.
 ĺȉ

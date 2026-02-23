@@ -7,9 +7,9 @@ This document describes the organization of the PrintableBinary project after th
 ```
 printable-binary/
 ├── bin/                    # Entry points + build outputs
-│   ├── printable_binary        # LuaJIT implementation (main CLI)
-│   ├── printable_binary_node.js
-│   └── printable_binary_c      # Built by `make release` (not committed)
+│   ├── printable-binary        # LuaJIT implementation (main CLI)
+│   ├── printable-binary-node.js
+│   └── printable-binary-c      # Built by `make release` (not committed)
 ├── js/                     # Shared JavaScript module used by CLI/browser
 ├── bm/                     # Benchmark helpers and comparison scripts
 ├── test/                   # All tests (Lua + JS + WASM + fuzz)
@@ -33,9 +33,9 @@ printable-binary/
 ## Key Files
 
 ### Implementations
-- **`bin/printable_binary`** - Original LuaJIT implementation (requires LuaJIT)
+- **`bin/printable-binary`** - Original LuaJIT implementation (requires LuaJIT)
 - **`src/printable_binary.c`** - C source code for high-performance version
-- **`bin/printable_binary_c`** - Compiled C binary (created by `make`)
+- **`bin/printable-binary-c`** - Compiled C binary (created by `make`)
 
 ### Build System
 - **`Makefile`** - Builds C implementation into `bin/` directory
@@ -79,9 +79,9 @@ cd test && ./test_all
 #### Testing C Implementation
 ```bash
 # Set environment variable to test C version
-IMPLEMENTATION_TO_TEST=bin/printable_binary_c make test
+IMPLEMENTATION_TO_TEST=bin/printable-binary-c make test
 # OR
-cd test && IMPLEMENTATION_TO_TEST=../bin/printable_binary_c ./test_all
+cd test && IMPLEMENTATION_TO_TEST=../bin/printable-binary-c ./test_all
 ```
 
 #### Testing Custom Implementation
@@ -94,8 +94,8 @@ IMPLEMENTATION_TO_TEST=/path/to/my/version make test
 
 All test scripts support the `IMPLEMENTATION_TO_TEST` environment variable:
 
-- **Default**: `../bin/printable_binary` (LuaJIT version)
-- **C version**: `../bin/printable_binary_c`
+- **Default**: `../bin/printable-binary` (LuaJIT version)
+- **C version**: `../bin/printable-binary-c`
 - **Custom**: Any path to a compatible implementation
 
 This allows the same comprehensive test suite to validate any implementation.

@@ -47,7 +47,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = "printable_binary_zig",
+        .name = "printable-binary-zig",
         .root_module = cli_mod,
     });
 

@@ -12,7 +12,7 @@ echo -e "${BLUE}=== PrintableBinary Performance Benchmark ===${NC}"
 # Path to the printable_binary script (can be overridden with IMPLEMENTATION_TO_TEST)
 # Auto-detect the correct path based on script location
 SCRIPT_DIR="$(dirname "$0")"
-DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../bin/printable_binary"
+DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../bin/printable-binary"
 SCRIPT="${IMPLEMENTATION_TO_TEST:-$DEFAULT_IMPLEMENTATION}"
 echo -e "${YELLOW}Testing implementation: $SCRIPT${NC}"
 

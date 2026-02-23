@@ -1031,7 +1031,7 @@ static const char *resolve_program_name(const char *argv0) {
     if (argv0 && argv0[0] != '\0') {
         return argv0;
     }
-    return "printable_binary";
+    return "printable-binary";
 #endif
 }
 

@@ -35,8 +35,8 @@ $ bat -A binary_file.bin
 ### Round-Trip Encoding/Decoding (While Maintaining Human Legibility)
 
 ```bash
-$ ./bin/printable_binary file.bin > encoded.txt
-$ ./bin/printable_binary -d encoded.txt > decoded.bin
+$ ./bin/printable-binary file.bin > encoded.txt
+$ ./bin/printable-binary -d encoded.txt > decoded.bin
 $ cmp file.bin decoded.bin && echo "Perfect round-trip!"
 ```
 
@@ -45,8 +45,8 @@ $ cmp file.bin decoded.bin && echo "Perfect round-trip!"
 ### 1. **Lossless Round-Trip Encoding** 🔄
 
 ```bash
-./bin/printable_binary file.bin > encoded.txt
-./bin/printable_binary -d encoded.txt > recovered.bin
+./bin/printable-binary file.bin > encoded.txt
+./bin/printable-binary -d encoded.txt > recovered.bin
 # Perfect reconstruction - zero data loss
 ```
 
@@ -54,7 +54,7 @@ $ cmp file.bin decoded.bin && echo "Perfect round-trip!"
 
 ```bash
 # Monitor binary streams in real-time
-./bin/printable_binary --passthrough file.bin | other_tool
+./bin/printable-binary --passthrough file.bin | other_tool
 # Original data flows through stdout, encoded representation on stderr
 ```
 
@@ -68,7 +68,7 @@ $ cmp file.bin decoded.bin && echo "Perfect round-trip!"
 
 ```bash
 # Configurable output formatting
-./bin/printable_binary -f=4x10 file.bin  # Custom grouping
+./bin/printable-binary -f=4x10 file.bin  # Custom grouping
 # Whitespace-tolerant decoding - copy-paste friendly
 ```
 
@@ -76,7 +76,7 @@ $ cmp file.bin decoded.bin && echo "Perfect round-trip!"
 
 ```bash
 # PrintableBinary: ~1.8x expansion, human-readable
-echo "Hello" | ./bin/printable_binary
+echo "Hello" | ./bin/printable-binary
 # Output: Hello
 
 # Base64: 1.33x expansion, opaque encoding
@@ -160,15 +160,15 @@ bat -A suspicious_file.bin
 
 ```bash
 # Round-trip encoding
-./bin/printable_binary data.bin > encoded.txt
-./bin/printable_binary -d encoded.txt > restored.bin
+./bin/printable-binary data.bin > encoded.txt
+./bin/printable-binary -d encoded.txt > restored.bin
 
 # Real-time pipeline monitoring
-./bin/printable_binary --passthrough data.bin | process_tool
+./bin/printable-binary --passthrough data.bin | process_tool
 
 # Production batch processing
 for file in *.bin; do
-    ./bin/printable_binary_c "$file" > "${file}.encoded"
+    ./bin/printable-binary-c "$file" > "${file}.encoded"
 done
 ```
 

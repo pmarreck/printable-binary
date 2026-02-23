@@ -387,7 +387,7 @@ end
 -- If running as a script rather than being required as a module
 if arg then
   local function print_usage()
-    local progname = arg[0] or "printable_binary"
+    local progname = arg[0] or "printable-binary"
 
     io.stderr:write("PrintableBinary - Encode binary data as printable UTF-8 and decode it back\n\n")
     io.stderr:write("Usage: " .. progname .. " [options] [file]\n")

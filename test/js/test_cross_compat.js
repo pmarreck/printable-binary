@@ -23,7 +23,7 @@ console.log();
 
 // Encode with Lua implementation
 const luaProcess = Deno.run({
-  cmd: ["./bin/printable_binary"],
+  cmd: ["./bin/printable-binary"],
   stdin: "piped",
   stdout: "piped",
   stderr: "piped"

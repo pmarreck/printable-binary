@@ -46,14 +46,14 @@ This implementation allows you to view binary data directly in a terminal (it ev
 
 ```bash
 # Use any implementation:
-# LuaJIT version:     ./bin/printable_binary
-# Node.js CLI:         ./bin/printable_binary_node.js
-# C version:           make release && ./bin/printable_binary_c
-# Zig version:         nix build .#printableBinaryZig && ./bin/printable_binary_zig
+# LuaJIT version:     ./bin/printable-binary
+# Node.js CLI:         ./bin/printable-binary-node.js
+# C version:           make release && ./bin/printable-binary-c
+# Zig version:         nix build .#printableBinaryZig && ./bin/printable-binary-zig
 # (Examples below use the LuaJIT version; the others accept the same flags.)
 
 # Encode binary data
-echo -n "Hello, World!" | ./bin/printable_binary
+echo -n "Hello, World!" | ./bin/printable-binary
 # Output: Hello,␣World﹗
 
 # Note: Direct encoding of binary data as command-line arguments is not supported
@@ -61,46 +61,46 @@ echo -n "Hello, World!" | ./bin/printable_binary
 # Always pipe input or specify a file to encode
 
 # Encode a file
-./bin/printable_binary somefile.bin > encoded.txt
+./bin/printable-binary somefile.bin > encoded.txt
 
 # Encode with formatting (groups of 8 characters, 10 groups per line)
-./bin/printable_binary -f somefile.bin > formatted_encoded.txt
+./bin/printable-binary -f somefile.bin > formatted_encoded.txt
 
 # Encode with custom formatting (groups of 4 characters, 16 groups per line)
-./bin/printable_binary -f=4x16 somefile.bin > custom_formatted.txt
+./bin/printable-binary -f=4x16 somefile.bin > custom_formatted.txt
 
 # Inspect the active character map (table/JSON/CSV)
-./bin/printable_binary --mappings | head
-./bin/printable_binary_c --mappings-json > mapping.json
-./bin/printable_binary_node.js --mappings-csv > mapping.csv
+./bin/printable-binary --mappings | head
+./bin/printable-binary-c --mappings-json > mapping.json
+./bin/printable-binary-node.js --mappings-csv > mapping.csv
 
 # Decode data (whitespace is ignored during decoding)
-echo -n "Hello,␣World﹗" | ./bin/printable_binary -d
+echo -n "Hello,␣World﹗" | ./bin/printable-binary -d
 # Output: Hello, World!
 
 # Decode formatted data (formatting is ignored)
-cat formatted_encoded.txt | ./bin/printable_binary -d > original.bin
+cat formatted_encoded.txt | ./bin/printable-binary -d > original.bin
 
 # Preserve literal whitespace (spaces, tabs, newlines stay as-is instead of being encoded)
-echo -n "A B  C" | ./bin/printable_binary --spaces > encoded_with_spaces.txt
-./bin/printable_binary -d -S encoded_with_spaces.txt > restored.bin
+echo -n "A B  C" | ./bin/printable-binary --spaces > encoded_with_spaces.txt
+./bin/printable-binary -d -S encoded_with_spaces.txt > restored.bin
 
 # Preserve all whitespace (shorthand for -s -t -n)
-./bin/printable_binary -w input.bin > with_whitespace.txt
+./bin/printable-binary -w input.bin > with_whitespace.txt
 
 # Preserve specific characters (e.g., keep ! and " literal)
-./bin/printable_binary -p '!"' input.bin > preserved.txt
+./bin/printable-binary -p '!"' input.bin > preserved.txt
 
 # Decode block-formatted input (strip whitespace separators first)
-./bin/printable_binary -d -S formatted_encoded.txt > original.bin
+./bin/printable-binary -d -S formatted_encoded.txt > original.bin
 
 # Use passthrough mode to output both original binary (stdout) and encoded text (stderr)
 # This is useful for binary data processing pipelines that need both representations
-echo -n "Hello, World!" | ./bin/printable_binary --passthrough 2>encoded.txt | wc -c
+echo -n "Hello, World!" | ./bin/printable-binary --passthrough 2>encoded.txt | wc -c
 # Binary data goes to stdout, encoded text to stderr
 
 # Use the C implementation for better performance on large files
-./bin/printable_binary_c large_file.bin > encoded_large.txt
+./bin/printable-binary-c large_file.bin > encoded_large.txt
 ```
 
 ### Web Interface
@@ -155,19 +155,19 @@ For command-line parity with the LuaJIT/C tools, use the Node-based wrapper:
 
 ```bash
 # Encode (auto-detects stdin vs. file)
-./bin/printable_binary_node.js input.bin > encoded.pbt
+./bin/printable-binary-node.js input.bin > encoded.pbt
 
 # Decode (whitespace is ignored automatically)
-./bin/printable_binary_node.js --decode encoded.pbt > restored.bin
+./bin/printable-binary-node.js --decode encoded.pbt > restored.bin
 
 # Apply formatting (e.g., 75 characters per line)
-./bin/printable_binary_node.js --format 75x1 input.bin > formatted.pbt
+./bin/printable-binary-node.js --format 75x1 input.bin > formatted.pbt
 
 # Pipe data through stdin
-cat input.bin | ./bin/printable_binary_node.js -f=8x10 > encoded.txt
+cat input.bin | ./bin/printable-binary-node.js -f=8x10 > encoded.txt
 
 # Dump the current character map
-./bin/printable_binary_node.js --mappings-json > map.json
+./bin/printable-binary-node.js --mappings-json > map.json
 ```
 
 Supported flags: `-d/--decode`, `-f/--format NxM`, `-s/--spaces`, `--mappings*`, `-h/--help`. The CLI shares the exact encode/decode implementation with the browser UI.
@@ -177,9 +177,9 @@ Supported flags: `-d/--decode`, `-f/--format NxM`, `-s/--spaces`, `--mappings*`,
 Every CLI (and the WASM build, when built) ships with the canonical 256-entry table embedded, so you can always inspect it:
 
 ```bash
-./bin/printable_binary --mappings          # human-readable table
-./bin/printable_binary --mappings-json     # machine-readable JSON
-./bin/printable_binary --mappings-csv      # spreadsheet-friendly CSV
+./bin/printable-binary --mappings          # human-readable table
+./bin/printable-binary --mappings-json     # machine-readable JSON
+./bin/printable-binary --mappings-csv      # spreadsheet-friendly CSV
 ```
 
 Those commands show whichever map is active. To override the defaults, place a `character_map.txt` next to the executable (or set `PRINTABLE_BINARY_MAP`) and rerun the same flags to confirm your changes. The file format is simple: **256 lines of UTF-8, one glyph per byte value starting at 0x00**. No commas, spaces, or indexes—just the literal characters in order. After editing, run `./utils/audit_character_map.lua character_map.txt` (and `./utils/update_eaw_data.sh` when Unicode publishes a new width table) plus `./utils/generate_embedded_map.lua` so the embedded headers stay in sync.
@@ -187,7 +187,7 @@ Those commands show whichever map is active. To override the defaults, place a `
 The runtime lookup order is:
 
 1. `PRINTABLE_BINARY_MAP` environment variable (path to the file)
-2. A `character_map.txt` sitting next to the executable/module (`bin/printable_binary`, `js/printable_binary.js`, `bin/printable_binary_c`, or the WASM dir)
+2. A `character_map.txt` sitting next to the executable/module (`bin/printable-binary`, `js/printable_binary.js`, `bin/printable-binary-c`, or the WASM dir)
 3. The current working directory
 
 If none of those locations exist, the embedded table is used automatically. Edit the file to experiment with alternative glyphs—the LuaJIT, C, Node.js, and WebAssembly implementations will all honor the override on their next run.
@@ -199,7 +199,7 @@ PrintableBinary respects a couple of environment variables across every implemen
 - `PRINTABLE_BINARY_MAP` – absolute or relative path to a `character_map.txt` that overrides the embedded table. The lookup order is described above.
 - `PRINTABLE_BINARY_MUTE_STATS` – set to `1`, `true`, or `yes` to suppress the usual "Encoded …" / "Decoding mode …" statistics that are normally written to stderr. This is handy for scripts that expect clean stderr output while still reusing the default behavior interactively.
 
-When launching the WASM build with wazero, remember that it does **not** inherit host environment variables unless you pass them. After building `bin/printable_binary.wasm` (for example via `make wasm`), use `wazero run --env=PRINTABLE_BINARY_MUTE_STATS=true bin/printable_binary.wasm` (or `--env-inherit` to forward everything) so the behavior matches the native binaries.
+When launching the WASM build with wazero, remember that it does **not** inherit host environment variables unless you pass them. After building `bin/printable-binary.wasm` (for example via `make wasm`), use `wazero run --env=PRINTABLE_BINARY_MUTE_STATS=true bin/printable-binary.wasm` (or `--env-inherit` to forward everything) so the behavior matches the native binaries.
 
 ### Inspecting Streams (Passthrough Mode)
 
@@ -208,12 +208,12 @@ One powerful trick is to drop PrintableBinary into a pipeline so you can watch t
 ```bash
 # Monitor traffic but keep the pipeline lossless
 tcpdump -i en0 -w - | \
-  ./bin/printable_binary --passthrough > capture.raw 2> capture.pbt
+  ./bin/printable-binary --passthrough > capture.raw 2> capture.pbt
 
 # Alternatively inspect a decompression stream:
 gzip -c bigfile > /tmp/data.gz
 gzip -dc /tmp/data.gz | \
-  ./bin/printable_binary --passthrough | md5sum
+  ./bin/printable-binary --passthrough | md5sum
 # stdout (original bytes) flows into md5sum; stderr shows the printable view.
 ```
 
@@ -224,17 +224,17 @@ Because `--passthrough` sends the original binary to stdout, you can insert Prin
 - **Escape-proof JSON embed** – Avoid backslash/quote hell by pre-encoding the bytes, then drop them straight into a JSON string:
 
   ```bash
-  ENCODED="$(./bin/printable_binary secret.bin)"
+  ENCODED="$(./bin/printable-binary secret.bin)"
   printf '{"payload":"%s"}\n' "$ENCODED" | jq .
   # Decode later:
-  printf '%s' "$ENCODED" | ./bin/printable_binary -d > restored.bin
+  printf '%s' "$ENCODED" | ./bin/printable-binary -d > restored.bin
   ```
 
-- **Bash assertion on binary snippets** – Keep fixtures inline without here-doc escaping. Generate the encoded blob once (e.g., `PRINTABLE_BINARY_MUTE_STATS=1 printf 'CAFÉ\n' | ./bin/printable_binary`), then paste it into the here-doc:
+- **Bash assertion on binary snippets** – Keep fixtures inline without here-doc escaping. Generate the encoded blob once (e.g., `PRINTABLE_BINARY_MUTE_STATS=1 printf 'CAFÉ\n' | ./bin/printable-binary`), then paste it into the here-doc:
 
   ```bash
   want=$'CAFÉ\n'                                     # byte-for-byte expectation
-  got=$(./bin/printable_binary -d <<'EOF'
+  got=$(./bin/printable-binary -d <<'EOF'
   CAFĹɃ¶
   EOF
   )
@@ -244,7 +244,7 @@ Because `--passthrough` sends the original binary to stdout, you can insert Prin
 - **Peek mixed binary/text streams in place** – Mirror a live HTTP POST while keeping the raw bytes intact:
 
   ```bash
-  nc -l 8080 | ./bin/printable_binary --passthrough \
+  nc -l 8080 | ./bin/printable-binary --passthrough \
     >requests.raw 2>requests.pbt
   # tail -f requests.pbt to watch headers + body without mojibake.
   ```
@@ -254,7 +254,7 @@ Because `--passthrough` sends the original binary to stdout, you can insert Prin
   ```html
   <script type="module">
     import PrintableBinary from './js/printable_binary.js';
-    const encoded = `{{REPLACE_WITH_$(./bin/printable_binary file.bin)}}`;
+    const encoded = `{{REPLACE_WITH_$(./bin/printable-binary file.bin)}}`;
     const pb = new PrintableBinary();
     const bytes = pb.decode(encoded);
     // do something with bytes (e.g., create a Blob)
@@ -264,10 +264,10 @@ Because `--passthrough` sends the original binary to stdout, you can insert Prin
 - **Inspect hint bytes of common formats** – Spot magic numbers without a hex viewer:
 
   ```bash
-  head -c 16 some.pdf | ./bin/printable_binary
+  head -c 16 some.pdf | ./bin/printable-binary
   # Expect to see %PDF␣1.7… rendered directly.
 
-  head -c 8 image.png | ./bin/printable_binary
+  head -c 8 image.png | ./bin/printable-binary
   # Should show 89PNG⏎␣␣ if the PNG signature is intact.
   ```
 
@@ -298,19 +298,19 @@ The PrintableBinary character set is specifically designed to be highly compatib
 
 ```bash
 # JSON
-echo '{"binary_data": "'$(./bin/printable_binary file.bin)'"}'
+echo '{"binary_data": "'$(./bin/printable-binary file.bin)'"}'
 
 # XML/HTML
-echo '<data>'$(./bin/printable_binary file.bin)'</data>'
+echo '<data>'$(./bin/printable-binary file.bin)'</data>'
 
 # YAML
-echo 'data: "'$(./bin/printable_binary file.bin)'"'
+echo 'data: "'$(./bin/printable-binary file.bin)'"'
 
 # Shell variable
-DATA="$(./bin/printable_binary file.bin)"
+DATA="$(./bin/printable-binary file.bin)"
 
 # C string literal
-printf 'char data[] = "%s";\n' "$(./bin/printable_binary file.bin)"
+printf 'char data[] = "%s";\n' "$(./bin/printable-binary file.bin)"
 ```
 
 **Note:** If your original binary contains problematic characters (like `{`), they'll appear as-is since they're printable ASCII. Use quoted contexts when embedding in structured formats.

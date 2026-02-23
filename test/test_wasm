@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Tests printable_binary.wasm using wazero
+# Tests printable-binary.wasm using wazero
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WASM_BIN="$REPO_ROOT/bin/printable_binary.wasm"
+WASM_BIN="$REPO_ROOT/bin/printable-binary.wasm"
 WAZERO_BIN="$(command -v wazero || true)"
 
 if [[ -z "$WAZERO_BIN" ]]; then
@@ -34,8 +34,8 @@ run_wasm() {
 }
 
 HELP_OUTPUT=$(run_wasm --help 2>&1 || true)
-if [[ "$HELP_OUTPUT" != *"Usage: printable_binary"* ]]; then
-  echo "Help output did not mention printable_binary" >&2
+if [[ "$HELP_OUTPUT" != *"Usage: printable-binary"* ]]; then
+  echo "Help output did not mention printable-binary" >&2
   exit 1
 fi
 

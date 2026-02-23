@@ -20,8 +20,8 @@ SIZE_NAMES=("1KB" "10KB" "100KB" "1MB")
 PATTERNS=("ascii" "binary" "random")
 OPERATIONS=("encode" "decode")
 
-C_BINARY="./bin/printable_binary_c"
-LUA_BINARY="./bin/printable_binary"
+C_BINARY="./bin/printable-binary-c"
+LUA_BINARY="./bin/printable-binary"
 
 echo -e "${BOLD}${BLUE}PrintableBinary: C vs LuaJIT Performance Benchmark${NC}"
 echo -e "${BLUE}===================================================${NC}"

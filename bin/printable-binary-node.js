@@ -12,7 +12,7 @@ import PrintableBinary from '../js/printable_binary.js';
 function printUsage() {
   const progname = process.argv[1]
     ? process.argv[1].split('/').slice(-1)[0]
-    : 'printable_binary_node';
+    : 'printable-binary-node';
 
   const usage = `
 PrintableBinary (JavaScript CLI) - Encode binary data as printable UTF-8 and decode it back

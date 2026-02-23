@@ -51,18 +51,18 @@ echo -e "${BLUE}    PrintableBinary Multi-Implementation Test Suite${NC}"
 echo -e "${BLUE}══════════════════════════════════════════════════════════════════${NC}"
 
 # Test each implementation
-test_implementation "Lua (reference)" "./bin/printable_binary" || true
-test_implementation "Node.js" "./bin/printable_binary_node.js" || true
-test_implementation "C (standalone)" "./result/bin/printable_binary_c" || true
-test_implementation "Zig" "./result/bin/printable_binary_zig" || true
+test_implementation "Lua (reference)" "./bin/printable-binary" || true
+test_implementation "Node.js" "./bin/printable-binary-node.js" || true
+test_implementation "C (standalone)" "./result/bin/printable-binary-c" || true
+test_implementation "Zig" "./result/bin/printable-binary-zig" || true
 
 # WASM via wazero wrapper (if available)
-if [[ -f bin/printable_binary.wasm ]]; then
+if [[ -f bin/printable-binary.wasm ]]; then
     # Create temporary wrapper script
     WASM_WRAPPER=$(mktemp)
     cat > "$WASM_WRAPPER" << 'EOF'
 #!/usr/bin/env bash
-exec nix develop -c wazero run bin/printable_binary.wasm "$@" 2>/dev/null
+exec nix develop -c wazero run bin/printable-binary.wasm "$@" 2>/dev/null
 EOF
     chmod +x "$WASM_WRAPPER"
 
@@ -76,8 +76,8 @@ EOF
 fi
 
 # APE if available
-if [[ -x bin/printable_binary_ape.com ]]; then
-    test_implementation "APE (portable)" "./bin/printable_binary_ape.com" || true
+if [[ -x bin/printable-binary-ape.com ]]; then
+    test_implementation "APE (portable)" "./bin/printable-binary-ape.com" || true
 fi
 
 # Summary

@@ -26,8 +26,8 @@ echo "=== Test 1: JavaScript encode -> Lua decode ==="
 JS_ENCODED="/tmp/pb_js_encoded.txt"
 LUA_DECODED="/tmp/pb_lua_decoded.bin"
 
-JS_CLI="$REPO_ROOT/bin/printable_binary_node.js"
-LUA_CLI="$REPO_ROOT/printable_binary"
+JS_CLI="$REPO_ROOT/bin/printable-binary-node.js"
+LUA_CLI="$REPO_ROOT/printable-binary"
 
 echo "Encoding with JavaScript..."
 "$JS_CLI" "$TEST_DATA" > "$JS_ENCODED"

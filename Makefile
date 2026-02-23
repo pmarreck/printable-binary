@@ -15,18 +15,18 @@ CC ?= gcc
 CFLAGS = -std=c99 -Wall -Wextra -Wpedantic -I$(CURDIR) -I$(CURDIR)/src
 LDFLAGS =
 BIN_DIR = bin
-TARGET = printable_binary_c
+TARGET = printable-binary-c
 SOURCE = src/printable_binary.c
 FFI_MAIN_SOURCE = src/printable_binary_ffi_main.c
-WASM_TARGET = printable_binary.wasm
-APE_TARGET = printable_binary_ape.com
-APE_FFI_TARGET = printable_binary_ape_ffi.com
+WASM_TARGET = printable-binary.wasm
+APE_TARGET = printable-binary-ape.com
+APE_FFI_TARGET = printable-binary-ape-ffi.com
 MAP_COPY = $(BIN_DIR)/character_map.txt
 STRIP ?= strip
 
 # Zig build outputs
 ZIG_LIB = zig-out/lib/libprintable_binary.a
-ZIG_CLI = zig-out/bin/printable_binary_zig
+ZIG_CLI = zig-out/bin/printable-binary-zig
 
 COSMOCC_VERSION ?= 4.0.2
 COSMOCC_URL ?= https://cosmo.zip/pub/cosmocc/cosmocc-$(COSMOCC_VERSION).zip
@@ -69,7 +69,7 @@ EMFLAGS = -O3 -DNDEBUG \
 	-s STANDALONE_WASM=1 \
 	-s FILESYSTEM=1 \
 	-s INITIAL_MEMORY=134217728 \
-	-DPRINTABLE_BINARY_HELP_NAME=\"printable_binary\"
+	-DPRINTABLE_BINARY_HELP_NAME=\"printable-binary\"
 EM_CACHE_DIR ?= $(CURDIR)/.emscripten_cache
 
 # Default target
@@ -209,9 +209,9 @@ $(ZIG_CLI):
 
 # Build the C CLI that uses Zig FFI (dogfooding)
 .PHONY: ffi-cli
-ffi-cli: $(BIN_DIR)/printable_binary_ffi
+ffi-cli: $(BIN_DIR)/printable-binary-ffi
 
-$(BIN_DIR)/printable_binary_ffi: $(FFI_MAIN_SOURCE) $(ZIG_LIB) | $(BIN_DIR)
+$(BIN_DIR)/printable-binary-ffi: $(FFI_MAIN_SOURCE) $(ZIG_LIB) | $(BIN_DIR)
 	$(CC) $(CFLAGS_RELEASE) -o $@ $(FFI_MAIN_SOURCE) $(ZIG_LIB)
 
 # Build Cosmopolitan APE using Zig FFI
@@ -255,7 +255,7 @@ test-ape: $(BIN_DIR)/$(APE_TARGET)
 # Test the C CLI using Zig FFI
 .PHONY: test-ffi
 test-ffi: ffi-cli
-	cd test && IMPLEMENTATION_TO_TEST=../$(BIN_DIR)/printable_binary_ffi ./test_all
+	cd test && IMPLEMENTATION_TO_TEST=../$(BIN_DIR)/printable-binary-ffi ./test_all
 
 # Test the Zig CLI
 .PHONY: test-zig
@@ -291,7 +291,7 @@ benchmark: $(TARGET)
 # Compare with LuaJIT version
 .PHONY: compare
 compare: $(TARGET)
-	@if [ ! -f bin/printable_binary ]; then \
+	@if [ ! -f bin/printable-binary ]; then \
 		echo "Error: LuaJIT version not found"; \
 		exit 1; \
 	fi
@@ -304,13 +304,13 @@ compare: $(TARGET)
 	@time $(BIN_DIR)/$(TARGET) compare_test.bin > compare_c_encoded.tmp 2>/dev/null
 	@echo
 	@echo "LuaJIT version encoding:"
-	@time ./bin/printable_binary compare_test.bin > compare_lua_encoded.tmp 2>/dev/null
+	@time ./bin/printable-binary compare_test.bin > compare_lua_encoded.tmp 2>/dev/null
 	@echo
 	@echo "C version decoding:"
 	@time $(BIN_DIR)/$(TARGET) -d compare_c_encoded.tmp > compare_c_decoded.tmp 2>/dev/null
 	@echo
 	@echo "LuaJIT version decoding:"
-	@time ./bin/printable_binary -d compare_lua_encoded.tmp > compare_lua_decoded.tmp 2>/dev/null
+	@time ./bin/printable-binary -d compare_lua_encoded.tmp > compare_lua_decoded.tmp 2>/dev/null
 	@echo
 	@echo "Verifying output compatibility:"
 	@if cmp compare_c_encoded.tmp compare_lua_encoded.tmp; then \
@@ -334,13 +334,13 @@ hyperfine: $(TARGET)
 		echo "Running hyperfine benchmark..."; \
 		hyperfine --warmup 3 \
 			"$(BIN_DIR)/$(TARGET) hyperfine_test.bin" \
-		"./bin/printable_binary hyperfine_test.bin" \
+		"./bin/printable-binary hyperfine_test.bin" \
 			--export-markdown benchmark_results.md; \
 		echo "Encode benchmark results saved to benchmark_results.md"; \
 		$(BIN_DIR)/$(TARGET) hyperfine_test.bin > hyperfine_encoded.tmp 2>/dev/null; \
 		hyperfine --warmup 3 \
 			"$(BIN_DIR)/$(TARGET) -d hyperfine_encoded.tmp" \
-		"./bin/printable_binary -d hyperfine_encoded.tmp" \
+		"./bin/printable-binary -d hyperfine_encoded.tmp" \
 			--export-markdown decode_benchmark_results.md;
 		echo "Decode benchmark results saved to decode_benchmark_results.md"; \
 		rm -f hyperfine_test.bin hyperfine_encoded.tmp; \

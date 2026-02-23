@@ -33,7 +33,7 @@
           + "-s STANDALONE_WASM=1 "
           + "-s FILESYSTEM=1 "
           + "-s INITIAL_MEMORY=134217728 "
-          + "-DPRINTABLE_BINARY_HELP_NAME=\\\"printable_binary\\\"";
+          + "-DPRINTABLE_BINARY_HELP_NAME=\\\"printable-binary\\\"";
 
         printableBinaryNative = pkgs.stdenv.mkDerivation {
           pname = "printable-binary-c";
@@ -44,12 +44,12 @@
           nativeBuildInputs = [ pkgs.clang ];
 
           buildPhase = ''
-            clang -O3 -Wall -Wextra -I. -o printable_binary_c src/printable_binary.c
+            clang -O3 -Wall -Wextra -I. -o printable-binary-c src/printable_binary.c
           '';
 
           installPhase = ''
             mkdir -p $out/bin
-            cp printable_binary_c $out/bin/
+            cp printable-binary-c $out/bin/
             cp character_map.txt $out/bin/character_map.txt
           '';
 
@@ -71,12 +71,12 @@
           buildPhase = ''
             export EM_CACHE="$TMPDIR/emscripten_cache"
             mkdir -p "$EM_CACHE"
-            emcc -I. src/printable_binary.c ${emscriptenFlags} -o printable_binary.wasm
+            emcc -I. src/printable_binary.c ${emscriptenFlags} -o printable-binary.wasm
           '';
 
           installPhase = ''
             mkdir -p $out/bin
-            cp printable_binary.wasm $out/bin/printable_binary.wasm
+            cp printable-binary.wasm $out/bin/printable-binary.wasm
             cp character_map.txt $out/bin/character_map.txt
           '';
 
@@ -106,12 +106,12 @@
             export HOME=$TMPDIR
             # Clear any inherited include paths that might conflict
             unset C_INCLUDE_PATH CPATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH
-            cosmocc -O3 -DNDEBUG -I. -o printable_binary_ape.com src/printable_binary.c
+            cosmocc -O3 -DNDEBUG -I. -o printable-binary-ape.com src/printable_binary.c
           '';
 
           installPhase = ''
             mkdir -p $out/bin
-            cp printable_binary_ape.com $out/bin/printable_binary_ape.com
+            cp printable-binary-ape.com $out/bin/printable-binary-ape.com
             cp character_map.txt $out/bin/character_map.txt
           '';
 
@@ -139,7 +139,7 @@
 
           installPhase = ''
             mkdir -p $out/bin
-            cp zig-out/bin/printable_binary_zig $out/bin/
+            cp zig-out/bin/printable-binary-zig $out/bin/
             cp character_map.txt $out/bin/character_map.txt
           '';
 
@@ -216,10 +216,10 @@
             echo "  wazero (WASI runtime for testing)"
             echo ""
             echo "Example build commands:"
-            echo "  gcc -O3 -o printable_binary_c src/printable_binary.c"
-            echo "  clang -O3 -march=native -o printable_binary_c src/printable_binary.c"
-            echo "  emcc src/printable_binary.c ${emscriptenFlags} -o printable_binary.wasm"
-            echo "  cosmocc -O3 -o printable_binary_ape.com src/printable_binary.c   # fat APE"
+            echo "  gcc -O3 -o printable-binary-c src/printable_binary.c"
+            echo "  clang -O3 -march=native -o printable-binary-c src/printable_binary.c"
+            echo "  emcc src/printable_binary.c ${emscriptenFlags} -o printable-binary.wasm"
+            echo "  cosmocc -O3 -o printable-binary-ape.com src/printable_binary.c   # fat APE"
             echo "  make -B wasm                                                 # uses emcc"
             echo "  CONFIRM_BIG_DEP_DOWNLOAD=1 make -B ape                       # uses pinned cosmocc"
             echo "  nix build .#printableBinaryApe    # fat APE (pinned cosmocc ${cosmoccVersion})"
@@ -234,7 +234,7 @@
             echo "  # Then open http://localhost:8000 in your browser"
             echo ""
             echo "Cross-compilation example:"
-            echo "  x86_64-w64-mingw32-gcc -O3 -o printable_binary.exe src/printable_binary.c"
+            echo "  x86_64-w64-mingw32-gcc -O3 -o printable-binary.exe src/printable_binary.c"
             echo ""
           '';
 
@@ -260,8 +260,8 @@
             src = ./.;
             nativeBuildInputs = with pkgs; [ clang python3 xxd hexdump ];
             buildPhase = ''
-              clang -O3 -Wall -Wextra -I. -o printable_binary_c src/printable_binary.c
-              IMPLEMENTATION_TO_TEST=./printable_binary_c bash ./test/test
+              clang -O3 -Wall -Wextra -I. -o printable-binary-c src/printable_binary.c
+              IMPLEMENTATION_TO_TEST=./printable-binary-c bash ./test/test
             '';
             installPhase = "mkdir -p $out && touch $out/passed";
           };
@@ -284,7 +284,7 @@
             buildPhase = ''
               export HOME=$TMPDIR
               zig build -Doptimize=ReleaseFast
-              IMPLEMENTATION_TO_TEST=./zig-out/bin/printable_binary_zig bash ./test/test
+              IMPLEMENTATION_TO_TEST=./zig-out/bin/printable-binary-zig bash ./test/test
             '';
             installPhase = "mkdir -p $out && touch $out/passed";
           };
@@ -297,9 +297,9 @@
               export PATH=${cosmoccBin}/bin:$PATH
               export HOME=$TMPDIR
               unset C_INCLUDE_PATH CPATH CPLUS_INCLUDE_PATH OBJC_INCLUDE_PATH
-              cosmocc -O3 -DNDEBUG -I. -o printable_binary_ape.com src/printable_binary.c
-              chmod +x printable_binary_ape.com
-              IMPLEMENTATION_TO_TEST=./printable_binary_ape.com bash ./test/test
+              cosmocc -O3 -DNDEBUG -I. -o printable-binary-ape.com src/printable_binary.c
+              chmod +x printable-binary-ape.com
+              IMPLEMENTATION_TO_TEST=./printable-binary-ape.com bash ./test/test
             '';
             installPhase = "mkdir -p $out && touch $out/passed";
           };

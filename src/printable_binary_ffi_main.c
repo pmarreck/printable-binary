@@ -463,7 +463,7 @@ static char *read_input(const char *filename, size_t *len_out) {
 
 int main(int argc, char *argv[]) {
     options_t opts = parse_options(argc, argv);
-    const char *prog_name = argv[0] ? argv[0] : "printable_binary";
+    const char *prog_name = argv[0] ? argv[0] : "printable-binary";
     bool stats_enabled = !env_var_truthy(getenv("PRINTABLE_BINARY_MUTE_STATS"));
 
     if (opts.help_mode) {

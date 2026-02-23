@@ -27,7 +27,7 @@ When making changes to this codebase, follow TDD principles:
 
 ## Debug Mode
 - Set `DEBUG=1` environment variable to enable detailed diagnostic output
-- Example: `DEBUG=1 ./bin/printable_binary --mappings`
+- Example: `DEBUG=1 ./bin/printable-binary --mappings`
 - Helpful when diagnosing mapping load issues or unexpected decode behavior
 
 ## Code Style

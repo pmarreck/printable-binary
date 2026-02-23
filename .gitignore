@@ -5,8 +5,8 @@
 .ape-*
 
 # Compiled binaries (non-APE)
-bin/printable_binary_c
-bin/printable_binary.wasm
+bin/printable-binary-c
+bin/printable-binary.wasm
 /.emscripten_cache/
 *.o
 *.exe

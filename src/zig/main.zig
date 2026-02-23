@@ -319,7 +319,7 @@ fn printUsage() void {
     const help =
         \\PrintableBinary Zig - Encode binary data as printable UTF-8 and decode it back
         \\
-        \\Usage: printable_binary_zig [options] [file]
+        \\Usage: printable-binary-zig [options] [file]
         \\
         \\Options:
         \\  -d, --decode       Decode mode (default is encode mode)

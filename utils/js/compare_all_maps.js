@@ -7,7 +7,7 @@ import fs from 'fs';
 const encoder = new PrintableBinary();
 
 // Build the Lua map by parsing the Lua source
-const luaSource = fs.readFileSync('./bin/printable_binary', 'utf8');
+const luaSource = fs.readFileSync('./bin/printable-binary', 'utf8');
 
 // Extract def_char calls and build Lua map
 const luaMap = new Map();
