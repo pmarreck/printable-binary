@@ -279,6 +279,139 @@ pub const character_map = [256][]const u8{
     "Ż",
 };
 
+// =============================================================================
+// Comptime-optimized encode/decode lookup structures
+// =============================================================================
+
+/// Flat character map for cache-friendly encoding.
+/// All character bytes packed into a single contiguous buffer (~700 bytes)
+/// instead of 256 fat pointers (4KB) pointing to scattered string literals.
+const FlatMapEntry = struct {
+    offset: u16,
+    len: u8,
+};
+
+const flat_map_data_len: usize = blk: {
+    var total: usize = 0;
+    for (0..256) |i| {
+        total += character_map[i].len;
+    }
+    break :blk total;
+};
+
+const flat_map_data: [flat_map_data_len]u8 = blk: {
+    @setEvalBranchQuota(100000);
+    var data: [flat_map_data_len]u8 = undefined;
+    var offset: usize = 0;
+    for (0..256) |i| {
+        const src = character_map[i];
+        for (src) |byte| {
+            data[offset] = byte;
+            offset += 1;
+        }
+    }
+    break :blk data;
+};
+
+const flat_map_entries: [256]FlatMapEntry = blk: {
+    @setEvalBranchQuota(100000);
+    var entries: [256]FlatMapEntry = undefined;
+    var offset: u16 = 0;
+    for (0..256) |i| {
+        entries[i] = .{ .offset = offset, .len = @intCast(character_map[i].len) };
+        offset += @intCast(character_map[i].len);
+    }
+    break :blk entries;
+};
+
+/// Direct O(1) decode lookup for 1-byte UTF-8 sequences
+const decode_1byte: [256]?u8 = blk: {
+    @setEvalBranchQuota(100000);
+    var table = [_]?u8{null} ** 256;
+    for (0..256) |i| {
+        if (character_map[i].len == 1) {
+            table[character_map[i][0]] = @intCast(i);
+        }
+    }
+    break :blk table;
+};
+
+/// Direct O(1) decode lookup for 2-byte UTF-8 sequences
+/// Indexed by [first_byte & 0x1F][second_byte & 0x3F]
+const decode_2byte: [32][64]?u8 = blk: {
+    @setEvalBranchQuota(100000);
+    var table = [_][64]?u8{[_]?u8{null} ** 64} ** 32;
+    for (0..256) |i| {
+        if (character_map[i].len == 2) {
+            const b0 = character_map[i][0];
+            const b1 = character_map[i][1];
+            table[b0 & 0x1F][b1 & 0x3F] = @intCast(i);
+        }
+    }
+    break :blk table;
+};
+
+/// Sorted lookup table for 3-byte UTF-8 sequences (binary search on ~30 entries)
+const Decode3Entry = struct {
+    codepoint: u16,
+    value: u8,
+};
+
+const decode_3byte_count: usize = blk: {
+    var count: usize = 0;
+    for (0..256) |i| {
+        if (character_map[i].len == 3) count += 1;
+    }
+    break :blk count;
+};
+
+const decode_3byte_table: [decode_3byte_count]Decode3Entry = blk: {
+    @setEvalBranchQuota(100000);
+    var entries: [decode_3byte_count]Decode3Entry = undefined;
+    var idx: usize = 0;
+    for (0..256) |i| {
+        if (character_map[i].len == 3) {
+            const b = character_map[i];
+            const cp: u16 = (@as(u16, b[0] & 0x0F) << 12) |
+                (@as(u16, b[1] & 0x3F) << 6) |
+                @as(u16, b[2] & 0x3F);
+            entries[idx] = .{ .codepoint = cp, .value = @intCast(i) };
+            idx += 1;
+        }
+    }
+    // Insertion sort by codepoint
+    for (0..decode_3byte_count) |i| {
+        var j = i;
+        while (j > 0 and entries[j].codepoint < entries[j - 1].codepoint) {
+            const tmp = entries[j];
+            entries[j] = entries[j - 1];
+            entries[j - 1] = tmp;
+            j -= 1;
+        }
+    }
+    break :blk entries;
+};
+
+fn decode3ByteLookup(bytes: []const u8) ?u8 {
+    if (bytes.len < 3) return null;
+    const cp: u16 = (@as(u16, bytes[0] & 0x0F) << 12) |
+        (@as(u16, bytes[1] & 0x3F) << 6) |
+        @as(u16, bytes[2] & 0x3F);
+    var left: usize = 0;
+    var right: usize = decode_3byte_count;
+    while (left < right) {
+        const mid = left + (right - left) / 2;
+        if (decode_3byte_table[mid].codepoint == cp) {
+            return decode_3byte_table[mid].value;
+        } else if (decode_3byte_table[mid].codepoint < cp) {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+    return null;
+}
+
 /// Encoding options
 pub const EncodeOptions = struct {
     /// Preserve literal spaces (don't encode to ␣)
@@ -371,37 +504,9 @@ pub fn applyRange(input_len: usize, opt_start: ?i64, opt_end: ?i64) RangeResult 
     return RangeResult{ .offset = s, .length = e - s + 1, .warning = warning };
 }
 
-// Decode map built at comptime for O(log n) reverse lookup
-const DecodeEntry = struct {
-    key: u64,
-    value: u8,
-};
-
-fn buildDecodeMap() [256]DecodeEntry {
-    @setEvalBranchQuota(100000);
-    var entries: [256]DecodeEntry = undefined;
-    for (0..256) |i| {
-        const utf8 = character_map[i];
-        var key: u64 = 0;
-        for (utf8) |byte| {
-            key = (key << 8) | byte;
-        }
-        entries[i] = .{ .key = key, .value = @intCast(i) };
-    }
-    // Insertion sort by key for binary search
-    for (0..256) |i| {
-        var j = i;
-        while (j > 0 and entries[j].key < entries[j - 1].key) {
-            const tmp = entries[j];
-            entries[j] = entries[j - 1];
-            entries[j - 1] = tmp;
-            j -= 1;
-        }
-    }
-    return entries;
-}
-
-const decode_map = buildDecodeMap();
+// Decode tables (decode_1byte, decode_2byte, decode_3byte_table) are defined
+// above, after character_map. They replace the old O(log n) binary search
+// with O(1) direct table lookups for 1-byte and 2-byte sequences.
 
 // =============================================================================
 // Double-Encoding Detection
@@ -482,36 +587,25 @@ pub fn utf8SeqLen(first_byte: u8) u3 {
     return 4;
 }
 
-fn makeKey(bytes: []const u8) u64 {
-    var key: u64 = 0;
-    for (bytes) |b| {
-        key = (key << 8) | b;
-    }
-    return key;
-}
-
 fn decodeLookup(bytes: []const u8) ?u8 {
-    const key = makeKey(bytes);
-    var left: usize = 0;
-    var right: usize = 256;
-    while (left < right) {
-        const mid = left + (right - left) / 2;
-        if (decode_map[mid].key == key) {
-            return decode_map[mid].value;
-        } else if (decode_map[mid].key < key) {
-            left = mid + 1;
-        } else {
-            right = mid;
-        }
+    switch (bytes.len) {
+        1 => return decode_1byte[bytes[0]],
+        2 => return decode_2byte[bytes[0] & 0x1F][bytes[1] & 0x3F],
+        3 => return decode3ByteLookup(bytes),
+        else => return null,
     }
-    return null;
 }
 
 /// Encode binary data to printable UTF-8.
 /// Caller owns the returned slice and must free it with the same allocator.
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, options: EncodeOptions) ![]u8 {
-    var result: std.ArrayListUnmanaged(u8) = .{};
-    errdefer result.deinit(allocator);
+    if (input.len == 0) {
+        return try allocator.alloc(u8, 0);
+    }
+
+    // Pre-allocate worst case: every byte → max 3-byte UTF-8
+    var result = try allocator.alloc(u8, input.len * 3);
+    errdefer allocator.free(result);
 
     // Build preserve set
     var preserve_set = [_]bool{false} ** 256;
@@ -519,58 +613,78 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, options: EncodeOp
         preserve_set[c] = true;
     }
 
+    var pos: usize = 0;
     for (input) |byte| {
         if (options.spaces and byte == ' ') {
-            try result.append(allocator, ' ');
+            result[pos] = ' ';
+            pos += 1;
         } else if (options.tabs and byte == '\t') {
-            try result.append(allocator, '\t');
+            result[pos] = '\t';
+            pos += 1;
         } else if (options.crlf and (byte == '\n' or byte == '\r')) {
-            try result.append(allocator, byte);
+            result[pos] = byte;
+            pos += 1;
         } else if (preserve_set[byte]) {
-            try result.append(allocator, byte);
+            result[pos] = byte;
+            pos += 1;
         } else {
-            try result.appendSlice(allocator, character_map[byte]);
+            const entry = flat_map_entries[byte];
+            const len: usize = entry.len;
+            @memcpy(result[pos..][0..len], flat_map_data[entry.offset..][0..len]);
+            pos += len;
         }
     }
 
-    return result.toOwnedSlice(allocator);
+    // Shrink to actual size
+    const final = try allocator.alloc(u8, pos);
+    @memcpy(final, result[0..pos]);
+    allocator.free(result);
+    return final;
 }
 
 /// Decode printable UTF-8 back to binary data.
 /// Unrecognized UTF-8 characters pass through unchanged.
 /// Caller owns the returned slice and must free it with the same allocator.
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, options: DecodeOptions) ![]u8 {
-    var result: std.ArrayListUnmanaged(u8) = .{};
-    errdefer result.deinit(allocator);
+    if (input.len == 0) {
+        return try allocator.alloc(u8, 0);
+    }
 
-    // Optionally strip whitespace
+    // Optionally strip whitespace (pre-allocated buffer, no ArrayList)
     var cleaned: []const u8 = undefined;
     var cleaned_buf: ?[]u8 = null;
     defer if (cleaned_buf) |buf| allocator.free(buf);
 
     if (options.strip_whitespace) {
-        var clean_list: std.ArrayListUnmanaged(u8) = .{};
-        errdefer clean_list.deinit(allocator);
+        var buf = try allocator.alloc(u8, input.len);
+        var buf_len: usize = 0;
         for (input) |c| {
             const skip = if (options.spaces)
                 (c == '\n' or c == '\r' or c == '\t')
             else
                 (c == '\n' or c == '\r' or c == '\t' or c == ' ');
             if (!skip) {
-                try clean_list.append(allocator, c);
+                buf[buf_len] = c;
+                buf_len += 1;
             }
         }
-        cleaned_buf = try clean_list.toOwnedSlice(allocator);
-        cleaned = cleaned_buf.?;
+        cleaned_buf = buf;
+        cleaned = buf[0..buf_len];
     } else {
         cleaned = input;
     }
 
+    // Pre-allocate output buffer (decode output <= input size)
+    var result = try allocator.alloc(u8, cleaned.len);
+    errdefer allocator.free(result);
+
     var i: usize = 0;
+    var pos: usize = 0;
     while (i < cleaned.len) {
         // Handle literal spaces in spaces mode
         if (options.spaces and cleaned[i] == ' ') {
-            try result.append(allocator, ' ');
+            result[pos] = ' ';
+            pos += 1;
             i += 1;
             continue;
         }
@@ -579,28 +693,27 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, options: DecodeOp
         const remaining = cleaned.len - i;
         const actual_len: usize = if (seq_len > remaining) remaining else seq_len;
 
-        // Try to match, longest first
-        var matched = false;
-        var try_len = actual_len;
-        while (try_len >= 1) : (try_len -= 1) {
-            if (decodeLookup(cleaned[i .. i + try_len])) |byte| {
-                try result.append(allocator, byte);
-                i += try_len;
-                matched = true;
-                break;
+        // Direct table lookup — O(1) for 1-byte and 2-byte, no inner loop
+        if (actual_len == seq_len) {
+            if (decodeLookup(cleaned[i .. i + actual_len])) |byte| {
+                result[pos] = byte;
+                pos += 1;
+                i += actual_len;
+                continue;
             }
         }
 
-        // Pass through unrecognized UTF-8 characters
-        if (!matched) {
-            for (0..actual_len) |j| {
-                try result.append(allocator, cleaned[i + j]);
-            }
-            i += actual_len;
-        }
+        // Pass through unrecognized or truncated UTF-8 sequences
+        @memcpy(result[pos..][0..actual_len], cleaned[i..][0..actual_len]);
+        pos += actual_len;
+        i += actual_len;
     }
 
-    return result.toOwnedSlice(allocator);
+    // Shrink to actual size
+    const final = try allocator.alloc(u8, pos);
+    @memcpy(final, result[0..pos]);
+    allocator.free(result);
+    return final;
 }
 
 /// Format encoded output into groups for readability.
@@ -1044,4 +1157,162 @@ test "detectDoubleEncode: threshold boundary" {
     const r = detectDoubleEncode(input, 0.05);
     try std.testing.expectEqual(@as(c_int, 1), r.detected);
     try std.testing.expect(r.confidence > 0.05);
+}
+
+// =============================================================================
+// Encode/Decode Correctness Tests (optimization regression suite)
+// =============================================================================
+
+test "encode: empty input returns empty output" {
+    const allocator = std.testing.allocator;
+    const result = try encode(allocator, "", .{});
+    defer allocator.free(result);
+    try std.testing.expectEqual(@as(usize, 0), result.len);
+}
+
+test "decode: empty input returns empty output" {
+    const allocator = std.testing.allocator;
+    const result = try decode(allocator, "", .{});
+    defer allocator.free(result);
+    try std.testing.expectEqual(@as(usize, 0), result.len);
+}
+
+test "encode: single byte roundtrips for all 256 values" {
+    const allocator = std.testing.allocator;
+    for (0..256) |i| {
+        const byte = [_]u8{@intCast(i)};
+        const encoded = try encode(allocator, &byte, .{});
+        defer allocator.free(encoded);
+        // Encoded must be valid UTF-8
+        try std.testing.expect(std.unicode.utf8ValidateSlice(encoded));
+        // Must roundtrip
+        const decoded = try decode(allocator, encoded, .{});
+        defer allocator.free(decoded);
+        try std.testing.expectEqual(@as(usize, 1), decoded.len);
+        try std.testing.expectEqual(byte[0], decoded[0]);
+    }
+}
+
+test "encode/decode: full 256-byte roundtrip" {
+    const allocator = std.testing.allocator;
+    var input: [256]u8 = undefined;
+    for (0..256) |i| {
+        input[i] = @intCast(i);
+    }
+    const encoded = try encode(allocator, &input, .{});
+    defer allocator.free(encoded);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(encoded));
+
+    const decoded = try decode(allocator, encoded, .{});
+    defer allocator.free(decoded);
+    try std.testing.expectEqualSlices(u8, &input, decoded);
+}
+
+test "encode: ASCII passthrough characters are preserved" {
+    const allocator = std.testing.allocator;
+    // Characters 0x2E (.), 0x30-0x39 (0-9), 0x3B (;), 0x40 (@),
+    // 0x41-0x5A (A-Z), 0x5E (^), 0x5F (_), 0x61-0x7A (a-z)
+    const input = "Hello.World@123";
+    const encoded = try encode(allocator, input, .{});
+    defer allocator.free(encoded);
+    // These ASCII chars should pass through (their map entry equals themselves)
+    try std.testing.expectEqualStrings("Hello.World@123", encoded);
+}
+
+test "encode: spaces option preserves literal spaces" {
+    const allocator = std.testing.allocator;
+    const input = "A B";
+    const with_spaces = try encode(allocator, input, .{ .spaces = true });
+    defer allocator.free(with_spaces);
+    try std.testing.expect(std.mem.indexOf(u8, with_spaces, " ") != null);
+
+    const without_spaces = try encode(allocator, input, .{});
+    defer allocator.free(without_spaces);
+    // Without spaces option, space (0x20) becomes ␣
+    try std.testing.expect(std.mem.indexOf(u8, without_spaces, " ") == null);
+}
+
+test "decode: unrecognized UTF-8 passes through" {
+    const allocator = std.testing.allocator;
+    // Use a valid UTF-8 character that's NOT in the decode map
+    // The emoji snowman (☃ = E2 98 83) should not be in the PB map
+    const input = "\xe2\x98\x83";
+    const decoded = try decode(allocator, input, .{});
+    defer allocator.free(decoded);
+    try std.testing.expectEqualSlices(u8, input, decoded);
+}
+
+test "decode: mixed known and unknown UTF-8" {
+    const allocator = std.testing.allocator;
+    // "Hello" in PB + an unknown character + "World" in PB
+    const hello_encoded = try encode(allocator, "Hello", .{});
+    defer allocator.free(hello_encoded);
+    const world_encoded = try encode(allocator, "World", .{});
+    defer allocator.free(world_encoded);
+
+    // Interleave with snowman
+    var mixed: std.ArrayListUnmanaged(u8) = .{};
+    defer mixed.deinit(allocator);
+    try mixed.appendSlice(allocator, hello_encoded);
+    try mixed.appendSlice(allocator, "\xe2\x98\x83"); // snowman
+    try mixed.appendSlice(allocator, world_encoded);
+
+    const decoded = try decode(allocator, mixed.items, .{});
+    defer allocator.free(decoded);
+    // Should get: Hello + snowman bytes + World
+    try std.testing.expect(std.mem.startsWith(u8, decoded, "Hello"));
+    try std.testing.expect(std.mem.endsWith(u8, decoded, "World"));
+}
+
+test "encode/decode: large input roundtrip (64KB)" {
+    const allocator = std.testing.allocator;
+    const size = 64 * 1024;
+    var input = try allocator.alloc(u8, size);
+    defer allocator.free(input);
+    // Fill with a repeating pattern covering all byte values
+    for (0..size) |i| {
+        input[i] = @intCast(i % 256);
+    }
+
+    const encoded = try encode(allocator, input, .{});
+    defer allocator.free(encoded);
+    try std.testing.expect(std.unicode.utf8ValidateSlice(encoded));
+
+    const decoded = try decode(allocator, encoded, .{});
+    defer allocator.free(decoded);
+    try std.testing.expectEqualSlices(u8, input, decoded);
+}
+
+test "decode: strip whitespace option" {
+    const allocator = std.testing.allocator;
+    const input = "Hello";
+    const encoded = try encode(allocator, input, .{});
+    defer allocator.free(encoded);
+
+    // Insert whitespace
+    var with_ws: std.ArrayListUnmanaged(u8) = .{};
+    defer with_ws.deinit(allocator);
+    try with_ws.appendSlice(allocator, encoded);
+    try with_ws.insertSlice(allocator, 2, "\n  \t");
+
+    const decoded = try decode(allocator, with_ws.items, .{ .strip_whitespace = true });
+    defer allocator.free(decoded);
+    try std.testing.expectEqualStrings("Hello", decoded);
+}
+
+test "format: basic grouping" {
+    const allocator = std.testing.allocator;
+    const input = "ABCDEFGHIJKLMNOP"; // 16 ASCII chars
+    const formatted = try format(allocator, input, .{ .group_size = 4, .groups_per_line = 2 });
+    defer allocator.free(formatted);
+    try std.testing.expectEqualStrings("ABCD EFGH\nIJKL MNOP", formatted);
+}
+
+test "decodeLookup: every character_map entry has a valid reverse lookup" {
+    for (0..256) |i| {
+        const utf8 = character_map[i];
+        const result = decodeLookup(utf8);
+        try std.testing.expect(result != null);
+        try std.testing.expectEqual(@as(u8, @intCast(i)), result.?);
+    }
 }

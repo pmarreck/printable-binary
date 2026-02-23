@@ -1,0 +1,303 @@
+#!/usr/bin/env bash
+# Benchmark script for comparing printable-binary implementations
+# Focuses on encode/decode throughput across different data sizes and types
+#
+# Usage: ./bm/benchmark-zig-opt [--quick] [--sizes SIZE_LIST] [--impls IMPL_LIST]
+#
+# Requires: hyperfine, dd
+
+set -euo pipefail
+
+PROJ_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+TMPDIR="${TMPDIR:-/tmp}"
+BM_DIR="$TMPDIR/pb-benchmark-$$"
+RESULTS_DIR="$PROJ_ROOT/bm/results"
+
+# Default settings
+WARMUP=5
+MIN_RUNS=20
+SIZES="1K 100K 1M 10M"
+QUICK=0
+
+# Implementations to test (name:path pairs)
+declare -a IMPL_NAMES=()
+declare -a IMPL_PATHS=()
+
+cleanup() {
+    rm -rf "$BM_DIR"
+}
+trap cleanup EXIT
+
+usage() {
+    echo "Usage: $0 [--quick] [--sizes SIZE_LIST]"
+    echo ""
+    echo "Options:"
+    echo "  --quick          Fewer warmup runs and min-runs (for iteration)"
+    echo "  --sizes LIST     Space-separated sizes (default: '1K 100K 1M 10M')"
+    echo "  --save TAG       Save results to bm/results/TAG/"
+    echo "  --help           Show this help"
+}
+
+# Parse arguments
+SAVE_TAG=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --quick)
+            QUICK=1
+            WARMUP=2
+            MIN_RUNS=5
+            shift
+            ;;
+        --sizes)
+            SIZES="$2"
+            shift 2
+            ;;
+        --save)
+            SAVE_TAG="$2"
+            shift 2
+            ;;
+        --help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Discover available implementations
+discover_impls() {
+    local zig_bin="$PROJ_ROOT/zig-out/bin/printable-binary-zig"
+    local c_bin="$PROJ_ROOT/bin/printable-binary-c"
+    local lua_bin="$PROJ_ROOT/bin/printable-binary"
+    local ffi_bin="$PROJ_ROOT/bin/printable-binary-ffi"
+    local pgo_bin="$PROJ_ROOT/bin/printable-binary-ffi-pgo"
+
+    if [[ -x "$zig_bin" ]]; then
+        IMPL_NAMES+=("zig")
+        IMPL_PATHS+=("$zig_bin")
+    fi
+    if [[ -x "$c_bin" ]]; then
+        IMPL_NAMES+=("c")
+        IMPL_PATHS+=("$c_bin")
+    fi
+    if [[ -x "$lua_bin" ]]; then
+        IMPL_NAMES+=("lua")
+        IMPL_PATHS+=("$lua_bin")
+    fi
+    if [[ -x "$ffi_bin" ]]; then
+        IMPL_NAMES+=("ffi")
+        IMPL_PATHS+=("$ffi_bin")
+    fi
+    if [[ -x "$pgo_bin" ]]; then
+        IMPL_NAMES+=("pgo")
+        IMPL_PATHS+=("$pgo_bin")
+    fi
+
+    if [[ ${#IMPL_NAMES[@]} -eq 0 ]]; then
+        echo "ERROR: No implementations found. Build at least the Zig CLI first:" >&2
+        echo "  ZIG_GLOBAL_CACHE_DIR=/tmp/zig-cache zig build -Doptimize=ReleaseFast" >&2
+        exit 1
+    fi
+
+    echo "Found implementations: ${IMPL_NAMES[*]}"
+}
+
+# Convert size spec to bytes for dd
+size_to_bytes() {
+    local spec="$1"
+    case "$spec" in
+        *K) echo $(( ${spec%K} * 1024 )) ;;
+        *M) echo $(( ${spec%M} * 1024 * 1024 )) ;;
+        *G) echo $(( ${spec%G} * 1024 * 1024 * 1024 )) ;;
+        *)  echo "$spec" ;;
+    esac
+}
+
+# Generate test data files
+generate_data() {
+    mkdir -p "$BM_DIR"
+
+    echo "Generating test data..."
+    for size_spec in $SIZES; do
+        local bytes
+        bytes=$(size_to_bytes "$size_spec")
+
+        # Random binary data
+        dd if=/dev/urandom of="$BM_DIR/random_${size_spec}.bin" bs="$bytes" count=1 2>/dev/null
+        echo "  random_${size_spec}.bin ($bytes bytes)"
+
+        # ASCII-heavy data (printable ASCII range, simulates text with some binary)
+        # 90% ASCII (0x20-0x7E), 10% random binary
+        python3 -c "
+import os, random, sys
+size = $bytes
+data = bytearray(size)
+for i in range(size):
+    if random.random() < 0.9:
+        data[i] = random.randint(0x20, 0x7E)
+    else:
+        data[i] = random.randint(0, 255)
+sys.stdout.buffer.write(data)
+" > "$BM_DIR/ascii_${size_spec}.bin"
+        echo "  ascii_${size_spec}.bin ($bytes bytes)"
+    done
+    echo ""
+}
+
+# Verify roundtrip correctness for all implementations
+verify_roundtrip() {
+    echo "=== Verifying roundtrip correctness ==="
+    local test_file="$BM_DIR/random_1K.bin"
+    if [[ ! -f "$test_file" ]]; then
+        test_file="$BM_DIR/random_$(echo $SIZES | awk '{print $1}').bin"
+    fi
+
+    local all_ok=1
+    for idx in "${!IMPL_NAMES[@]}"; do
+        local name="${IMPL_NAMES[$idx]}"
+        local bin="${IMPL_PATHS[$idx]}"
+
+        local encoded_file="$BM_DIR/verify_${name}_enc.txt"
+        local decoded_file="$BM_DIR/verify_${name}_dec.bin"
+
+        # Encode
+        PRINTABLE_BINARY_MUTE_STATS=1 "$bin" --no-double-encode-check "$test_file" > "$encoded_file" 2>/dev/null
+        # Decode
+        PRINTABLE_BINARY_MUTE_STATS=1 "$bin" -d "$encoded_file" > "$decoded_file" 2>/dev/null
+
+        if cmp -s "$test_file" "$decoded_file"; then
+            echo "  $name: PASS (roundtrip verified)"
+        else
+            echo "  $name: FAIL (roundtrip mismatch!)"
+            all_ok=0
+        fi
+
+        rm -f "$encoded_file" "$decoded_file"
+    done
+
+    if [[ $all_ok -ne 1 ]]; then
+        echo "ERROR: Some implementations failed roundtrip. Aborting." >&2
+        exit 1
+    fi
+    echo ""
+}
+
+# Run benchmarks
+run_benchmarks() {
+    echo "=== Benchmark Configuration ==="
+    echo "  Warmup: $WARMUP runs"
+    echo "  Min runs: $MIN_RUNS"
+    echo "  Data sizes: $SIZES"
+    echo "  Implementations: ${IMPL_NAMES[*]}"
+    echo ""
+
+    for size_spec in $SIZES; do
+        for data_type in random ascii; do
+            local input_file="$BM_DIR/${data_type}_${size_spec}.bin"
+            if [[ ! -f "$input_file" ]]; then
+                continue
+            fi
+
+            local bytes
+            bytes=$(wc -c < "$input_file" | tr -d ' ')
+            local mb
+            mb=$(python3 -c "print(f'{$bytes / 1048576:.3f}')")
+
+            echo "=== Encode: ${data_type} ${size_spec} (${bytes} bytes) ==="
+
+            # Pre-encode for decode benchmarks
+            for idx in "${!IMPL_NAMES[@]}"; do
+                local name="${IMPL_NAMES[$idx]}"
+                local bin="${IMPL_PATHS[$idx]}"
+                PRINTABLE_BINARY_MUTE_STATS=1 "$bin" --no-double-encode-check "$input_file" > "$BM_DIR/encoded_${name}_${data_type}_${size_spec}.txt" 2>/dev/null
+            done
+
+            # Build hyperfine command for encode
+            local hf_cmd=(hyperfine --warmup "$WARMUP" --min-runs "$MIN_RUNS" --shell=none)
+
+            for idx in "${!IMPL_NAMES[@]}"; do
+                local name="${IMPL_NAMES[$idx]}"
+                local bin="${IMPL_PATHS[$idx]}"
+                hf_cmd+=(-n "${name}-encode-${data_type}-${size_spec}")
+                hf_cmd+=("$bin --no-double-encode-check $input_file")
+            done
+
+            if [[ -n "$SAVE_TAG" ]]; then
+                mkdir -p "$RESULTS_DIR/$SAVE_TAG"
+                hf_cmd+=(--export-json "$RESULTS_DIR/$SAVE_TAG/encode_${data_type}_${size_spec}.json")
+            fi
+
+            # Redirect stderr from the encode process (stats output)
+            PRINTABLE_BINARY_MUTE_STATS=1 "${hf_cmd[@]}" 2>&1 | grep -v "^$"
+            echo ""
+
+            echo "=== Decode: ${data_type} ${size_spec} ==="
+
+            # Build hyperfine command for decode
+            local hf_cmd_dec=(hyperfine --warmup "$WARMUP" --min-runs "$MIN_RUNS" --shell=none)
+
+            for idx in "${!IMPL_NAMES[@]}"; do
+                local name="${IMPL_NAMES[$idx]}"
+                local bin="${IMPL_PATHS[$idx]}"
+                local enc_file="$BM_DIR/encoded_${name}_${data_type}_${size_spec}.txt"
+                hf_cmd_dec+=(-n "${name}-decode-${data_type}-${size_spec}")
+                hf_cmd_dec+=("$bin -d $enc_file")
+            done
+
+            if [[ -n "$SAVE_TAG" ]]; then
+                hf_cmd_dec+=(--export-json "$RESULTS_DIR/$SAVE_TAG/decode_${data_type}_${size_spec}.json")
+            fi
+
+            PRINTABLE_BINARY_MUTE_STATS=1 "${hf_cmd_dec[@]}" 2>&1 | grep -v "^$"
+            echo ""
+
+            # Print throughput summary
+            echo "--- Throughput Summary (${data_type} ${size_spec}) ---"
+            for idx in "${!IMPL_NAMES[@]}"; do
+                local name="${IMPL_NAMES[$idx]}"
+                local bin="${IMPL_PATHS[$idx]}"
+
+                # Quick single-run timing for throughput calc
+                local enc_start enc_end enc_dur
+                enc_start=$(python3 -c "import time; print(time.time())")
+                PRINTABLE_BINARY_MUTE_STATS=1 "$bin" --no-double-encode-check "$input_file" > /dev/null 2>/dev/null
+                enc_end=$(python3 -c "import time; print(time.time())")
+
+                local enc_file="$BM_DIR/encoded_${name}_${data_type}_${size_spec}.txt"
+                local dec_start dec_end
+                dec_start=$(python3 -c "import time; print(time.time())")
+                PRINTABLE_BINARY_MUTE_STATS=1 "$bin" -d "$enc_file" > /dev/null 2>/dev/null
+                dec_end=$(python3 -c "import time; print(time.time())")
+
+                python3 -c "
+enc_dur = $enc_end - $enc_start
+dec_dur = $dec_end - $dec_start
+mb = $bytes / 1048576
+enc_tp = mb / enc_dur if enc_dur > 0 else float('inf')
+dec_tp = mb / dec_dur if dec_dur > 0 else float('inf')
+print(f'  {\"$name\":>5}: encode {enc_tp:8.1f} MB/s  decode {dec_tp:8.1f} MB/s')
+"
+            done
+            echo ""
+        done
+    done
+}
+
+# Main
+echo "PrintableBinary Optimization Benchmark"
+echo "======================================="
+echo ""
+
+discover_impls
+generate_data
+verify_roundtrip
+run_benchmarks
+
+echo "=== Benchmark Complete ==="
+if [[ -n "$SAVE_TAG" ]]; then
+    echo "Results saved to: $RESULTS_DIR/$SAVE_TAG/"
+fi

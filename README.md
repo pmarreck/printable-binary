@@ -40,6 +40,27 @@ This implementation allows you to view binary data directly in a terminal (it ev
 - **Control characters are labeled**: Bytes 0–31 and DEL render as mnemonic symbols (`⏎`, `↧`, `⌫`, etc.), making structure and control flow obvious without extra tooling.
 - **Trade-off**: Hex expands data by exactly 2× in bytes. PrintableBinary averages about 1.8–1.9× on real-world binaries (thanks to the many 1- and 2-byte UTF-8 mappings) and only approaches 3× in the worst case. The small extra cost buys markedly better readability and paste safety.
 
+## Performance
+
+The Zig implementation is heavily optimized for throughput via source-level data structure improvements and optional PGO (Profile-Guided Optimization):
+
+| Implementation | Encode (10 MB) | Decode (10 MB) | Encode Throughput | Decode Throughput |
+|---|---|---|---|---|
+| **Zig** | 51 ms | 62 ms | 121 MB/s | 108 MB/s |
+| **PGO (C FFI + Zig)** | 50 ms | 63 ms | 125 MB/s | 109 MB/s |
+| **C (standalone)** | — | — | comparable to Zig | comparable to Zig |
+| **Lua (LuaJIT)** | 233 ms | 2,510 ms | 86 MB/s | 3.9 MB/s |
+
+Key optimizations in the Zig core:
+- **Pre-allocated buffers**: Encode/decode output sized upfront (no growth checks in the hot loop)
+- **Flat character map**: Comptime-built contiguous byte buffer (~1.5 KB) replacing 256 scattered fat pointers — fits in L1 cache
+- **O(1) decode lookup**: Direct tables for 1-byte, 2-byte, and 3-byte UTF-8 sequences replacing O(log 256) binary search
+- **No inner decode loop**: Single UTF-8 length check + direct lookup per character
+
+These source-level changes yielded a **16% encode speedup** and **61% decode speedup (2.6x)** over the initial ReleaseFast build. The PGO path (`make pgo-ffi`) provides an additional ~1-3% via profile-guided branch layout, using the C FFI CLI to dogfood the Zig library through its public C ABI.
+
+Benchmarks were run on Apple M4 with `hyperfine --warmup 5 --min-runs 20` against random binary data from `/dev/urandom`.
+
 ## Usage
 
 ### As a Command Line Tool

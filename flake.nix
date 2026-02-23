@@ -188,6 +188,9 @@
               # Zig compiler
               zig
 
+              # LLVM tools (for PGO profdata merge, IR analysis)
+              llvmPackages.llvm
+
               # JavaScript/TypeScript runtime for web implementation
               deno
               nodejs_20

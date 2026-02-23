@@ -239,6 +239,94 @@ $(BIN_DIR)/$(APE_FFI_TARGET): $(FFI_MAIN_SOURCE) $(ZIG_LIB_LINUX) $(APE_CC_DEP) 
 		$(STRIP) -s $@; \
 	fi
 
+# =============================================================================
+# LLVM IR Extraction (for analysis)
+# =============================================================================
+.PHONY: emit-ir
+emit-ir: zig-out/ir/printable_binary.ll
+
+zig-out/ir/printable_binary.ll: src/zig/printable_binary.zig src/zig/main.zig
+	@mkdir -p zig-out/ir
+	ZIG_GLOBAL_CACHE_DIR=/tmp/zig-cache zig build-exe \
+		--dep printable_binary \
+		-Mroot=src/zig/main.zig \
+		-Mprintable_binary=src/zig/printable_binary.zig \
+		-O ReleaseFast \
+		-femit-llvm-ir=zig-out/ir/printable_binary.ll \
+		-fno-emit-bin 2>&1 || true
+	@if [ -f zig-out/ir/printable_binary.ll ]; then \
+		echo "LLVM IR written to zig-out/ir/printable_binary.ll"; \
+		echo "Hot paths: grep for 'define.*encode\|define.*decode' zig-out/ir/printable_binary.ll"; \
+	else \
+		echo "Note: IR emission may not be available for this Zig version"; \
+	fi
+
+# =============================================================================
+# PGO (Profile-Guided Optimization) via C FFI CLI
+# =============================================================================
+PGO_PROFRAW_DIR = zig-out/pgo
+PGO_PROFDATA = $(PGO_PROFRAW_DIR)/default.profdata
+PGO_BIN = $(BIN_DIR)/printable-binary-ffi-pgo
+
+# Clang flags for PGO builds (bypass Cosmopolitan headers in devShell)
+PGO_CC = clang -nostdinc \
+	-isysroot $(shell xcrun --show-sdk-path 2>/dev/null || echo /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk) \
+	-iwithsysroot /usr/include \
+	-I$(shell dirname $(shell which clang))/../resource-root/include
+
+# Step 1: Build instrumented FFI CLI
+.PHONY: pgo-instrument
+pgo-instrument: $(ZIG_LIB) | $(BIN_DIR)
+	@mkdir -p $(PGO_PROFRAW_DIR)
+	$(PGO_CC) -O3 -flto -fprofile-generate=$(PGO_PROFRAW_DIR) \
+		-I$(CURDIR)/src $(FFI_MAIN_SOURCE) $(ZIG_LIB) \
+		-o $(BIN_DIR)/printable-binary-ffi-instr
+	@echo "Instrumented FFI CLI built: $(BIN_DIR)/printable-binary-ffi-instr"
+
+# Step 2: Train on representative workload
+.PHONY: pgo-train
+pgo-train: pgo-instrument
+	@echo "Training PGO profile with representative workloads..."
+	@mkdir -p $(PGO_PROFRAW_DIR)
+	@# Random binary (encode + decode)
+	dd if=/dev/urandom bs=1M count=10 2>/dev/null | \
+		PRINTABLE_BINARY_MUTE_STATS=1 $(BIN_DIR)/printable-binary-ffi-instr \
+		--no-double-encode-check > $(PGO_PROFRAW_DIR)/train_enc.tmp 2>/dev/null
+	PRINTABLE_BINARY_MUTE_STATS=1 $(BIN_DIR)/printable-binary-ffi-instr -d \
+		$(PGO_PROFRAW_DIR)/train_enc.tmp > /dev/null 2>/dev/null
+	@# ASCII-heavy (encode + decode)
+	python3 -c "import os,random,sys;sys.stdout.buffer.write(bytes([random.randint(0x20,0x7E) if random.random()<0.9 else random.randint(0,255) for _ in range(1048576)]))" | \
+		PRINTABLE_BINARY_MUTE_STATS=1 $(BIN_DIR)/printable-binary-ffi-instr \
+		--no-double-encode-check > $(PGO_PROFRAW_DIR)/train_ascii_enc.tmp 2>/dev/null
+	PRINTABLE_BINARY_MUTE_STATS=1 $(BIN_DIR)/printable-binary-ffi-instr -d \
+		$(PGO_PROFRAW_DIR)/train_ascii_enc.tmp > /dev/null 2>/dev/null
+	@# Small files (many invocations for startup profile)
+	@for i in $$(seq 1 50); do \
+		echo "training iteration $$i" | \
+			PRINTABLE_BINARY_MUTE_STATS=1 $(BIN_DIR)/printable-binary-ffi-instr \
+			--no-double-encode-check > /dev/null 2>/dev/null; \
+	done
+	@rm -f $(PGO_PROFRAW_DIR)/train_*.tmp
+	@echo "Training complete. Profile data in $(PGO_PROFRAW_DIR)/"
+
+# Step 3: Merge profiles and build optimized binary
+.PHONY: pgo-build
+pgo-build: pgo-train
+	llvm-profdata merge -output=$(PGO_PROFDATA) $$(find $(PGO_PROFRAW_DIR) -name '*.profraw')
+	$(PGO_CC) -O3 -flto -fprofile-use=$(PGO_PROFDATA) -mcpu=native \
+		-I$(CURDIR)/src $(FFI_MAIN_SOURCE) $(ZIG_LIB) \
+		-o $(PGO_BIN)
+	@echo "PGO-optimized FFI CLI built: $(PGO_BIN)"
+
+# All-in-one PGO target
+.PHONY: pgo-ffi
+pgo-ffi: pgo-build
+
+# Test the PGO FFI CLI
+.PHONY: test-pgo
+test-pgo: pgo-ffi
+	cd test && IMPLEMENTATION_TO_TEST=../$(PGO_BIN) ./test_all
+
 # Alias for the legacy standalone C CLI
 .PHONY: c-cli
 c-cli: release
@@ -378,6 +466,7 @@ clean:
 	rm -f *.tmp *.o core
 	rm -f *.plist  # Static analysis files
 	rm -f gmon.out # Profiling files
+	rm -rf zig-out/ir zig-out/pgo
 	rm -f benchmark_results.md decode_benchmark_results.md
 	rm -f *.bin *.txt  # Test artifacts
 	rm -f encoded.txt decoded.txt formatted.txt pasted.txt
@@ -409,6 +498,11 @@ help:
 	@echo "  gcc           Build with GCC"
 	@echo "  clang         Build with Clang"
 	@echo "  windows       Cross-compile for Windows"
+	@echo ""
+	@echo "Optimization targets:"
+	@echo "  emit-ir       Extract LLVM IR from Zig build (for analysis)"
+	@echo "  pgo-ffi       Build PGO-optimized FFI CLI (instrument → train → build)"
+	@echo "  test-pgo      Run tests against PGO FFI CLI"
 	@echo ""
 	@echo "Analysis targets:"
 	@echo "  analyze       Run static analysis"
