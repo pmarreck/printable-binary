@@ -36,6 +36,12 @@ Options:
   --no-double-encode-check   Skip detection of already-encoded input
   -h, --help            Show this help
 
+Encoding modes:
+  -X, --hexlike    Hexlike mode: passthrough ASCII stays as-is, all other bytes
+                   shown as uppercase hex runs prefixed by \u039F\u03C7 (Greek Omicron+Chi,
+                   NOT ASCII 0x \u2014 beware when copying hex for other purposes).
+                   Use with -d to decode hexlike-encoded data back to binary.
+
 Range options (select byte range from input before processing):
   --range X-Y              Byte range, 0-indexed inclusive (e.g., --range 0-9)
   --start X                Start offset (negative = from end, like xxd -s)
@@ -145,6 +151,7 @@ function parseArgs(argv) {
   let tabsMode = false;
   let crlfMode = false;
   let preserveChars = '';
+  let hexlikeMode = false;
 
   const setMappingsFormat = (mode) => {
     if (mappingsFormat && mappingsFormat !== mode) {
@@ -200,6 +207,8 @@ function parseArgs(argv) {
       preserveChars = argv[++i];
     } else if (arg.startsWith('--preserve=')) {
       preserveChars = arg.slice(11);
+    } else if (arg === '-X' || arg === '--hexlike') {
+      hexlikeMode = true;
     } else if (arg === '--no-double-encode-check') {
       noDoubleEncodeCheck = true;
     } else if (arg === '--range') {
@@ -250,6 +259,7 @@ function parseArgs(argv) {
           case 'd': decodeMode = true; break;
           case 'p': passthrough = true; break;
           case 'S': stripWhitespace = true; break;
+          case 'X': hexlikeMode = true; break;
           default:
             process.stderr.write(`Error: Unknown option -${ch}\n`);
             printUsage();
@@ -279,7 +289,7 @@ function parseArgs(argv) {
     }
   }
 
-  return { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, stripWhitespace, tabsMode, crlfMode, preserveChars, rangeStart, rangeEnd, noDoubleEncodeCheck };
+  return { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, stripWhitespace, tabsMode, crlfMode, preserveChars, rangeStart, rangeEnd, noDoubleEncodeCheck, hexlikeMode };
 }
 
 async function readInput(filePath) {
@@ -306,7 +316,7 @@ function stats(msg) {
 }
 
 async function main() {
-  const { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, stripWhitespace, tabsMode, crlfMode, preserveChars, rangeStart, rangeEnd, noDoubleEncodeCheck } = parseArgs(process.argv.slice(2));
+  const { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, stripWhitespace, tabsMode, crlfMode, preserveChars, rangeStart, rangeEnd, noDoubleEncodeCheck, hexlikeMode } = parseArgs(process.argv.slice(2));
   const pb = new PrintableBinary();
 
   try {
@@ -351,16 +361,43 @@ async function main() {
       }
       const inputStr = input.toString('utf8');
       stats(`Decoding mode: Input size is ${input.length} bytes`);
-      if (stripWhitespace) {
-        stats('Decoded with whitespace stripping');
+
+      if (hexlikeMode) {
+        // Hexlike decode
+        const { data: decoded, foundHex } = pb.hexlikeDecode(inputStr, {
+          spaces: spacesMode
+        });
+
+        // Warn if no Οχ sequences found
+        if (!foundHex) {
+          process.stderr.write('Warning: no hexlike (\u039F\u03C7) sequences found in input\n');
+        }
+
+        // Warn if PB-style encoding detected
+        const deInfo = pb.detectDoubleEncode(inputStr);
+        if (deInfo.detected) {
+          process.stderr.write('Warning: input appears to contain standard printable-binary encoding\n');
+        }
+
+        stats(`Decoded result size: ${decoded.length} bytes`);
+        process.stdout.write(Buffer.from(decoded));
+      } else {
+        // Warn if hexlike encoding detected in regular PB decode
+        if (PrintableBinary.detectHexlike(inputStr)) {
+          process.stderr.write('Warning: input appears to contain hexlike (\u039F\u03C7) encoding; use --hexlike -d to decode\n');
+        }
+
+        if (stripWhitespace) {
+          stats('Decoded with whitespace stripping');
+        }
+        const decoded = pb.decode(inputStr, {
+          spaces: spacesMode,
+          stripWhitespace: stripWhitespace,
+          warnOnIndent: spacesMode && stripWhitespace
+        });
+        stats(`Decoded result size: ${decoded.length} bytes`);
+        process.stdout.write(Buffer.from(decoded));
       }
-      const decoded = pb.decode(inputStr, {
-        spaces: spacesMode,
-        stripWhitespace: stripWhitespace,
-        warnOnIndent: spacesMode && stripWhitespace
-      });
-      stats(`Decoded result size: ${decoded.length} bytes`);
-      process.stdout.write(Buffer.from(decoded));
     } else {
       // Check for double-encoding
       if (!noDoubleEncodeCheck) {
@@ -373,20 +410,31 @@ async function main() {
         }
       }
 
-      const options = { spaces: spacesMode, tabs: tabsMode, crlf: crlfMode };
-      if (preserveChars) {
-        options.preserve = preserveChars;
-      }
-      if (formatSpec) {
-        options.format = formatSpec;
-      }
-      const encoded = pb.encode(input, options);
-      stats(`Encoded ${input.length} bytes of input to ${Buffer.byteLength(encoded, 'utf8')} bytes`);
-      if (passthrough) {
-        process.stdout.write(input);
-        process.stderr.write(encoded);
+      if (hexlikeMode) {
+        const encoded = pb.hexlikeEncode(input, { spaces: spacesMode });
+        stats(`Encoded ${input.length} bytes of input to ${Buffer.byteLength(encoded, 'utf8')} bytes`);
+        if (passthrough) {
+          process.stdout.write(input);
+          process.stderr.write(encoded);
+        } else {
+          process.stdout.write(encoded);
+        }
       } else {
-        process.stdout.write(encoded);
+        const options = { spaces: spacesMode, tabs: tabsMode, crlf: crlfMode };
+        if (preserveChars) {
+          options.preserve = preserveChars;
+        }
+        if (formatSpec) {
+          options.format = formatSpec;
+        }
+        const encoded = pb.encode(input, options);
+        stats(`Encoded ${input.length} bytes of input to ${Buffer.byteLength(encoded, 'utf8')} bytes`);
+        if (passthrough) {
+          process.stdout.write(input);
+          process.stderr.write(encoded);
+        } else {
+          process.stdout.write(encoded);
+        }
       }
     }
   } catch (err) {

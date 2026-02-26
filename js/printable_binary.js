@@ -372,6 +372,192 @@ class PrintableBinary {
   }
 
   /**
+   * Hexlike passthrough set: bytes that pass through as-is in hexlike mode.
+   * . 0-9 @ A-Z ^ _ a-z (the same bytes that are identity-mapped in the character map)
+   */
+  static get HEXLIKE_PASSTHROUGH() {
+    if (!PrintableBinary._hexlikePassthrough) {
+      const pt = new Set();
+      pt.add(46);   // .
+      for (let b = 48; b <= 57; b++) pt.add(b);   // 0-9
+      pt.add(64);   // @
+      for (let b = 65; b <= 90; b++) pt.add(b);   // A-Z
+      pt.add(94);   // ^
+      pt.add(95);   // _
+      for (let b = 97; b <= 122; b++) pt.add(b);  // a-z
+      PrintableBinary._hexlikePassthrough = pt;
+    }
+    return PrintableBinary._hexlikePassthrough;
+  }
+
+  // Οχ prefix: Greek Omicron (U+039F) + Greek Chi (U+03C7) — NOT ASCII "0x"
+  static get OX_PREFIX() {
+    return '\u039F\u03C7';  // Οχ
+  }
+
+  // Οχ as UTF-8 bytes: CE 9F CF 87
+  static get OX_BYTES() {
+    return Buffer.from([0xCE, 0x9F, 0xCF, 0x87]);
+  }
+
+  /**
+   * Detect Οχ hex sequences in input (for cross-format warnings)
+   * @param {string} inputString - The string to check
+   * @returns {boolean} True if hexlike Οχ sequences are found
+   */
+  static detectHexlike(inputString) {
+    if (typeof inputString !== 'string' || inputString.length === 0) {
+      return false;
+    }
+    const ox = PrintableBinary.OX_PREFIX;
+    const idx = inputString.indexOf(ox);
+    if (idx < 0) return false;
+    // Check that Οχ is followed by at least one hex pair
+    const after = inputString.substring(idx + ox.length);
+    return /^[0-9A-F]{2}/.test(after);
+  }
+
+  /**
+   * Encode binary data to hexlike format
+   * @param {Uint8Array|ArrayBuffer|Buffer} binaryData - The binary data to encode
+   * @param {Object} options - Optional encoding options
+   * @param {boolean} options.spaces - Preserve literal spaces (treat as passthrough)
+   * @returns {string} The hexlike-encoded string
+   */
+  hexlikeEncode(binaryData, options = {}) {
+    // Convert ArrayBuffer to Uint8Array if needed
+    if (binaryData instanceof ArrayBuffer) {
+      binaryData = new Uint8Array(binaryData);
+    }
+    if (!(binaryData instanceof Uint8Array)) {
+      throw new Error("Input must be a Uint8Array or ArrayBuffer");
+    }
+
+    const spacesMode = options.spaces === true;
+    const pt = PrintableBinary.HEXLIKE_PASSTHROUGH;
+    const ox = PrintableBinary.OX_PREFIX;
+
+    const result = [];
+    let i = 0;
+    const len = binaryData.length;
+
+    while (i < len) {
+      const byte = binaryData[i];
+      const isPassthrough = pt.has(byte) || (spacesMode && byte === 0x20);
+
+      if (isPassthrough) {
+        // Passthrough run
+        const runStart = i;
+        while (i < len) {
+          const b = binaryData[i];
+          if (pt.has(b) || (spacesMode && b === 0x20)) {
+            i++;
+          } else {
+            break;
+          }
+        }
+        // Add the passthrough characters
+        for (let j = runStart; j < i; j++) {
+          result.push(String.fromCharCode(binaryData[j]));
+        }
+      } else {
+        // Non-passthrough run: collect hex
+        const hexParts = [];
+        while (i < len) {
+          const b = binaryData[i];
+          if (pt.has(b) || (spacesMode && b === 0x20)) {
+            break;
+          }
+          hexParts.push(b.toString(16).toUpperCase().padStart(2, '0'));
+          i++;
+        }
+
+        // Delimiter space before Οχ (unless at start of output)
+        if (result.length > 0) {
+          result.push(' ');
+        }
+        result.push(ox);
+        result.push(hexParts.join(''));
+        // Delimiter space after hex run (unless at end of output)
+        if (i < len) {
+          result.push(' ');
+        }
+      }
+    }
+
+    return result.join('');
+  }
+
+  /**
+   * Decode hexlike format back to binary
+   * @param {string} printableString - The hexlike-encoded string to decode
+   * @param {Object} options - Optional decoding options
+   * @returns {{ data: Uint8Array, foundHex: boolean }} The decoded binary data and whether any hex sequences were found
+   */
+  hexlikeDecode(printableString, options = {}) {
+    if (typeof printableString !== 'string') {
+      throw new Error("Input must be a string");
+    }
+
+    const ox = PrintableBinary.OX_PREFIX;
+    const oxLen = ox.length;  // 2 JS chars (Ο and χ)
+    const result = [];
+    let i = 0;
+    const len = printableString.length;
+    let foundHex = false;
+    const hexRegex = /^[0-9A-Fa-f]$/;
+
+    while (i < len) {
+      // Check for Οχ (possibly preceded by delimiter space)
+      let atOx = false;
+
+      if (i + oxLen <= len && printableString.substring(i, i + oxLen) === ox) {
+        atOx = true;
+      } else if (i + 1 + oxLen <= len && printableString[i] === ' '
+                 && printableString.substring(i + 1, i + 1 + oxLen) === ox) {
+        i++;  // consume delimiter space
+        atOx = true;
+      }
+
+      if (atOx) {
+        foundHex = true;
+        i += oxLen;  // skip past Οχ
+        // Read hex pairs
+        while (i + 1 < len) {
+          const h1 = printableString[i];
+          const h2 = printableString[i + 1];
+          if (hexRegex.test(h1) && hexRegex.test(h2)) {
+            result.push(parseInt(h1 + h2, 16));
+            i += 2;
+          } else {
+            break;
+          }
+        }
+        // Consume trailing delimiter space (if present)
+        if (i < len && printableString[i] === ' ') {
+          i++;
+        }
+      } else {
+        // Passthrough: encode the character as UTF-8 bytes
+        const codePoint = printableString.codePointAt(i);
+        if (codePoint !== undefined) {
+          const char = String.fromCodePoint(codePoint);
+          const encoder = new TextEncoder();
+          const bytes = encoder.encode(char);
+          for (const byte of bytes) {
+            result.push(byte);
+          }
+          i += char.length;
+        } else {
+          i++;
+        }
+      }
+    }
+
+    return { data: new Uint8Array(result), foundHex };
+  }
+
+  /**
    * Detect whether input appears to be already printable-binary encoded.
    * Iterates input as UTF-8 characters, checks each against the decode map,
    * and counts high-confidence glyphs (those whose encoding differs from

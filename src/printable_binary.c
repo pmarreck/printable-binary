@@ -113,6 +113,7 @@ typedef struct {
     int64_t range_start;
     int64_t range_end;
     bool no_double_encode_check;
+    bool hexlike_mode;
 } options_t;
 
 static void parse_format_spec(options_t *opts, const char *format_str) {
@@ -749,6 +750,155 @@ pb_double_encode_info_t pb_detect_double_encode(const char *input, size_t input_
     return detect_double_encode(input, input_len, threshold);
 }
 
+// Hexlike passthrough set: bytes that pass through as-is in hexlike mode
+// . 0-9 @ A-Z ^ _ a-z (the same bytes that are identity-mapped in the character map)
+static bool is_hexlike_passthrough(uint8_t byte, bool spaces_mode) {
+    if (byte == 46) return true;                          // .
+    if (byte >= 48 && byte <= 57) return true;            // 0-9
+    if (byte == 64) return true;                          // @
+    if (byte >= 65 && byte <= 90) return true;            // A-Z
+    if (byte == 94) return true;                          // ^
+    if (byte == 95) return true;                          // _
+    if (byte >= 97 && byte <= 122) return true;           // a-z
+    if (spaces_mode && byte == 32) return true;           // space (only with --spaces)
+    return false;
+}
+
+// Οχ prefix: Greek Omicron (U+039F) + Greek Chi (U+03C7) — NOT ASCII "0x"
+// Bytes: 0xCE 0x9F 0xCF 0x87 (4 bytes in UTF-8)
+static const uint8_t OX_PREFIX[] = { 0xCE, 0x9F, 0xCF, 0x87 };
+#define OX_PREFIX_LEN 4
+
+// Detect Οχ hex sequences in input (for cross-format warnings)
+static bool detect_hexlike(const uint8_t *input, size_t input_len) {
+    if (!input || input_len < OX_PREFIX_LEN + 2) return false;
+
+    for (size_t i = 0; i + OX_PREFIX_LEN + 1 < input_len; i++) {
+        if (memcmp(input + i, OX_PREFIX, OX_PREFIX_LEN) == 0) {
+            // Check that at least two hex digits follow
+            uint8_t h1 = input[i + OX_PREFIX_LEN];
+            uint8_t h2 = input[i + OX_PREFIX_LEN + 1];
+            if (isxdigit(h1) && isxdigit(h2) &&
+                ((h1 >= '0' && h1 <= '9') || (h1 >= 'A' && h1 <= 'F')) &&
+                ((h2 >= '0' && h2 <= '9') || (h2 >= 'A' && h2 <= 'F'))) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Encode binary data to hexlike format
+static buffer_t hexlike_encode(const uint8_t *input, size_t input_len, const options_t *opts) {
+    buffer_t output;
+    buffer_init(&output, INITIAL_BUFFER_SIZE);
+
+    size_t i = 0;
+    bool has_output = false;  // track whether we've written anything yet
+
+    while (i < input_len) {
+        uint8_t byte = input[i];
+
+        if (is_hexlike_passthrough(byte, opts->spaces_mode)) {
+            // Passthrough run: collect consecutive passthrough bytes
+            size_t run_start = i;
+            while (i < input_len && is_hexlike_passthrough(input[i], opts->spaces_mode)) {
+                i++;
+            }
+            buffer_append(&output, input + run_start, i - run_start);
+            has_output = true;
+        } else {
+            // Non-passthrough run: collect hex pairs
+            // Delimiter space before Οχ (unless at start of output)
+            if (has_output) {
+                buffer_append_char(&output, ' ');
+            }
+            // Write Οχ prefix
+            buffer_append(&output, OX_PREFIX, OX_PREFIX_LEN);
+
+            // Collect hex pairs for consecutive non-passthrough bytes
+            while (i < input_len && !is_hexlike_passthrough(input[i], opts->spaces_mode)) {
+                char hex[3];
+                snprintf(hex, sizeof(hex), "%02X", input[i]);
+                buffer_append(&output, hex, 2);
+                i++;
+            }
+
+            // Delimiter space after hex run (unless at end of input)
+            if (i < input_len) {
+                buffer_append_char(&output, ' ');
+            }
+            has_output = true;
+        }
+    }
+
+    buffer_prepare_return(&output);
+    return output;
+}
+
+// Helper: parse a hex digit, returns -1 on invalid
+static int hex_digit_value(uint8_t c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return -1;
+}
+
+// Decode hexlike format back to binary
+// Sets *found_hex to true if any Οχ sequences were found
+static buffer_t hexlike_decode(const uint8_t *input, size_t input_len, bool *found_hex) {
+    buffer_t output;
+    buffer_init(&output, INITIAL_BUFFER_SIZE);
+
+    *found_hex = false;
+    size_t i = 0;
+
+    while (i < input_len) {
+        bool at_ox = false;
+
+        // Check for Οχ (4 bytes: CE 9F CF 87), possibly preceded by delimiter space
+        if (i + OX_PREFIX_LEN <= input_len &&
+            memcmp(input + i, OX_PREFIX, OX_PREFIX_LEN) == 0) {
+            at_ox = true;
+        } else if (i + 1 + OX_PREFIX_LEN <= input_len &&
+                   input[i] == ' ' &&
+                   memcmp(input + i + 1, OX_PREFIX, OX_PREFIX_LEN) == 0) {
+            i++;  // consume delimiter space
+            at_ox = true;
+        }
+
+        if (at_ox) {
+            *found_hex = true;
+            i += OX_PREFIX_LEN;  // skip past Οχ
+
+            // Read hex pairs until non-hex char
+            while (i + 1 < input_len) {
+                int h1 = hex_digit_value(input[i]);
+                int h2 = hex_digit_value(input[i + 1]);
+                if (h1 >= 0 && h2 >= 0) {
+                    uint8_t byte = (uint8_t)((h1 << 4) | h2);
+                    buffer_append_char(&output, (char)byte);
+                    i += 2;
+                } else {
+                    break;
+                }
+            }
+
+            // Consume trailing delimiter space (if present)
+            if (i < input_len && input[i] == ' ') {
+                i++;
+            }
+        } else {
+            // Passthrough byte
+            buffer_append_char(&output, (char)input[i]);
+            i++;
+        }
+    }
+
+    buffer_prepare_return(&output);
+    return output;
+}
+
 // Encode binary data to printable UTF-8
 static buffer_t encode_data(const uint8_t *input, size_t input_len, const options_t *opts) {
     buffer_t output;
@@ -1041,6 +1191,11 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -d, --decode       Decode mode (default is encode mode)\n");
     fprintf(stderr, "  -p, --passthrough  Pass input to stdout unchanged, send encoded data to stderr\n");
+    fprintf(stderr, "\nEncoding modes:\n");
+    fprintf(stderr, "  -X, --hexlike    Hexlike mode: passthrough ASCII stays as-is, all other bytes\n");
+    fprintf(stderr, "                   shown as uppercase hex runs prefixed by \xCE\x9F\xCF\x87 (Greek Omicron+Chi,\n");
+    fprintf(stderr, "                   NOT ASCII 0x \xe2\x80\x94 beware when copying hex for other purposes).\n");
+    fprintf(stderr, "                   Use with -d to decode hexlike-encoded data back to binary.\n");
     fprintf(stderr, "\nEncode options (preserve literal characters instead of encoding):\n");
     fprintf(stderr, "  -s, --spaces       Preserve literal spaces (don't encode to visible glyph)\n");
     fprintf(stderr, "  -t, --tabs         Preserve literal tabs (don't encode to visible glyph)\n");
@@ -1187,7 +1342,8 @@ static options_t parse_options(int argc, char *argv[]) {
         .has_range_end = false,
         .range_start = 0,
         .range_end = 0,
-        .no_double_encode_check = false
+        .no_double_encode_check = false,
+        .hexlike_mode = false
     };
 
     for (int i = 1; i < argc; i++) {
@@ -1326,6 +1482,8 @@ static options_t parse_options(int argc, char *argv[]) {
                 set_mappings_mode(&opts, MAPPINGS_CSV);
             } else if (long_option_equals(name, name_len, "no-double-encode-check")) {
                 opts.no_double_encode_check = true;
+            } else if (long_option_equals(name, name_len, "hexlike")) {
+                opts.hexlike_mode = true;
             } else if (long_option_equals(name, name_len, "help")) {
                 opts.help_mode = true;
             } else {
@@ -1367,6 +1525,10 @@ static options_t parse_options(int argc, char *argv[]) {
                     break;
                 case 'S':
                     opts.strip_whitespace = true;
+                    pos++;
+                    break;
+                case 'X':
+                    opts.hexlike_mode = true;
                     pos++;
                     break;
                 case 'P': {
@@ -1482,72 +1644,122 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Decoding mode: Input size is %zu bytes\n", input.size);
         }
 
-        // Clean input and decode
-        buffer_t cleaned = clean_decode_input(&input, opts.spaces_mode, opts.strip_whitespace);
-        if (stats_enabled) {
-            if (opts.spaces_mode) {
-                fprintf(stderr, "After whitespace removal (tabs/newlines/CR): %zu bytes\n", cleaned.size);
-            } else {
-                fprintf(stderr, "After whitespace removal: %zu bytes\n", cleaned.size);
+        if (opts.hexlike_mode) {
+            // Hexlike decode path
+            bool found_hex = false;
+            buffer_t decoded = hexlike_decode((uint8_t*)input.data, input.size, &found_hex);
+
+            if (!found_hex) {
+                fprintf(stderr, "Warning: no hexlike (\xCE\x9F\xCF\x87) sequences found in input\n");
+                // Also check for PB glyphs
+                pb_double_encode_info_t de_info = detect_double_encode(input.data, input.size, 0.05f);
+                if (de_info.detected) {
+                    fprintf(stderr, "Warning: input appears to contain standard printable-binary encoding\n");
+                }
             }
+
+            if (stats_enabled) {
+                fprintf(stderr, "Decoded result size: %zu bytes\n", decoded.size);
+            }
+
+            fwrite(decoded.data, 1, decoded.size, stdout);
+            free(decoded.data);
+        } else {
+            // Standard PB decode path
+            // Clean input and decode
+            buffer_t cleaned = clean_decode_input(&input, opts.spaces_mode, opts.strip_whitespace);
+            if (stats_enabled) {
+                if (opts.spaces_mode) {
+                    fprintf(stderr, "After whitespace removal (tabs/newlines/CR): %zu bytes\n", cleaned.size);
+                } else {
+                    fprintf(stderr, "After whitespace removal: %zu bytes\n", cleaned.size);
+                }
+            }
+
+            buffer_t decoded = decode_data((uint8_t*)cleaned.data, cleaned.size, opts.spaces_mode);
+            if (stats_enabled) {
+                fprintf(stderr, "Decoded result size: %zu bytes\n", decoded.size);
+            }
+
+            // Warn if hexlike encoding detected in regular PB decode
+            if (detect_hexlike((uint8_t*)input.data, input.size)) {
+                fprintf(stderr, "Warning: input appears to contain hexlike (\xCE\x9F\xCF\x87) encoding; use --hexlike -d to decode\n");
+            }
+
+            // Write decoded data to stdout
+            fwrite(decoded.data, 1, decoded.size, stdout);
+
+            free(cleaned.data);
+            free(decoded.data);
         }
-
-        buffer_t decoded = decode_data((uint8_t*)cleaned.data, cleaned.size, opts.spaces_mode);
-        if (stats_enabled) {
-            fprintf(stderr, "Decoded result size: %zu bytes\n", decoded.size);
-        }
-
-        // Write decoded data to stdout
-        fwrite(decoded.data, 1, decoded.size, stdout);
-
-        free(cleaned.data);
-        free(decoded.data);
     } else {
         // Encode mode
 
-        // Check for double-encoding
-        if (!opts.no_double_encode_check) {
-            pb_double_encode_info_t de_info = detect_double_encode(input.data, input.size, 0.05f);
-            if (de_info.detected) {
-                fprintf(stderr,
-                    "Warning: Input appears to already be printable-binary encoded (%.1f%% detection).\n"
-                    "         Use --no-double-encode-check to suppress this warning.\n",
-                    de_info.confidence * 100.0f);
+        if (opts.hexlike_mode) {
+            // Hexlike encode path
+            if (opts.passthrough_mode) {
+                fwrite(input.data, 1, input.size, stdout);
             }
-        }
 
-        if (opts.passthrough_mode) {
-            // Write original data to stdout
-            fwrite(input.data, 1, input.size, stdout);
-        }
+            buffer_t encoded = hexlike_encode((uint8_t*)input.data, input.size, &opts);
+            if (stats_enabled) {
+                fprintf(stderr, "Encoded %zu bytes of input to %zu bytes\n", input.size, encoded.size);
+            }
 
-        // Encode the data
-        buffer_t encoded = encode_data((uint8_t*)input.data, input.size, &opts);
-        if (stats_enabled) {
-            fprintf(stderr, "Encoded %zu bytes of input to %zu bytes\n", input.size, encoded.size);
-        }
+            if (opts.passthrough_mode) {
+                fwrite(encoded.data, 1, encoded.size, stderr);
+            } else {
+                fwrite(encoded.data, 1, encoded.size, stdout);
+            }
 
-        buffer_t *output = &encoded;
-        buffer_t formatted;
-
-        // Apply formatting if requested
-        if (opts.format_mode) {
-            formatted = format_output(&encoded, opts.format_group, opts.format_groups_per_line, opts.spaces_mode);
-            output = &formatted;
-        }
-
-        // Write encoded output
-        if (opts.passthrough_mode) {
-            // Send encoded data to stderr
-            fwrite(output->data, 1, output->size, stderr);
+            free(encoded.data);
         } else {
-            // Send encoded data to stdout
-            fwrite(output->data, 1, output->size, stdout);
-        }
+            // Standard PB encode path
 
-        free(encoded.data);
-        if (opts.format_mode) {
-            free(formatted.data);
+            // Check for double-encoding
+            if (!opts.no_double_encode_check) {
+                pb_double_encode_info_t de_info = detect_double_encode(input.data, input.size, 0.05f);
+                if (de_info.detected) {
+                    fprintf(stderr,
+                        "Warning: Input appears to already be printable-binary encoded (%.1f%% detection).\n"
+                        "         Use --no-double-encode-check to suppress this warning.\n",
+                        de_info.confidence * 100.0f);
+                }
+            }
+
+            if (opts.passthrough_mode) {
+                // Write original data to stdout
+                fwrite(input.data, 1, input.size, stdout);
+            }
+
+            // Encode the data
+            buffer_t encoded = encode_data((uint8_t*)input.data, input.size, &opts);
+            if (stats_enabled) {
+                fprintf(stderr, "Encoded %zu bytes of input to %zu bytes\n", input.size, encoded.size);
+            }
+
+            buffer_t *output = &encoded;
+            buffer_t formatted;
+
+            // Apply formatting if requested
+            if (opts.format_mode) {
+                formatted = format_output(&encoded, opts.format_group, opts.format_groups_per_line, opts.spaces_mode);
+                output = &formatted;
+            }
+
+            // Write encoded output
+            if (opts.passthrough_mode) {
+                // Send encoded data to stderr
+                fwrite(output->data, 1, output->size, stderr);
+            } else {
+                // Send encoded data to stdout
+                fwrite(output->data, 1, output->size, stdout);
+            }
+
+            free(encoded.data);
+            if (opts.format_mode) {
+                free(formatted.data);
+            }
         }
     }
 

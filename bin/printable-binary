@@ -237,6 +237,132 @@ function PrintableBinary.detect_double_encode(input_string, threshold)
   return confidence >= threshold, confidence
 end
 
+-- Hexlike passthrough set: bytes that pass through as-is in hexlike mode
+-- . 0-9 @ A-Z ^ _ a-z (the same bytes that are identity-mapped in the character map)
+local hexlike_passthrough = {}
+hexlike_passthrough[46] = true   -- .
+for b = 48, 57 do hexlike_passthrough[b] = true end   -- 0-9
+hexlike_passthrough[64] = true   -- @
+for b = 65, 90 do hexlike_passthrough[b] = true end   -- A-Z
+hexlike_passthrough[94] = true   -- ^
+hexlike_passthrough[95] = true   -- _
+for b = 97, 122 do hexlike_passthrough[b] = true end   -- a-z
+
+-- Οχ prefix: Greek Omicron (U+039F) + Greek Chi (U+03C7) — NOT ASCII "0x"
+local OX = "\xCE\x9F\xCF\x87"
+
+-- Detect Οχ hex sequences in input (for cross-format warnings)
+function PrintableBinary.detect_hexlike(input_string)
+  if type(input_string) ~= "string" or #input_string == 0 then
+    return false
+  end
+  return input_string:find(OX .. "[0-9A-F][0-9A-F]") ~= nil
+end
+
+-- Encode binary data to hexlike format
+function PrintableBinary.hexlike_encode(binary_data, options)
+  if type(binary_data) ~= "string" then
+    error("Input must be a string")
+  end
+
+  options = options or {}
+  local spaces_mode = options.spaces == true
+
+  -- Build effective passthrough set (space added if --spaces)
+  local pt = {}
+  for k, v in pairs(hexlike_passthrough) do pt[k] = v end
+  if spaces_mode then pt[32] = true end
+
+  local result = {}
+  local i = 1
+  local len = #binary_data
+
+  while i <= len do
+    local byte = string.byte(binary_data, i)
+
+    if pt[byte] then
+      -- Passthrough run
+      local run_start = i
+      while i <= len and pt[string.byte(binary_data, i)] do
+        i = i + 1
+      end
+      result[#result + 1] = string.sub(binary_data, run_start, i - 1)
+    else
+      -- Non-passthrough run: collect hex
+      local hex_parts = {}
+      while i <= len and not pt[string.byte(binary_data, i)] do
+        hex_parts[#hex_parts + 1] = string.format("%02X", string.byte(binary_data, i))
+        i = i + 1
+      end
+
+      -- Delimiter space before Οχ (unless at start of output)
+      if #result > 0 then
+        result[#result + 1] = " "
+      end
+      result[#result + 1] = OX
+      result[#result + 1] = table.concat(hex_parts)
+      -- Delimiter space after hex run (unless at end of output)
+      if i <= len then
+        result[#result + 1] = " "
+      end
+    end
+  end
+
+  return table.concat(result)
+end
+
+-- Decode hexlike format back to binary
+function PrintableBinary.hexlike_decode(printable_string, options)
+  if type(printable_string) ~= "string" then
+    error("Input must be a string")
+  end
+
+  options = options or {}
+  local result = {}
+  local i = 1
+  local len = #printable_string
+  local found_hex = false
+
+  while i <= len do
+    -- Check for Οχ (possibly preceded by delimiter space)
+    local at_ox = false
+
+    if i + 3 <= len and printable_string:sub(i, i + 3) == OX then
+      at_ox = true
+    elseif i + 4 <= len and printable_string:sub(i, i) == " "
+           and printable_string:sub(i + 1, i + 4) == OX then
+      i = i + 1  -- consume delimiter space
+      at_ox = true
+    end
+
+    if at_ox then
+      found_hex = true
+      i = i + 4  -- skip past Οχ
+      -- Read uppercase hex pairs
+      while i + 1 <= len do
+        local h1 = printable_string:sub(i, i)
+        local h2 = printable_string:sub(i + 1, i + 1)
+        if h1:match("[0-9A-Fa-f]") and h2:match("[0-9A-Fa-f]") then
+          result[#result + 1] = string.char(tonumber(h1 .. h2, 16))
+          i = i + 2
+        else
+          break
+        end
+      end
+      -- Consume trailing delimiter space (if present)
+      if i <= len and printable_string:sub(i, i) == " " then
+        i = i + 1
+      end
+    else
+      -- Passthrough byte
+      result[#result + 1] = printable_string:sub(i, i)
+      i = i + 1
+    end
+  end
+
+  return table.concat(result), found_hex
+end
+
 -- Encode binary data to printable UTF-8
 function PrintableBinary.encode(binary_data, options)
   if type(binary_data) ~= "string" then
@@ -395,6 +521,12 @@ if arg then
     io.stderr:write("  -d, --decode     Decode mode (default is encode mode)\n")
     io.stderr:write("  --passthrough    Pass input to stdout unchanged, send encoded data to stderr\n")
     io.stderr:write("\n")
+    io.stderr:write("Encoding modes:\n")
+    io.stderr:write("  -X, --hexlike    Hexlike mode: passthrough ASCII stays as-is, all other bytes\n")
+    io.stderr:write("                   shown as uppercase hex runs prefixed by Οχ (Greek Omicron+Chi,\n")
+    io.stderr:write("                   NOT ASCII 0x — beware when copying hex for other purposes).\n")
+    io.stderr:write("                   Use with -d to decode hexlike-encoded data back to binary.\n")
+    io.stderr:write("\n")
     io.stderr:write("Encode options (preserve literal characters instead of encoding them):\n")
     io.stderr:write("  -s, --spaces, --preserve-spaces    Preserve literal spaces\n")
     io.stderr:write("  -t, --tabs, --preserve-tabs        Preserve literal tabs\n")
@@ -519,6 +651,7 @@ if arg then
   local strip_whitespace = false
   local preserve_chars = ""
   local skip_double_encode_check = false
+  local hexlike_mode = false
   local range_start = nil  -- nil means not set
   local range_end = nil    -- nil means not set
 
@@ -597,6 +730,8 @@ if arg then
       end
       preserve_chars = next_arg
       return true  -- consumed next argument
+    elseif flag == "X" then
+      hexlike_mode = true
     elseif flag == "f" then
       format_mode = true
     else
@@ -630,6 +765,8 @@ if arg then
       crlf_mode = true
     elseif current_arg == "--strip-whitespace" then
       strip_whitespace = true
+    elseif current_arg == "--hexlike" then
+      hexlike_mode = true
     elseif current_arg == "--no-double-encode-check" then
       skip_double_encode_check = true
     elseif current_arg == "--range" then
@@ -819,18 +956,42 @@ if arg then
 
     stats_write("Decoding mode: Input size is " .. #input_data .. " bytes\n")
 
-    if spaces_mode then
-      warn_spaces_after_newline(input_data)
-    end
+    if hexlike_mode then
+      -- Hexlike decode
+      local found_hex
+      output, found_hex = PrintableBinary.hexlike_decode(input_data, {
+        spaces = spaces_mode
+      })
 
-    -- Decode with options (strip_whitespace controls whether whitespace is removed)
-    output = PrintableBinary.decode(input_data, {
-      spaces = spaces_mode,
-      strip_whitespace = strip_whitespace
-    })
+      -- Warn if no Οχ sequences found
+      if not found_hex then
+        io.stderr:write("Warning: no hexlike (Οχ) sequences found in input\n")
+      end
 
-    if strip_whitespace then
-      stats_write("Decoded with whitespace stripping\n")
+      -- Warn if PB-style encoding detected
+      local is_pb, _ = PrintableBinary.detect_double_encode(input_data)
+      if is_pb then
+        io.stderr:write("Warning: input appears to contain standard printable-binary encoding\n")
+      end
+    else
+      if spaces_mode then
+        warn_spaces_after_newline(input_data)
+      end
+
+      -- Warn if hexlike encoding detected in regular PB decode
+      if PrintableBinary.detect_hexlike(input_data) then
+        io.stderr:write("Warning: input appears to contain hexlike (Οχ) encoding; use --hexlike -d to decode\n")
+      end
+
+      -- Decode with options (strip_whitespace controls whether whitespace is removed)
+      output = PrintableBinary.decode(input_data, {
+        spaces = spaces_mode,
+        strip_whitespace = strip_whitespace
+      })
+
+      if strip_whitespace then
+        stats_write("Decoded with whitespace stripping\n")
+      end
     end
     stats_write("Decoded result size: " .. #output .. " bytes\n")
 
@@ -857,12 +1018,19 @@ if arg then
     if passthrough_mode then
       io.stdout:write(input_data)
     end
-    output = PrintableBinary.encode(input_data, {
-      spaces = spaces_mode,
-      tabs = tabs_mode,
-      crlf = crlf_mode,
-      preserve = preserve_chars
-    })
+
+    if hexlike_mode then
+      output = PrintableBinary.hexlike_encode(input_data, {
+        spaces = spaces_mode
+      })
+    else
+      output = PrintableBinary.encode(input_data, {
+        spaces = spaces_mode,
+        tabs = tabs_mode,
+        crlf = crlf_mode,
+        preserve = preserve_chars
+      })
+    end
     stats_write("Encoded " .. #input_data .. " bytes of input to " .. #output .. " bytes\n")
 
     -- Apply formatting if requested

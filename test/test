@@ -1233,6 +1233,308 @@ fi
 
 rm -f "$TMP_RANGE_INPUT" "$TMP_RANGE_OUTPUT" "$TMP_RANGE_STDERR" "$TMP_RANGE_DECODED"
 
+###############################################################################
+# HEXLIKE ENCODING/DECODING TESTS
+###############################################################################
+
+# Feature detection: only run if --hexlike is supported
+if [[ "$HELP_OUTPUT" == *"--hexlike"* ]]; then
+
+echo -e "\n${YELLOW}Running hexlike encoding/decoding tests...${NC}"
+
+# The Οχ prefix: Greek Omicron (U+039F) + Greek Chi (U+03C7)
+# NOT ASCII "0x" — this is intentional for disambiguation
+OX=$'\xCE\x9F\xCF\x87'  # Οχ in UTF-8
+
+# --- Encode tests ---
+
+# H1: Pure passthrough ASCII stays unchanged
+echo -e "${BLUE}Test H1: Hexlike encode pure passthrough ASCII${NC}"
+RESULT=$(printf 'Hello' | $SCRIPT --hexlike 2>/dev/null)
+if [[ "$RESULT" == "Hello" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: Hello"
+    echo "Got: $RESULT"
+    exit 1
+fi
+
+# H2: Non-passthrough byte encoded as hex (space is NOT passthrough without --spaces)
+echo -e "${BLUE}Test H2: Hexlike encode non-passthrough byte${NC}"
+RESULT=$(printf 'A B' | $SCRIPT --hexlike 2>/dev/null)
+EXPECTED="A ${OX}20 B"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: $EXPECTED"
+    echo "Got: $RESULT"
+    echo "Expected hex: $(printf '%s' "$EXPECTED" | xxd -p)"
+    echo "Got hex:      $(printf '%s' "$RESULT" | xxd -p)"
+    exit 1
+fi
+
+# H3: Consecutive non-passthrough bytes grouped into single hex run
+echo -e "${BLUE}Test H3: Hexlike encode groups consecutive non-passthrough${NC}"
+RESULT=$(printf '\x00\x01\x02' | $SCRIPT --hexlike 2>/dev/null)
+EXPECTED="${OX}000102"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: $EXPECTED"
+    echo "Got: $RESULT"
+    echo "Expected hex: $(printf '%s' "$EXPECTED" | xxd -p)"
+    echo "Got hex:      $(printf '%s' "$RESULT" | xxd -p)"
+    exit 1
+fi
+
+# H4: Mixed ASCII and non-passthrough (no --spaces: space gets hex-encoded)
+echo -e "${BLUE}Test H4: Hexlike encode mixed (comma+space grouped)${NC}"
+RESULT=$(printf 'Hello, World!' | $SCRIPT --hexlike 2>/dev/null)
+EXPECTED="Hello ${OX}2C20 World ${OX}21"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: $EXPECTED"
+    echo "Got: $RESULT"
+    echo "Expected hex: $(printf '%s' "$EXPECTED" | xxd -p)"
+    echo "Got hex:      $(printf '%s' "$RESULT" | xxd -p)"
+    exit 1
+fi
+
+# H5: With --spaces, space passes through (not grouped with comma)
+echo -e "${BLUE}Test H5: Hexlike encode with --spaces (space passthrough)${NC}"
+RESULT=$(printf 'Hello, World!' | $SCRIPT --hexlike --spaces 2>/dev/null)
+EXPECTED="Hello ${OX}2C  World ${OX}21"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: $EXPECTED"
+    echo "Got: $RESULT"
+    echo "Expected hex: $(printf '%s' "$EXPECTED" | xxd -p)"
+    echo "Got hex:      $(printf '%s' "$RESULT" | xxd -p)"
+    exit 1
+fi
+
+# H6: Hex at end — no trailing space
+echo -e "${BLUE}Test H6: Hexlike no trailing space at end${NC}"
+RESULT=$(printf 'Hello!' | $SCRIPT --hexlike 2>/dev/null)
+EXPECTED="Hello ${OX}21"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: $EXPECTED"
+    echo "Got: $RESULT"
+    exit 1
+fi
+
+# H7: Hex at start — no leading space
+echo -e "${BLUE}Test H7: Hexlike no leading space at start${NC}"
+RESULT=$(printf '\x00Hello' | $SCRIPT --hexlike 2>/dev/null)
+EXPECTED="${OX}00 Hello"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: $EXPECTED"
+    echo "Got: $RESULT"
+    echo "Expected hex: $(printf '%s' "$EXPECTED" | xxd -p)"
+    echo "Got hex:      $(printf '%s' "$RESULT" | xxd -p)"
+    exit 1
+fi
+
+# H8: All non-passthrough — no delimiter spaces at all
+echo -e "${BLUE}Test H8: Hexlike all non-passthrough${NC}"
+RESULT=$(printf '\x00\x01' | $SCRIPT --hexlike 2>/dev/null)
+EXPECTED="${OX}0001"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: $EXPECTED"
+    echo "Got: $RESULT"
+    exit 1
+fi
+
+# H9: Hex is uppercase
+echo -e "${BLUE}Test H9: Hexlike uses uppercase hex${NC}"
+RESULT=$(printf '\xAB\xCD\xEF' | $SCRIPT --hexlike 2>/dev/null)
+EXPECTED="${OX}ABCDEF"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: $EXPECTED"
+    echo "Got: $RESULT"
+    exit 1
+fi
+
+# H10: Short flag -X works
+echo -e "${BLUE}Test H10: Hexlike short flag -X${NC}"
+RESULT=$(printf 'Hi!' | $SCRIPT -X 2>/dev/null)
+EXPECTED="Hi ${OX}21"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: $EXPECTED"
+    echo "Got: $RESULT"
+    exit 1
+fi
+
+# --- Decode tests ---
+
+# H11: Hexlike decode of pure hex
+echo -e "${BLUE}Test H11: Hexlike decode pure hex${NC}"
+RESULT=$(printf "${OX}48656C6C6F" | $SCRIPT -d --hexlike 2>/dev/null)
+if [[ "$RESULT" == "Hello" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: Hello"
+    echo "Got: $RESULT"
+    exit 1
+fi
+
+# H12: Hexlike decode mixed (passthrough + hex runs)
+echo -e "${BLUE}Test H12: Hexlike decode mixed${NC}"
+INPUT="Hello ${OX}2C20 World ${OX}21"
+RESULT=$(printf '%s' "$INPUT" | $SCRIPT -d --hexlike 2>/dev/null)
+EXPECTED="Hello, World!"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: $EXPECTED"
+    echo "Got: $RESULT"
+    echo "Expected hex: $(printf '%s' "$EXPECTED" | xxd -p)"
+    echo "Got hex:      $(printf '%s' "$RESULT" | xxd -p)"
+    exit 1
+fi
+
+# H13: Full 256-byte roundtrip via hexlike encode then decode
+echo -e "${BLUE}Test H13: Hexlike 256-byte roundtrip${NC}"
+# Generate all 256 byte values
+python3 -c "import sys; sys.stdout.buffer.write(bytes(range(256)))" > "$TMP_BINARY"
+$SCRIPT --hexlike "$TMP_BINARY" 2>/dev/null > "$TMP_ENCODED"
+$SCRIPT -d --hexlike "$TMP_ENCODED" 2>/dev/null > "$TMP_DECODED"
+if cmp -s "$TMP_BINARY" "$TMP_DECODED"; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "256-byte roundtrip failed"
+    echo "Original hex: $(xxd -p "$TMP_BINARY" | head -c 80)"
+    echo "Decoded hex:  $(xxd -p "$TMP_DECODED" | head -c 80)"
+    exit 1
+fi
+
+# H14: Roundtrip with --spaces
+echo -e "${BLUE}Test H14: Hexlike roundtrip with --spaces${NC}"
+printf 'Hello, World!\n' > "$TMP_BINARY"
+$SCRIPT --hexlike --spaces "$TMP_BINARY" 2>/dev/null > "$TMP_ENCODED"
+$SCRIPT -d --hexlike --spaces "$TMP_ENCODED" 2>/dev/null > "$TMP_DECODED"
+if cmp -s "$TMP_BINARY" "$TMP_DECODED"; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Roundtrip with --spaces failed"
+    echo "Original hex: $(xxd -p "$TMP_BINARY")"
+    echo "Encoded:      $(cat "$TMP_ENCODED")"
+    echo "Decoded hex:  $(xxd -p "$TMP_DECODED")"
+    exit 1
+fi
+
+# H15: Decode with --hexlike short flag -dX
+echo -e "${BLUE}Test H15: Hexlike decode with combined -dX${NC}"
+RESULT=$(printf "${OX}48656C6C6F" | $SCRIPT -dX 2>/dev/null)
+if [[ "$RESULT" == "Hello" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: Hello"
+    echo "Got: $RESULT"
+    exit 1
+fi
+
+# H16: Space adjacent to hex run — data space preserved
+echo -e "${BLUE}Test H16: Hexlike data space adjacent to hex run${NC}"
+# Encode " \x00" (space then null) with --spaces
+# Data space + delimiter space before Οχ = 2 spaces total
+RESULT=$(printf ' \x00' | $SCRIPT --hexlike --spaces 2>/dev/null)
+EXPECTED="  ${OX}00"
+if [[ "$RESULT" == "$EXPECTED" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected: $EXPECTED"
+    echo "Got: $RESULT"
+    echo "Expected hex: $(printf '%s' "$EXPECTED" | xxd -p)"
+    echo "Got hex:      $(printf '%s' "$RESULT" | xxd -p)"
+    exit 1
+fi
+
+# --- Warning tests ---
+
+# H17: Hexlike decode warns if no Οχ sequences found
+echo -e "${BLUE}Test H17: Hexlike decode warns on no hex content${NC}"
+STDERR_OUTPUT=$(printf 'Hello World' | $SCRIPT -d --hexlike 2>&1 >/dev/null)
+if [[ "$STDERR_OUTPUT" == *"hexlike"* ]] || [[ "$STDERR_OUTPUT" == *"no"*"hex"* ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected warning about no hexlike content"
+    echo "Got stderr: $STDERR_OUTPUT"
+    exit 1
+fi
+
+# H18: Hexlike decode warns if PB-style encoding detected
+echo -e "${BLUE}Test H18: Hexlike decode warns on PB glyphs${NC}"
+# Create PB-encoded data (contains PB glyphs like ␣, ·, etc.)
+PB_ENCODED=$(printf '\x00\x01\x02\x20' | $SCRIPT 2>/dev/null)
+STDERR_OUTPUT=$(printf '%s' "$PB_ENCODED" | $SCRIPT -d --hexlike 2>&1 >/dev/null)
+if [[ "$STDERR_OUTPUT" == *"printable"*"binary"* ]] || [[ "$STDERR_OUTPUT" == *"standard"*"encod"* ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected warning about PB-style encoding detected"
+    echo "Got stderr: $STDERR_OUTPUT"
+    exit 1
+fi
+
+# H19: Regular PB decode warns if Οχ sequences detected
+echo -e "${BLUE}Test H19: Regular decode warns on hexlike content${NC}"
+HEXLIKE_INPUT="Hello ${OX}2C20 World"
+STDERR_OUTPUT=$(printf '%s' "$HEXLIKE_INPUT" | $SCRIPT -d 2>&1 >/dev/null)
+if [[ "$STDERR_OUTPUT" == *"hexlike"* ]] || [[ "$STDERR_OUTPUT" == *"hex"*"encod"* ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Expected warning about hexlike encoding detected"
+    echo "Got stderr: $STDERR_OUTPUT"
+    exit 1
+fi
+
+# --- Help text test ---
+
+# H20: Help mentions --hexlike and warns about Οχ vs 0x
+echo -e "${BLUE}Test H20: Help text mentions hexlike and Οχ disambiguation${NC}"
+if [[ "$HELP_OUTPUT" == *"--hexlike"* ]] && [[ "$HELP_OUTPUT" == *"0x"* || "$HELP_OUTPUT" == *"Οχ"* ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "Help output should mention --hexlike and warn about Οχ vs 0x"
+    exit 1
+fi
+
+else
+    echo -e "\n${YELLOW}Skipping hexlike tests (--hexlike not supported by this implementation)${NC}"
+fi
+
 # Print summary
 echo -e "\n${BLUE}=== Test Suite Summary ===${NC}"
 echo -e "${GREEN}All tests passed!${NC}"
