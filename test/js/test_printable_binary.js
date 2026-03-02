@@ -207,7 +207,7 @@ console.log('\n--- Known Mapping Verification Tests ---');
 {
   const byte34 = new Uint8Array([34]);
   const encoded34 = encoder.encode(byte34);
-  assertEquals(encoded34, "\u02F5", 'Byte 34 (") maps to ˵ (U+02F5)');
+  assertEquals(encoded34, "\u02EE", 'Byte 34 (") maps to ˮ (U+02EE)');
 }
 
 {

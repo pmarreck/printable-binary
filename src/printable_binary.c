@@ -1226,7 +1226,7 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "PrintableBinary encodes every byte (quotes, backslashes, tabs, CR/LF, etc.) into visible, but clearly related, glyphs.\n");
     fprintf(stderr, "You can format the encoded text freely—spaces, newlines, indentation—because the decoder ignores real whitespace.\n");
     fprintf(stderr, "With --spaces, literal spaces are treated as data (and we warn on indented lines).\n");
-    fprintf(stderr, "Examples: SPACE→␣, TAB→⇥, CR→⏎, LF→↧, single quote→ʼ, double quote→˵, backslash→⧷.\n");
+    fprintf(stderr, "Examples: SPACE→␣, TAB→⇥, CR→⏎, LF→↧, single quote→ʼ, double quote→ˮ, backslash→⧷.\n");
     fprintf(stderr, "This avoids shell-escaping surprises while keeping context obvious.\n\n");
     fprintf(stderr, "When --passthrough is used:\n");
     fprintf(stderr, "  - Original binary data is passed unchanged to stdout\n");

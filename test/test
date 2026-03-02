@@ -894,7 +894,7 @@ fi
 
 # Test: --preserve / -p/-P with custom characters
 echo -e "${BLUE}Test: --preserve with custom characters${NC}"
-# Normally ! encodes to ǃ and " encodes to ˵
+# Normally ! encodes to ǃ and " encodes to ˮ
 # Detect which format the implementation uses (= or space-separated)
 if [[ "$HELP_OUTPUT" == *"--preserve="* ]]; then
     # Uses --preserve=CHARS format (C, Zig)

@@ -28,7 +28,7 @@ class TestEncoder {
     
     // Special ASCII characters
     this.defChar(32, "\u2423");  this.defChar(33, "\uFE57");
-    this.defChar(34, "\u02F5");  this.defChar(35, "\u266F");
+    this.defChar(34, "\u02EE");  this.defChar(35, "\u266F");
     this.defChar(36, "\uFE69");  this.defChar(37, "\uFE6A");
     this.defChar(38, "\uFE60");  this.defChar(39, "\u02BC");
     this.defChar(40, "\u2768");  this.defChar(41, "\u2769");

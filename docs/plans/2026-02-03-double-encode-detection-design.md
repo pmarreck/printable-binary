@@ -28,7 +28,7 @@ Scan input for "high-confidence" PB glyphs—characters that are:
 **High-confidence glyph sets:**
 - Control character mappings (0x00-0x1F): `·`, `¯`, `«`, `»`, `ϟ`, `¿`, `¡`, etc.
 - High-byte mappings (0x80-0xFF): `ā`, `Ā`, `ă`, `Ă`, ... `Ż`
-- Replaced ASCII mappings: `␣`, `ǃ`, `˵`, `♯`, etc.
+- Replaced ASCII mappings: `␣`, `ǃ`, `ˮ`, `♯`, etc.
 
 **Threshold:** If >5% of input characters are high-confidence PB glyphs, warn.
 

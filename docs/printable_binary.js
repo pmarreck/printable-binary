@@ -57,7 +57,7 @@ const EMBEDDED_MAP = `·
 ¬
 ␣
 ǃ
-˵
+ˮ
 ♯
 Ꞩ
 ‰

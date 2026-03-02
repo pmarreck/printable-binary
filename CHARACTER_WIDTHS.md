@@ -38,7 +38,7 @@ East Asian Width values from Python's `unicodedata`. Legend: Na=Narrow, N=Neutra
 | 31 | ¬ | U+00AC | C2 AC | Na |
 | 32 | ␣ | U+2423 | E2 90 A3 | N |
 | 33 | ǃ | U+01C3 | C7 83 | N |
-| 34 | ˵ | U+02F5 | CB B5 | N |
+| 34 | ˮ | U+02EE | CB AE | N |
 | 35 | ♯ | U+266F | E2 99 AF | A |
 | 36 | Ꞩ | U+A7A8 | EA 9E A8 | N |
 | 37 | ‰ | U+2030 | E2 80 B0 | A |

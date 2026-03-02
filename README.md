@@ -298,7 +298,7 @@ The PrintableBinary character set is specifically designed to be highly compatib
 
 ### ✅ **Excellent Compatibility With:**
 
-- **JSON** - Perfect in quoted strings (we re-encode `"` as `˵`)
+- **JSON** - Perfect in quoted strings (we re-encode `"` as `ˮ`)
 - **XML/HTML** - Perfect in text content and attributes (no `<>&` in our encodings)
 - **TOML** - Perfect in quoted strings
 - **YAML** - Perfect in quoted strings, good in unquoted context
@@ -309,7 +309,7 @@ The PrintableBinary character set is specifically designed to be highly compatib
 
 ### 🎯 **Key Design Decisions for Compatibility:**
 
-- **Double quotes** (34) → `˵` (U+02F5) - Avoids JSON/XML attribute conflicts
+- **Double quotes** (34) → `ˮ` (U+02EE) - Avoids JSON/XML attribute conflicts
 - **Single quotes** (39) → `ʼ` (U+02BC) - Avoids shell/SQL conflicts
 - **Backslashes** (92) → `⧹` (U+29F9) - Avoids escape sequence issues
 - **Control characters** → Safe Unicode symbols (·, ¶, ⏎, etc.)
@@ -349,7 +349,7 @@ The replacement glyphs were chosen to balance three competing goals:
    - `˂˃` for angle brackets - similar shape, clearly related
 
 3. **Unambiguous Distinction** - The glyph must *not* be confused with the original character. This explains choices like:
-   - `˵` for double-quote - renders small in terminals but is only 2 bytes and cannot be mistaken for `"`
+   - `ˮ` for double-quote - modifier letter double apostrophe, visually evocative and only 2 bytes
    - `ʼ` for single-quote - modifier letter apostrophe looks similar but is clearly distinct
    - `⧷` for backslash - has a horizontal stroke through it
 
@@ -361,7 +361,7 @@ The replacement glyphs were chosen to balance three competing goals:
 - **Space (32)**: Encoded as ␣ for visibility
 - **Shell-unsafe ASCII characters**: Mapped to safe Unicode alternatives:
   - Exclamation mark (33) → ﹗ (U+FE57) Small Exclamation Mark
-  - Double quote (34) → ˵ (U+02F5) Modifier Letter Middle Double Grave Accent
+  - Double quote (34) → ˮ (U+02EE) Modifier Letter Double Apostrophe
   - Hash (35) → ♯ (U+266F) Music Sharp Sign
   - Dollar sign (36) → ﹩ (U+FE69) Small Dollar Sign
   - Percent (37) → ﹪ (U+FE6A) Small Percent Sign
@@ -425,7 +425,7 @@ This table is generated from `character_map.txt` so every implementation stays i
 | 31 | ¬ | U+00AC | C2 AC | Not Sign |
 | 32 | ␣ | U+2423 | E2 90 A3 | Open Box |
 | 33 | ǃ | U+01C3 | C7 83 | Latin Letter Retroflex Click |
-| 34 | ˵ | U+02F5 | CB B5 | Modifier Letter Middle Double Grave Accent |
+| 34 | ˮ | U+02EE | CB AE | Modifier Letter Double Apostrophe |
 | 35 | ♯ | U+266F | E2 99 AF | Music Sharp Sign |
 | 36 | Ꞩ | U+A7A8 | EA 9E A8 | Latin Capital Letter S With Oblique Stroke |
 | 37 | ‰ | U+2030 | E2 80 B0 | Per Mille Sign |
