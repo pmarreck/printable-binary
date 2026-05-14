@@ -4,12 +4,17 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    zig-overlay = {
+      url = "github:mitchellh/zig-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, zig-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        zig = zig-overlay.packages.${system}."0.16.0";
 
         cosmoccVersion = "4.0.2";
         cosmoccHash = "sha256-6KZv7KU2rJhwfc9k6z9I6ZdfIS1KqRFLZUo8YyuD7ZY=";
@@ -130,7 +135,7 @@
 
           src = ./.;
 
-          nativeBuildInputs = [ pkgs.zig ];
+          nativeBuildInputs = [ zig ];
 
           buildPhase = ''
             export HOME=$TMPDIR
@@ -272,7 +277,7 @@
           test-zig-unit = pkgs.stdenv.mkDerivation {
             name = "test-zig-unit";
             src = ./.;
-            nativeBuildInputs = [ pkgs.zig ];
+            nativeBuildInputs = [ zig ];
             buildPhase = ''
               export HOME=$TMPDIR
               zig build test
