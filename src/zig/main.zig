@@ -34,28 +34,37 @@ const Options = struct {
 const MappingsMode = enum { none, table, json, csv };
 
 // ============================================================================
-// I/O Adapters (Zig 0.15.2 buffered I/O)
+// I/O Adapters (Zig 0.16 buffered I/O — io threaded through)
 // ============================================================================
 
-fn readInput(allocator: std.mem.Allocator, file_path: ?[]const u8) ![]u8 {
+// Module-level pointer to the environ_map so writeStats (which can be called
+// from any error path without explicit io threading) can still check the
+// mute env var. Set once at the start of main().
+var g_environ_map: ?*const std.process.Environ.Map = null;
+
+fn readInput(io: std.Io, allocator: std.mem.Allocator, file_path: ?[]const u8) ![]u8 {
     if (file_path) |path| {
         if (!std.mem.eql(u8, path, "-")) {
-            const file = try std.fs.cwd().openFile(path, .{});
-            defer file.close();
-            return try file.readToEndAlloc(allocator, std.math.maxInt(usize));
+            const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+            defer file.close(io);
+            var buf: [4096]u8 = undefined;
+            var r = file.reader(io, &buf);
+            return try r.interface.allocRemaining(allocator, .unlimited);
         }
     }
-    return try std.fs.File.stdin().readToEndAlloc(allocator, std.math.maxInt(usize));
+    var buf: [4096]u8 = undefined;
+    var r = std.Io.File.stdin().reader(io, &buf);
+    return try r.interface.allocRemaining(allocator, .unlimited);
 }
 
-fn writeOutput(data: []const u8, to_stderr: bool) !void {
+fn writeOutput(io: std.Io, data: []const u8, to_stderr: bool) !void {
     var buf: [4096]u8 = undefined;
     if (to_stderr) {
-        var w = std.fs.File.stderr().writer(&buf);
+        var w = std.Io.File.stderr().writer(io, &buf);
         try w.interface.writeAll(data);
         try w.interface.flush();
     } else {
-        var w = std.fs.File.stdout().writer(&buf);
+        var w = std.Io.File.stdout().writer(io, &buf);
         try w.interface.writeAll(data);
         try w.interface.flush();
     }
@@ -63,14 +72,15 @@ fn writeOutput(data: []const u8, to_stderr: bool) !void {
 
 fn writeStats(comptime fmt: []const u8, args: anytype) void {
     // Check if stats output is muted
-    const mute_env = std.posix.getenv("PRINTABLE_BINARY_MUTE_STATS");
-    if (mute_env != null and mute_env.?.len > 0 and mute_env.?[0] == '1') {
-        return;
+    if (g_environ_map) |env| {
+        if (env.get("PRINTABLE_BINARY_MUTE_STATS")) |v| {
+            if (v.len > 0 and v[0] == '1') return;
+        }
     }
-    // Use unbuffered direct write for stderr messages
+    // Use unbuffered direct write for stderr messages — fire-and-forget raw syscall
     var msg_buf: [1024]u8 = undefined;
     const msg = std.fmt.bufPrint(&msg_buf, fmt, args) catch return;
-    _ = std.posix.write(std.posix.STDERR_FILENO, msg) catch {};
+    _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
 }
 
 // ============================================================================
@@ -158,10 +168,7 @@ fn isPositionalRange(s: []const u8) bool {
     return i < s.len and s[i] == '-';
 }
 
-fn parseArgs(allocator: std.mem.Allocator) !Options {
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
+fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Options {
     var opts = Options{};
     var i: usize = 1;
 
@@ -319,7 +326,7 @@ fn parseArgs(allocator: std.mem.Allocator) !Options {
 // Output Formatting (uses core library, writes to I/O)
 // ============================================================================
 
-fn printUsage() void {
+fn printUsage(io: std.Io) void {
     const help =
         \\PrintableBinary Zig - Encode binary data as printable UTF-8 and decode it back
         \\
@@ -368,7 +375,7 @@ fn printUsage() void {
         \\
     ;
     var buf: [4096]u8 = undefined;
-    var w = std.fs.File.stderr().writer(&buf);
+    var w = std.Io.File.stderr().writer(io, &buf);
     w.interface.writeAll(help) catch {};
     w.interface.flush() catch {};
 }
@@ -394,7 +401,7 @@ const ascii_names = [_][]const u8{
 };
 
 fn writeStdout(data: []const u8) void {
-    _ = std.posix.write(std.posix.STDOUT_FILENO, data) catch {};
+    _ = std.posix.system.write(std.posix.STDOUT_FILENO, data.ptr, data.len);
 }
 
 fn printMappings(mode: MappingsMode) !void {
@@ -446,12 +453,17 @@ fn printMappings(mode: MappingsMode) !void {
 // Main Entry Point
 // ============================================================================
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+    g_environ_map = init.environ_map;
 
-    const opts = parseArgs(allocator) catch |err| {
+    // Materialize argv as []const []const u8 (toSlice gives [:0]const u8 entries)
+    const args_z = try init.minimal.args.toSlice(init.arena.allocator());
+    const args_buf = try init.arena.allocator().alloc([]const u8, args_z.len);
+    for (args_z, 0..) |a, idx| args_buf[idx] = a;
+
+    const opts = parseArgs(allocator, args_buf) catch |err| {
         switch (err) {
             error.UnknownOption => writeStats("Error: Unknown option\n", .{}),
             error.InvalidFormat => writeStats("Error: Invalid format specification\n", .{}),
@@ -466,7 +478,7 @@ pub fn main() !void {
     defer if (opts.preserve_chars) |p| allocator.free(p);
 
     if (opts.help_mode) {
-        printUsage();
+        printUsage(io);
         return;
     }
 
@@ -476,7 +488,7 @@ pub fn main() !void {
     }
 
     // Read input (I/O boundary)
-    const raw_input = readInput(allocator, opts.input_file) catch |err| {
+    const raw_input = readInput(io, allocator, opts.input_file) catch |err| {
         writeStats("Error reading input: {}\n", .{err});
         std.process.exit(1);
     };
@@ -517,18 +529,20 @@ pub fn main() !void {
 
             // Warn if no Οχ sequences found
             if (!dr.found_hex) {
-                _ = std.posix.write(std.posix.STDERR_FILENO, "Warning: no hexlike (\xCE\x9F\xCF\x87) sequences found in input\n") catch {};
+                const m: []const u8 = "Warning: no hexlike (\xCE\x9F\xCF\x87) sequences found in input\n";
+                _ = std.posix.system.write(std.posix.STDERR_FILENO, m.ptr, m.len);
             }
 
             // Warn if PB-style encoding detected
             const de_info = pb.detectDoubleEncode(input, 0.05);
             if (de_info.detected != 0) {
-                _ = std.posix.write(std.posix.STDERR_FILENO, "Warning: input appears to contain standard printable-binary encoding\n") catch {};
+                const m: []const u8 = "Warning: input appears to contain standard printable-binary encoding\n";
+                _ = std.posix.system.write(std.posix.STDERR_FILENO, m.ptr, m.len);
             }
 
             writeStats("Decoding mode: Input size is {d} bytes\n", .{input.len});
             writeStats("Decoded result size: {d} bytes\n", .{dr.data.len});
-            try writeOutput(dr.data, false);
+            try writeOutput(io, dr.data, false);
         } else {
             // Regular PB decode
 
@@ -549,7 +563,8 @@ pub fn main() !void {
 
             // Warn if hexlike encoding detected in regular PB decode
             if (pb.detectHexlike(input)) {
-                _ = std.posix.write(std.posix.STDERR_FILENO, "Warning: input appears to contain hexlike (\xCE\x9F\xCF\x87) encoding; use --hexlike -d to decode\n") catch {};
+                const m: []const u8 = "Warning: input appears to contain hexlike (\xCE\x9F\xCF\x87) encoding; use --hexlike -d to decode\n";
+                _ = std.posix.system.write(std.posix.STDERR_FILENO, m.ptr, m.len);
             }
 
             const decoded = pb.decode(allocator, input, .{
@@ -563,7 +578,7 @@ pub fn main() !void {
 
             writeStats("Decoding mode: Input size is {d} bytes\n", .{input.len});
             writeStats("Decoded result size: {d} bytes\n", .{decoded.len});
-            try writeOutput(decoded, false);
+            try writeOutput(io, decoded, false);
         }
     } else {
         // Encode mode - check for double-encoding first
@@ -572,12 +587,12 @@ pub fn main() !void {
             if (de_info.detected != 0) {
                 var msg_buf: [256]u8 = undefined;
                 const msg = std.fmt.bufPrint(&msg_buf, "Warning: Input appears to already be printable-binary encoded ({d:.1}% detection).\n         Use --no-double-encode-check to suppress this warning.\n", .{de_info.confidence * 100.0}) catch unreachable;
-                _ = std.posix.write(std.posix.STDERR_FILENO, msg) catch {};
+                _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
             }
         }
 
         if (opts.passthrough_mode) {
-            try writeOutput(input, false);
+            try writeOutput(io, input, false);
         }
 
         if (opts.hexlike) {
@@ -591,7 +606,7 @@ pub fn main() !void {
             defer allocator.free(encoded);
 
             writeStats("Encoded {d} bytes of input to {d} bytes\n", .{ input.len, encoded.len });
-            try writeOutput(encoded, opts.passthrough_mode);
+            try writeOutput(io, encoded, opts.passthrough_mode);
         } else {
             // Regular PB encode
             const encoded = pb.encode(allocator, input, .{
@@ -622,7 +637,7 @@ pub fn main() !void {
             }
 
             writeStats("Encoded {d} bytes of input to {d} bytes\n", .{ input.len, output.len });
-            try writeOutput(output, opts.passthrough_mode);
+            try writeOutput(io, output, opts.passthrough_mode);
         }
     }
 }
