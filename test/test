@@ -898,10 +898,10 @@ echo -e "${BLUE}Test: --preserve with custom characters${NC}"
 # Detect which format the implementation uses (= or space-separated)
 if [[ "$HELP_OUTPUT" == *"--preserve="* ]]; then
     # Uses --preserve=CHARS format (C, Zig)
-    RESULT=$(/usr/bin/printf 'hello!"world' | $SCRIPT --preserve='!"' 2>/dev/null)
+    RESULT=$(printf 'hello!"world' | $SCRIPT --preserve='!"' 2>/dev/null)
 else
     # Uses --preserve <chars> format (Lua)
-    RESULT=$(/usr/bin/printf 'hello!"world' | $SCRIPT --preserve '!"' 2>/dev/null)
+    RESULT=$(printf 'hello!"world' | $SCRIPT --preserve '!"' 2>/dev/null)
 fi
 if [[ "$RESULT" == 'hello!"world' ]]; then
     echo -e "${GREEN}PASS${NC}"
