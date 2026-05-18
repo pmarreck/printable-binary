@@ -41,6 +41,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/zig/main.zig"),
         .target = target,
         .optimize = optimize,
+        // CLI calls std.posix.system.write; on Windows std.c requires libc.
+        .link_libc = true,
         .imports = &.{
             .{ .name = "printable_binary", .module = lib_mod },
         },
