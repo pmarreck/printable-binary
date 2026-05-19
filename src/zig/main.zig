@@ -42,6 +42,25 @@ const MappingsMode = enum { none, table, json, csv };
 // mute env var. Set once at the start of main().
 var g_environ_map: ?*const std.process.Environ.Map = null;
 
+// Module-level Io handle so fire-and-forget stderr/stdout writers (writeStats,
+// writeStdout, and the ad-hoc warning writes inside encode/decode branches)
+// can emit text without threading io through every call site. Set once at the
+// start of main(). Using std.Io.File.{stderr,stdout}().writeStreamingAll is
+// the portable Zig 0.16 way for unbuffered stderr/stdout writes; the previous
+// raw POSIX-syscall approach didn't compile on Windows because Windows has no
+// POSIX write syscall and the libc shim expects a HANDLE, not an i32 fd.
+var g_io: ?std.Io = null;
+
+// Fire-and-forget unbuffered write helper. Drops the write on the floor if
+// io isn't initialized yet (shouldn't happen since main() sets g_io before
+// anything that could call writeStats/writeStdout) or if the underlying
+// write fails. Matches the prior fire-and-forget semantics: no buffering,
+// no error propagation, just emit the bytes and move on.
+fn rawWriteAll(file: std.Io.File, bytes: []const u8) void {
+    const io = g_io orelse return;
+    file.writeStreamingAll(io, bytes) catch {};
+}
+
 fn readInput(io: std.Io, allocator: std.mem.Allocator, file_path: ?[]const u8) ![]u8 {
     if (file_path) |path| {
         if (!std.mem.eql(u8, path, "-")) {
@@ -77,10 +96,10 @@ fn writeStats(comptime fmt: []const u8, args: anytype) void {
             if (v.len > 0 and v[0] == '1') return;
         }
     }
-    // Use unbuffered direct write for stderr messages — fire-and-forget raw syscall
+    // Fire-and-forget unbuffered write to stderr (no allocation, no buffering).
     var msg_buf: [1024]u8 = undefined;
     const msg = std.fmt.bufPrint(&msg_buf, fmt, args) catch return;
-    _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
+    rawWriteAll(std.Io.File.stderr(), msg);
 }
 
 // ============================================================================
@@ -401,7 +420,7 @@ const ascii_names = [_][]const u8{
 };
 
 fn writeStdout(data: []const u8) void {
-    _ = std.posix.system.write(std.posix.STDOUT_FILENO, data.ptr, data.len);
+    rawWriteAll(std.Io.File.stdout(), data);
 }
 
 fn printMappings(mode: MappingsMode) !void {
@@ -457,6 +476,7 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
     g_environ_map = init.environ_map;
+    g_io = io;
 
     // Materialize argv as []const []const u8 (toSlice gives [:0]const u8 entries)
     const args_z = try init.minimal.args.toSlice(init.arena.allocator());
@@ -530,14 +550,14 @@ pub fn main(init: std.process.Init) !void {
             // Warn if no Οχ sequences found
             if (!dr.found_hex) {
                 const m: []const u8 = "Warning: no hexlike (\xCE\x9F\xCF\x87) sequences found in input\n";
-                _ = std.posix.system.write(std.posix.STDERR_FILENO, m.ptr, m.len);
+                rawWriteAll(std.Io.File.stderr(), m);
             }
 
             // Warn if PB-style encoding detected
             const de_info = pb.detectDoubleEncode(input, 0.05);
             if (de_info.detected != 0) {
                 const m: []const u8 = "Warning: input appears to contain standard printable-binary encoding\n";
-                _ = std.posix.system.write(std.posix.STDERR_FILENO, m.ptr, m.len);
+                rawWriteAll(std.Io.File.stderr(), m);
             }
 
             writeStats("Decoding mode: Input size is {d} bytes\n", .{input.len});
@@ -564,7 +584,7 @@ pub fn main(init: std.process.Init) !void {
             // Warn if hexlike encoding detected in regular PB decode
             if (pb.detectHexlike(input)) {
                 const m: []const u8 = "Warning: input appears to contain hexlike (\xCE\x9F\xCF\x87) encoding; use --hexlike -d to decode\n";
-                _ = std.posix.system.write(std.posix.STDERR_FILENO, m.ptr, m.len);
+                rawWriteAll(std.Io.File.stderr(), m);
             }
 
             const decoded = pb.decode(allocator, input, .{
@@ -587,7 +607,7 @@ pub fn main(init: std.process.Init) !void {
             if (de_info.detected != 0) {
                 var msg_buf: [256]u8 = undefined;
                 const msg = std.fmt.bufPrint(&msg_buf, "Warning: Input appears to already be printable-binary encoded ({d:.1}% detection).\n         Use --no-double-encode-check to suppress this warning.\n", .{de_info.confidence * 100.0}) catch unreachable;
-                _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
+                rawWriteAll(std.Io.File.stderr(), msg);
             }
         }
 

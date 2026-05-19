@@ -37,15 +37,13 @@ pub fn build(b: *std.Build) void {
     // =========================================================================
     // CLI Executable (Zig 0.15 style with root_module)
     // =========================================================================
-    // CLI calls std.posix.system.write; on Windows std.c requires libc.
-    // On Linux/macOS we use direct syscalls, so libc is unnecessary and
-    // dynamic-linking it breaks reproducible Nix builds.
-    const need_libc = target.result.os.tag == .windows;
+    // CLI uses std.Io.File.{stderr,stdout}().writeStreamingAll for all
+    // stderr/stdout I/O (Zig 0.16 portable API), so libc is not required on
+    // any platform — including Windows.
     const cli_mod = b.createModule(.{
         .root_source_file = b.path("src/zig/main.zig"),
         .target = target,
         .optimize = optimize,
-        .link_libc = need_libc,
         .imports = &.{
             .{ .name = "printable_binary", .module = lib_mod },
         },
