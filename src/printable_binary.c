@@ -273,8 +273,10 @@ static void buffer_free(buffer_t *buf) {
 // Helper function to create UTF-8 sequence
 static utf8_sequence_t make_utf8(const char *bytes) {
     utf8_sequence_t seq = {0};
-    seq.length = strlen(bytes);
-    memcpy(seq.bytes, bytes, seq.length);
+    size_t len = strlen(bytes);
+    if (len > MAX_UTF8_BYTES) len = MAX_UTF8_BYTES; /* never overflow seq.bytes[4] */
+    seq.length = len;
+    memcpy(seq.bytes, bytes, len);
     return seq;
 }
 
@@ -341,6 +343,13 @@ static bool load_map_from_path(const char *path) {
                 buffer[j] = '\0';
                 break;
             }
+        }
+
+        if (strlen(buffer) > MAX_UTF8_BYTES) {
+            fprintf(stderr, "Error: character map '%s' glyph at index %d exceeds %d bytes\n",
+                    path, i, MAX_UTF8_BYTES);
+            fclose(fp);
+            exit(1);
         }
 
         encode_table[i] = make_utf8(buffer);
@@ -952,6 +961,7 @@ static buffer_t encode_data(const uint8_t *input, size_t input_len, const option
         }
     }
 
+    buffer_prepare_return(&output);
     return output;
 }
 
@@ -1115,16 +1125,12 @@ static buffer_t read_file(const char *filename) {
     while (1) {
         size_t bytes_read = fread(temp, 1, sizeof(temp), file);
         if (bytes_read > 0) {
-            if (buf.size + bytes_read >= buf.capacity) {
-                buf.capacity = (buf.size + bytes_read) * 2;
-                buf.data = realloc(buf.data, buf.capacity);
-                if (!buf.data) {
-                    fprintf(stderr, "Memory allocation failed\n");
-                    exit(1);
-                }
-            }
-            memcpy(buf.data + buf.size, temp, bytes_read);
-            buf.size += bytes_read;
+            /* buffer_append routes through buffer_grow, which correctly migrates
+             * a stack-backed buffer to the heap. The previous hand-rolled realloc
+             * called realloc() directly on buf.data, corrupting/crashing when
+             * buf.data still pointed at the 4096-byte stack buffer (e.g. a file
+             * of exactly STACK_BUFFER_SIZE bytes). */
+            buffer_append(&buf, temp, bytes_read);
             continue;
         }
 

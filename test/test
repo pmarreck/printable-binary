@@ -217,6 +217,42 @@ else
     exit 1
 fi
 
+# Test 5b: Buffer stack/heap boundary roundtrip
+# Regression: C buffer_init uses a 4096-byte stack buffer; read_file must not
+# realloc() that stack pointer. Exactly 4096 bytes is the crash boundary.
+echo -e "${BLUE}Test #5b: Buffer boundary roundtrip (4095/4096/4097/8192 bytes)${NC}"
+BOUNDARY_OK=1
+for sz in 4095 4096 4097 8192; do
+    head -c "$sz" /dev/zero | tr '\0' 'Z' > "$TMP_BINARY"
+    if ! $SCRIPT "$TMP_BINARY" > "$TMP_ENCODED" 2>/dev/null; then BOUNDARY_OK=0; echo "encode crashed at size $sz"; break; fi
+    if ! $SCRIPT -d "$TMP_ENCODED" > "$TMP_DECODED" 2>/dev/null; then BOUNDARY_OK=0; echo "decode crashed at size $sz"; break; fi
+    if ! cmp -s "$TMP_BINARY" "$TMP_DECODED"; then BOUNDARY_OK=0; echo "roundtrip mismatch at size $sz"; break; fi
+done
+if [[ "$BOUNDARY_OK" == "1" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC}"
+    exit 1
+fi
+
+# Test 5c: Malformed runtime map (>4-byte glyph token) must be rejected, not crash
+# Regression: C make_utf8 memcpy'd strlen(token) into a 4-byte array (stack smash).
+echo -e "${BLUE}Test #5c: Malformed runtime map rejected gracefully${NC}"
+if [[ -f character_map.txt ]]; then
+    BADMAP=$(mktemp)
+    awk 'BEGIN{done=0} /^##/{print;next} (done==0){print "TOOLONG8"; done=1; next} {print}' character_map.txt > "$BADMAP"
+    rc=0
+    PRINTABLE_BINARY_MAP="$BADMAP" $SCRIPT <<< "x" >/dev/null 2>&1 || rc=$?
+    rm -f "$BADMAP"
+    if [[ $rc -ge 128 ]]; then
+        echo -e "${RED}FAIL${NC} (crashed with signal, exit $rc)"
+        exit 1
+    fi
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${YELLOW}SKIP (no character_map.txt in cwd)${NC}"
+fi
+
 # Test 6: Piped input
 echo -e "${BLUE}Test #6: Piped input${NC}"
 RESULT=$(echo -n "Test" | $SCRIPT | $SCRIPT -d)
