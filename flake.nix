@@ -198,7 +198,7 @@
 
               # JavaScript/TypeScript runtime for web implementation
               deno
-              nodejs_20
+              nodejs_24
 
               # WebAssembly toolchain
               emscripten
