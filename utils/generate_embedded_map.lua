@@ -27,14 +27,23 @@ local ROOT = script_root()
 local MAP_PATH = ROOT .. '/character_map.txt'
 local OUTPUT_PATH = ROOT .. '/character_map_embedded.h'
 
-local lines, err = read_lines(MAP_PATH)
-if not lines then
+local raw_lines, err = read_lines(MAP_PATH)
+if not raw_lines then
   io.stderr:write('ERROR: ', err or 'unable to read character_map.txt', '\n')
   os.exit(1)
 end
 
+-- Filter blank and full-line `#` comments; glyph = first whitespace-delimited
+-- token (trailing `<glyph> # comment` is ignored).
+local lines = {}
+for _, line in ipairs(raw_lines) do
+  if line ~= '' and line:sub(1, 2) ~= '##' then
+    lines[#lines + 1] = line:match('^(%S+)')
+  end
+end
+
 if #lines ~= 256 then
-  io.stderr:write(string.format('expected 256 lines in %s, got %d\n', MAP_PATH, #lines))
+  io.stderr:write(string.format('expected 256 glyph lines in %s, got %d\n', MAP_PATH, #lines))
   os.exit(1)
 end
 

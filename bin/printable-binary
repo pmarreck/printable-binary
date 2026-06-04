@@ -129,10 +129,13 @@ local function load_character_map()
       local map = {}
       local index = 0
       for line in file:lines() do
-        if index >= 256 then break end
         line = line:gsub("\r$", "")
-        map[index] = line
-        index = index + 1
+        -- skip blank and full-line `#` comments; glyph = first non-space token
+        if line ~= "" and line:sub(1, 2) ~= "##" then
+          if index >= 256 then break end
+          map[index] = line:match("^(%S+)")
+          index = index + 1
+        end
       end
       file:close()
       if index == 256 then

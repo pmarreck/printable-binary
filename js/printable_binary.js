@@ -38,11 +38,19 @@ function parseCharacterMap(text) {
   if (typeof text !== 'string') {
     throw new Error('Character map must be provided as text');
   }
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  if (lines.length < 256) {
-    throw new Error(`Character map requires 256 lines, found ${lines.length}`);
+  // Filter blank and full-line `#` comments; glyph = first whitespace-delimited
+  // token (so `<glyph> # comment` trailing comments are ignored). `#` is never
+  // a glyph (byte 0x23 -> music sharp), so this is unambiguous.
+  const glyphs = [];
+  for (let line of text.split('\n')) {
+    if (line.endsWith('\r')) line = line.slice(0, -1);
+    if (line.length === 0 || line.startsWith('##')) continue; // `##` = comment
+    glyphs.push(line.split(/[ \t]/)[0]);
   }
-  return lines.slice(0, 256);
+  if (glyphs.length !== 256) {
+    throw new Error(`Character map requires 256 glyph lines, found ${glyphs.length}`);
+  }
+  return glyphs;
 }
 
 function warnSpacesAfterNewline(str) {

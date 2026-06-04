@@ -1,3 +1,21 @@
+## PrintableBinary character map — SOURCE OF TRUTH for every implementation
+## (Zig @embedFile, C via utils/generate_embedded_map.lua, Lua CLI, JS).
+##
+## Format: one glyph per line, in byte order. Line N (after filtering comments)
+## is the glyph for byte N. Exactly 256 glyph lines. The glyph is the FIRST
+## whitespace-delimited token on the line.
+##
+## Comments:
+##   - A line beginning with `##` (two or more '#') is a full-line comment, skipped.
+##   - A trailing `<glyph> ## comment` is ignored (only the first token is taken).
+##   - `##` (not a single '#') is the marker on purpose, so a lone '#' can be a
+##     glyph someday without ambiguity. Today byte 0x23 ('#') maps to ♯, not '#'.
+##
+## Space (byte 0x20 -> ␣ U+2423, 3 bytes): kept 3-byte ON PURPOSE. No 2-byte glyph
+## works — the disqualifier is East Asian Width = Ambiguous, which makes terminals
+## (e.g. Ghostty) render the glyph as a pending/combining char (white highlight).
+## Every EAW=Neutral 2-byte option is a living-language letter, an ASCII look-alike,
+## or visually noisy. Use -s/--space to pass spaces through literally when tolerable.
 ·
 ¯
 «
@@ -30,7 +48,7 @@
 ǁ
 ǀ
 ¬
-␣
+␣ ## space: 3-byte open box kept deliberately — see header note; -s to passthrough
 ǃ
 ˮ
 ♯

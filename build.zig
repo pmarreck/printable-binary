@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    lib_mod.addAnonymousImport("character_map.txt", .{ .root_source_file = b.path("character_map.txt") });
 
     // =========================================================================
     // Static Library with C ABI (for FFI consumers like Cosmopolitan)
@@ -21,6 +22,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    static_lib_mod.addAnonymousImport("character_map.txt", .{ .root_source_file = b.path("character_map.txt") });
 
     const static_lib = b.addLibrary(.{
         .name = "printable_binary",
@@ -77,6 +79,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    test_mod.addAnonymousImport("character_map.txt", .{ .root_source_file = b.path("character_map.txt") });
 
     const lib_tests = b.addTest(.{
         .root_module = test_mod,
