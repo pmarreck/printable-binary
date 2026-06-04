@@ -118,6 +118,8 @@ jobs:
 
             Windows-X64) platform="x86_64-windows"; ext="zip" ;;
 
+            Windows-ARM64) platform="aarch64-windows"; ext="zip" ;;
+
             *) echo "Unsupported runner: ${RUNNER_OS}-${RUNNER_ARCH}" >&2; exit 1 ;;
 
           esac
