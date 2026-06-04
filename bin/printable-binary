@@ -522,7 +522,7 @@ if arg then
     io.stderr:write("Usage: " .. progname .. " [options] [file]\n")
     io.stderr:write("Options:\n")
     io.stderr:write("  -d, --decode     Decode mode (default is encode mode)\n")
-    io.stderr:write("  --passthrough    Pass input to stdout unchanged, send encoded data to stderr\n")
+    io.stderr:write("  -p, --passthrough                  Pass input to stdout unchanged, send encoded data to stderr\n")
     io.stderr:write("\n")
     io.stderr:write("Encoding modes:\n")
     io.stderr:write("  -X, --hexlike    Hexlike mode: passthrough ASCII stays as-is, all other bytes\n")
@@ -535,7 +535,7 @@ if arg then
     io.stderr:write("  -t, --tabs, --preserve-tabs        Preserve literal tabs\n")
     io.stderr:write("  -n, --crlf, --preserve-newlines    Preserve literal CR/LF\n")
     io.stderr:write("  -w, --preserve-whitespace          Preserve all whitespace (spaces, tabs, CR/LF)\n")
-    io.stderr:write("  -p, --preserve <chars>             Preserve specific characters (e.g., -p '!\"')\n")
+    io.stderr:write("  -P, --preserve <chars>             Preserve specific characters (e.g., -P '!\"')\n")
     io.stderr:write("  --no-double-encode-check           Skip detection of already-encoded input\n")
     io.stderr:write("\n")
     io.stderr:write("Range options (select byte range from input before processing):\n")
@@ -726,9 +726,11 @@ if arg then
     elseif flag == "S" then
       strip_whitespace = true
     elseif flag == "p" then
+      passthrough_mode = true
+    elseif flag == "P" then
       local next_arg = get_next_arg()
       if not next_arg then
-        io.stderr:write("Error: -p requires an argument\n")
+        io.stderr:write("Error: -P requires an argument\n")
         os.exit(1)
       end
       preserve_chars = next_arg
@@ -803,6 +805,8 @@ if arg then
         io.stderr:write("Error: --end value must be a number\n")
         os.exit(1)
       end
+    elseif current_arg:match("^%-%-preserve=") then
+      preserve_chars = current_arg:match("^%-%-preserve=(.*)")
     elseif current_arg == "--preserve" then
       i = i + 1
       if not arg[i] then

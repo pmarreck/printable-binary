@@ -253,6 +253,17 @@ else
     echo -e "${YELLOW}SKIP (no character_map.txt in cwd)${NC}"
 fi
 
+# Test 5d: -p (passthrough) / -P (preserve) short-flag consistency across all impls
+echo -e "${BLUE}Test #5d: -p passthrough / -P preserve consistency${NC}"
+PT=$(printf 'hi' | $SCRIPT -p 2>/dev/null)
+PR=$(printf '!' | $SCRIPT -P '!' 2>/dev/null)
+if [[ "$PT" == "hi" && "$PR" == "!" ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC} (-p passthrough='$PT' want 'hi'; -P preserve='$PR' want '!')"
+    exit 1
+fi
+
 # Test 6: Piped input
 echo -e "${BLUE}Test #6: Piped input${NC}"
 RESULT=$(echo -n "Test" | $SCRIPT | $SCRIPT -d)
