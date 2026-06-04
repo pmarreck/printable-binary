@@ -304,26 +304,47 @@ static bool load_map_from_path(const char *path) {
         return false;
     }
 
-    char buffer[64];
-    for (int i = 0; i < 256; i++) {
+    /* Lines beginning with "##" are full-line comments; blank lines are skipped.
+     * The glyph is the first whitespace-delimited token, so a trailing
+     * "<glyph> ## comment" is ignored. Mirrors the Zig/Lua/JS parsers. */
+    char buffer[512];
+    int i = 0;
+    while (i < 256) {
         if (!fgets(buffer, sizeof(buffer), fp)) {
-            fprintf(stderr, "Error: character map '%s' must contain 256 lines\n", path);
+            fprintf(stderr, "Error: character map '%s' must contain 256 glyph lines\n", path);
             fclose(fp);
             exit(1);
         }
 
         size_t len = strlen(buffer);
+        bool complete_line = (len > 0 && buffer[len - 1] == '\n');
         while (len > 0 && (buffer[len - 1] == '\n' || buffer[len - 1] == '\r')) {
             buffer[--len] = '\0';
         }
+        /* Discard the remainder if the line was longer than the buffer. */
+        if (!complete_line) {
+            int ch;
+            while ((ch = fgetc(fp)) != EOF && ch != '\n') {
+            }
+        }
 
         if (len == 0) {
-            fprintf(stderr, "Error: character map '%s' has an empty entry at index %d\n", path, i);
-            fclose(fp);
-            exit(1);
+            continue; /* blank line */
+        }
+        if (len >= 2 && buffer[0] == '#' && buffer[1] == '#') {
+            continue; /* "##" comment */
+        }
+
+        /* Truncate at first whitespace: glyph is the first token. */
+        for (size_t j = 0; j < len; j++) {
+            if (buffer[j] == ' ' || buffer[j] == '\t') {
+                buffer[j] = '\0';
+                break;
+            }
         }
 
         encode_table[i] = make_utf8(buffer);
+        i++;
     }
 
     fclose(fp);
