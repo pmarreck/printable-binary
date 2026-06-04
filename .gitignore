@@ -25,11 +25,14 @@ a.out
 zig-out
 bin/*
 .zig-cache
-result
-result-zig
-ZIG_RECENT_API_CHANGES_2025.md
+ZIG_RECENT_API_CHANGES*.md
 
 # Nix result symlinks
-result
-result-*
+result*
 .serena
+
+# benchmark results
+bm/results
+
+# anything else
+ZIG_0.15_TO_0.16_MIGRATION.md

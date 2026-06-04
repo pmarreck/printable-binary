@@ -47,6 +47,9 @@ typedef struct {
  * Validate that a string contains only valid printable-binary encoded characters.
  *
  * @param input     Pointer to the UTF-8 encoded string to validate
+ * @note      input may be NULL only when input_len == 0. NULL with a
+ *            nonzero length returns an error result (error_code != 0,
+ *            or is_valid/detected == 0) instead of dereferencing NULL.
  * @param input_len Length of the input in bytes
  * @param ws_flags  Bitfield of pb_whitespace_flags_t values
  * @return          Validation result with error details if invalid
@@ -139,6 +142,9 @@ void pb_free(char *ptr, size_t len);
  * Caller must call pb_free() on result.data when done.
  *
  * @param input             Pointer to binary data to encode
+ * @note      input may be NULL only when input_len == 0. NULL with a
+ *            nonzero length returns an error result (error_code != 0,
+ *            or is_valid/detected == 0) instead of dereferencing NULL.
  * @param input_len         Length of input in bytes
  * @param flags             Bitfield of pb_encode_flags_t values
  * @param preserve_chars    Additional characters to preserve (or NULL)
@@ -158,6 +164,9 @@ pb_ffi_result_t pb_encode(
  * Caller must call pb_free() on result.data when done.
  *
  * @param input     Pointer to encoded UTF-8 string
+ * @note      input may be NULL only when input_len == 0. NULL with a
+ *            nonzero length returns an error result (error_code != 0,
+ *            or is_valid/detected == 0) instead of dereferencing NULL.
  * @param input_len Length of input in bytes
  * @param flags     Bitfield of pb_decode_flags_t values
  * @return          Result with decoded data or error
@@ -173,6 +182,9 @@ pb_ffi_result_t pb_decode(
  * Caller must call pb_free() on result.data when done.
  *
  * @param input           Pointer to encoded data
+ * @note      input may be NULL only when input_len == 0. NULL with a
+ *            nonzero length returns an error result (error_code != 0,
+ *            or is_valid/detected == 0) instead of dereferencing NULL.
  * @param input_len       Length of input in bytes
  * @param group_size      Characters per group (default: 8)
  * @param groups_per_line Groups per line (default: 10)
@@ -223,6 +235,9 @@ typedef struct {
  * the raw byte).
  *
  * @param input     Pointer to the UTF-8 input to check
+ * @note      input may be NULL only when input_len == 0. NULL with a
+ *            nonzero length returns an error result (error_code != 0,
+ *            or is_valid/detected == 0) instead of dereferencing NULL.
  * @param input_len Length of the input in bytes
  * @param threshold Confidence threshold (e.g. 0.05 for 5%)
  * @return          Detection result with confidence ratio

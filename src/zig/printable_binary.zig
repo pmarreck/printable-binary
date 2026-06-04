@@ -574,8 +574,11 @@ pub fn detectDoubleEncode(input: []const u8, threshold: f32) DoubleEncodeInfo {
 }
 
 /// C ABI export for double-encoding detection
-export fn pb_detect_double_encode(input: [*]const u8, input_len: usize, threshold: f32) callconv(.c) DoubleEncodeInfo {
-    const slice = if (input_len > 0) input[0..input_len] else &[_]u8{};
+export fn pb_detect_double_encode(input: ?[*]const u8, input_len: usize, threshold: f32) callconv(.c) DoubleEncodeInfo {
+    if (input == null and input_len > 0) {
+        return DoubleEncodeInfo{ .detected = 0, .confidence = 0.0 };
+    }
+    const slice = if (input_len > 0) input.?[0..input_len] else &[_]u8{};
     return detectDoubleEncode(slice, threshold);
 }
 
@@ -635,11 +638,8 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, options: EncodeOp
         }
     }
 
-    // Shrink to actual size
-    const final = try allocator.alloc(u8, pos);
-    @memcpy(final, result[0..pos]);
-    allocator.free(result);
-    return final;
+    // Shrink to actual size (realloc avoids a second allocation + full memcpy)
+    return allocator.realloc(result, pos);
 }
 
 /// Decode printable UTF-8 back to binary data.
@@ -709,11 +709,8 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8, options: DecodeOp
         i += actual_len;
     }
 
-    // Shrink to actual size
-    const final = try allocator.alloc(u8, pos);
-    @memcpy(final, result[0..pos]);
-    allocator.free(result);
-    return final;
+    // Shrink to actual size (realloc avoids a second allocation + full memcpy)
+    return allocator.realloc(result, pos);
 }
 
 /// Format encoded output into groups for readability.
@@ -853,11 +850,8 @@ pub fn hexlikeEncode(allocator: std.mem.Allocator, input: []const u8, options: H
         }
     }
 
-    // Shrink to actual size
-    const final = try allocator.alloc(u8, pos);
-    @memcpy(final, result[0..pos]);
-    allocator.free(result);
-    return final;
+    // Shrink to actual size (realloc avoids a second allocation + full memcpy)
+    return allocator.realloc(result, pos);
 }
 
 /// Decode hexlike format back to binary.
@@ -927,10 +921,8 @@ pub fn hexlikeDecode(allocator: std.mem.Allocator, input: []const u8, options: H
         }
     }
 
-    // Shrink to actual size
-    const final = try allocator.alloc(u8, pos);
-    @memcpy(final, result[0..pos]);
-    allocator.free(result);
+    // Shrink to actual size (realloc avoids a second allocation + full memcpy)
+    const final = try allocator.realloc(result, pos);
     return HexlikeDecodeResult{
         .data = final,
         .found_hex = found_hex,
@@ -938,11 +930,17 @@ pub fn hexlikeDecode(allocator: std.mem.Allocator, input: []const u8, options: H
 }
 
 /// Parse a hex digit (uppercase or lowercase) to its value, or null if not a hex digit.
+const hex_digit_lut: [256]?u4 = blk: {
+    var lut = [_]?u4{null} ** 256;
+    for ('0'..'9' + 1) |c| lut[c] = @as(u4, @intCast(c - '0'));
+    for ('A'..'F' + 1) |c| lut[c] = @as(u4, @intCast(c - 'A' + 10));
+    for ('a'..'f' + 1) |c| lut[c] = @as(u4, @intCast(c - 'a' + 10));
+    break :blk lut;
+};
+
+/// Branch-free hex-digit lookup (0-9, A-F, a-f); null for non-hex bytes.
 fn hexDigitValue(c: u8) ?u4 {
-    if (c >= '0' and c <= '9') return @intCast(c - '0');
-    if (c >= 'A' and c <= 'F') return @intCast(c - 'A' + 10);
-    if (c >= 'a' and c <= 'f') return @intCast(c - 'a' + 10);
-    return null;
+    return hex_digit_lut[c];
 }
 
 /// Detect whether input contains hexlike (Οχ) sequences followed by hex pairs.
@@ -1113,8 +1111,11 @@ pub fn validate(input: []const u8, ws_flags: c_uint) ValidationResult {
 }
 
 /// C ABI export for validation function
-export fn pb_validate(input: [*]const u8, input_len: usize, ws_flags: c_uint) callconv(.c) ValidationResult {
-    const slice = if (input_len > 0) input[0..input_len] else &[_]u8{};
+export fn pb_validate(input: ?[*]const u8, input_len: usize, ws_flags: c_uint) callconv(.c) ValidationResult {
+    if (input == null and input_len > 0) {
+        return ValidationResult{ .is_valid = 0, .error_position = 0, .error_codepoint = 0 };
+    }
+    const slice = if (input_len > 0) input.?[0..input_len] else &[_]u8{};
     return validate(slice, ws_flags);
 }
 
@@ -1166,13 +1167,16 @@ export fn pb_free(ptr: ?[*]u8, len: usize) callconv(.c) void {
 /// C ABI export for encode function
 /// Caller must call pb_free() on result.data when done
 export fn pb_encode(
-    input: [*]const u8,
+    input: ?[*]const u8,
     input_len: usize,
     flags: c_uint,
     preserve_chars: ?[*]const u8,
     preserve_chars_len: usize,
 ) callconv(.c) FFIResult {
-    const input_slice = if (input_len > 0) input[0..input_len] else &[_]u8{};
+    if (input == null and input_len > 0) {
+        return FFIResult{ .data = null, .len = 0, .error_code = 1 };
+    }
+    const input_slice = if (input_len > 0) input.?[0..input_len] else &[_]u8{};
     const preserve_slice = if (preserve_chars != null and preserve_chars_len > 0)
         preserve_chars.?[0..preserve_chars_len]
     else
@@ -1199,11 +1203,14 @@ export fn pb_encode(
 /// C ABI export for decode function
 /// Caller must call pb_free() on result.data when done
 export fn pb_decode(
-    input: [*]const u8,
+    input: ?[*]const u8,
     input_len: usize,
     flags: c_uint,
 ) callconv(.c) FFIResult {
-    const input_slice = if (input_len > 0) input[0..input_len] else &[_]u8{};
+    if (input == null and input_len > 0) {
+        return FFIResult{ .data = null, .len = 0, .error_code = 1 };
+    }
+    const input_slice = if (input_len > 0) input.?[0..input_len] else &[_]u8{};
 
     const options = DecodeOptions{
         .spaces = (flags & @intFromEnum(DecodeFlags.spaces_mode)) != 0,
@@ -1224,13 +1231,16 @@ export fn pb_decode(
 /// C ABI export for format function
 /// Caller must call pb_free() on result.data when done
 export fn pb_format(
-    input: [*]const u8,
+    input: ?[*]const u8,
     input_len: usize,
     group_size: usize,
     groups_per_line: usize,
     use_tabs: c_int,
 ) callconv(.c) FFIResult {
-    const input_slice = if (input_len > 0) input[0..input_len] else &[_]u8{};
+    if (input == null and input_len > 0) {
+        return FFIResult{ .data = null, .len = 0, .error_code = 1 };
+    }
+    const input_slice = if (input_len > 0) input.?[0..input_len] else &[_]u8{};
 
     const options = FormatOptions{
         .group_size = if (group_size > 0) group_size else 8,
@@ -1655,4 +1665,28 @@ test "detectHexlike: false for plain text" {
 
 test "detectHexlike: false for empty" {
     try std.testing.expect(!detectHexlike(""));
+}
+
+test "FFI: null input pointer with nonzero len returns error instead of crashing" {
+    // A defensive C caller may pass NULL together with a stale, nonzero length.
+    // Every C ABI entry point must report an error rather than dereference NULL.
+    const enc = pb_encode(null, 100, 0, null, 0);
+    try std.testing.expectEqual(@as(?[*]u8, null), enc.data);
+    try std.testing.expect(enc.error_code != 0);
+
+    const dec = pb_decode(null, 100, 0);
+    try std.testing.expectEqual(@as(?[*]u8, null), dec.data);
+    try std.testing.expect(dec.error_code != 0);
+
+    const fmt = pb_format(null, 100, 8, 10, 0);
+    try std.testing.expectEqual(@as(?[*]u8, null), fmt.data);
+    try std.testing.expect(fmt.error_code != 0);
+
+    const val = pb_validate(null, 100, 0);
+    try std.testing.expect(val.is_valid == 0);
+    try std.testing.expect(val.error_position == 0);
+
+    const dbl = pb_detect_double_encode(null, 100, 0.5);
+    try std.testing.expect(dbl.detected == 0);
+    try std.testing.expect(dbl.confidence == 0.0);
 }
