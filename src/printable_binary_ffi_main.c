@@ -227,6 +227,7 @@ static options_t parse_options(int argc, char *argv[]) {
             if (strncmp(name, "format=", 7) == 0) {
                 parse_format_spec(&opts, name + 7);
             } else if (strncmp(name, "preserve=", 9) == 0) {
+                free(opts.preserve_chars);
                 opts.preserve_chars = strdup(name + 9);
             } else if (strcmp(name, "decode") == 0) {
                 opts.decode_mode = true;
@@ -340,9 +341,11 @@ static options_t parse_options(int argc, char *argv[]) {
                         break;
                     case 'P':
                         if (arg[j + 1]) {
+                            free(opts.preserve_chars);
                             opts.preserve_chars = strdup(arg + j + 1);
                             j = strlen(arg) - 1;
                         } else if (i + 1 < argc) {
+                            free(opts.preserve_chars);
                             opts.preserve_chars = strdup(argv[++i]);
                         } else {
                             fprintf(stderr, "Error: -P requires a value\n");

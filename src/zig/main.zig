@@ -220,11 +220,13 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Options {
                 opts.format_group = parsed.group;
                 opts.format_groups_per_line = parsed.per_line;
             } else if (std.mem.startsWith(u8, name, "preserve=")) {
+                if (opts.preserve_chars) |old| allocator.free(old);
                 opts.preserve_chars = try allocator.dupe(u8, name[9..]);
             } else if (std.mem.eql(u8, name, "preserve")) {
                 // --preserve CHARS (space-separated)
                 if (i + 1 < args.len) {
                     i += 1;
+                    if (opts.preserve_chars) |old| allocator.free(old);
                     opts.preserve_chars = try allocator.dupe(u8, args[i]);
                 } else {
                     return error.MissingValue;
@@ -327,10 +329,12 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Options {
                     },
                     'P' => {
                         if (j + 1 < arg.len) {
+                            if (opts.preserve_chars) |old| allocator.free(old);
                             opts.preserve_chars = try allocator.dupe(u8, arg[j + 1 ..]);
                             break;
                         } else if (i + 1 < args.len) {
                             i += 1;
+                            if (opts.preserve_chars) |old| allocator.free(old);
                             opts.preserve_chars = try allocator.dupe(u8, args[i]);
                         } else {
                             return error.MissingValue;
