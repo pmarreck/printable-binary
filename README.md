@@ -42,24 +42,26 @@ This implementation allows you to view binary data directly in a terminal (it ev
 
 ## Performance
 
-The Zig implementation is heavily optimized for throughput via source-level data structure improvements and optional PGO (Profile-Guided Optimization):
+All implementations share the same byte↔glyph map and pass the same test suite; they differ only in language/runtime. Indicative throughput — encode + decode of 10 MB of random `/dev/urandom` data via `test/benchmark_test`, release builds on Apple Silicon:
 
-| Implementation | Encode (10 MB) | Decode (10 MB) | Encode Throughput | Decode Throughput |
-|---|---|---|---|---|
-| **Zig** | 51 ms | 62 ms | 121 MB/s | 108 MB/s |
-| **PGO (C FFI + Zig)** | 50 ms | 63 ms | 125 MB/s | 109 MB/s |
-| **C (standalone)** | — | — | comparable to Zig | comparable to Zig |
-| **Lua (LuaJIT)** | 233 ms | 2,510 ms | 86 MB/s | 3.9 MB/s |
+| Implementation | Encode | Decode |
+|---|---|---|
+| **Zig** (ReleaseFast) | ~107 MB/s | ~275 MB/s |
+| **C** (standalone, `-O3`) | ~61 MB/s | ~141 MB/s |
+| **Lua** (LuaJIT) | ~41 MB/s | ~18 MB/s |
+| **Node.js** | ~12 MB/s | ~15 MB/s |
+
+The WebAssembly build is compiled from the same C core. Reproduce on your machine with `IMPLEMENTATION_TO_TEST=<binary> ./test/benchmark_test` (defaults to the Zig build and announces the implementation under test).
 
 Key optimizations in the Zig core:
-- **Pre-allocated buffers**: Encode/decode output sized upfront (no growth checks in the hot loop)
-- **Flat character map**: Comptime-built contiguous byte buffer (~1.5 KB) replacing 256 scattered fat pointers — fits in L1 cache
-- **O(1) decode lookup**: Direct tables for 1-byte, 2-byte, and 3-byte UTF-8 sequences replacing O(log 256) binary search
-- **No inner decode loop**: Single UTF-8 length check + direct lookup per character
+- **Pre-allocated buffers**: encode/decode output sized upfront (no growth checks in the hot loop).
+- **Flat character map**: a comptime-built contiguous byte buffer (~1.5 KB) replacing 256 scattered fat pointers — fits in L1 cache.
+- **O(1) decode lookup**: direct tables for 1-, 2-, and 3-byte UTF-8 sequences instead of an O(log 256) binary search.
+- **No inner decode loop**: a single UTF-8 length check + direct lookup per character.
 
-These source-level changes yielded a **16% encode speedup** and **61% decode speedup (2.6x)** over the initial ReleaseFast build. The PGO path (`make pgo-ffi`) provides an additional ~1-3% via profile-guided branch layout, using the C FFI CLI to dogfood the Zig library through its public C ABI.
+The C and Lua decoders were brought in line with this approach in a measured optimization pass: C now uses direct 1-/2-byte lookup tables (**1.9×** decode), and Lua resolves each glyph by its UTF-8 leading-byte length instead of brute-forcing all four lengths (**1.8–3.6×** decode, up from ~8 MB/s). Every optimization is benchmarked before and after, and a continuous memory-leak suite (`test/leak_test`) guards the FFI and C paths against regressions.
 
-Benchmarks were run on Apple M4 with `hyperfine --warmup 5 --min-runs 20` against random binary data from `/dev/urandom`.
+The optional PGO path (`make pgo-ffi`) adds a further ~1–3% via profile-guided branch layout, dogfooding the Zig library through its public C ABI.
 
 ## Usage
 
