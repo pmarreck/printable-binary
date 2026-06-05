@@ -1,7 +1,6 @@
 **/.claude/settings.local.json
 .DS_Store
 **/.DS_Store
-.dirtree-state
 .ape-*
 
 # Compiled binaries (non-APE)
