@@ -1,4 +1,6 @@
 #!/usr/bin/env luajit
+local buffer = require("string.buffer")
+local ffi = require("ffi")
 
 -- PrintableBinary: A utility to encode/decode binary data into human-readable UTF-8
 -- Module definition
@@ -377,7 +379,7 @@ function PrintableBinary.encode(binary_data, options)
   local tabs_mode = options.tabs == true
   local crlf_mode = options.crlf == true
   local preserve_chars = options.preserve or ""
-  local result = {}
+  local sbuf = buffer.new(#binary_data * 2)
 
   -- Build a lookup table for preserved characters
   local preserve_set = {}
@@ -387,23 +389,22 @@ function PrintableBinary.encode(binary_data, options)
 
   for i = 1, #binary_data do
     local byte = string.byte(binary_data, i)
-    local char = string.char(byte)
 
-    -- Check preservation modes
+    -- Check preservation modes (string.char only when a byte is preserved literally)
     if spaces_mode and byte == 32 then
-      result[i] = " "
+      sbuf:put(" ")
     elseif tabs_mode and byte == 9 then
-      result[i] = "\t"
+      sbuf:put("\t")
     elseif crlf_mode and (byte == 10 or byte == 13) then
-      result[i] = char
+      sbuf:put(string.char(byte))
     elseif preserve_set[byte] then
-      result[i] = char
+      sbuf:put(string.char(byte))
     else
-      result[i] = encode_map[byte]
+      sbuf:put(encode_map[byte])
     end
   end
 
-  return table.concat(result)
+  return sbuf:tostring()
 end
 
 -- Decode printable UTF-8 back to binary
@@ -459,7 +460,14 @@ function PrintableBinary.decode(printable_string, options)
   debug_print("Input length: " .. #printable_string .. ", Cleaned length: " .. #cleaned_string)
 
   -- Now proceed with normal decoding
-  local result_bytes_as_chars = {}
+  -- Decode shrinks (each glyph -> 1 byte), so output never exceeds the input
+  -- length: reserve once and write bytes straight into the buffer via FFI,
+  -- avoiding a per-byte string.char allocation + the table + the final concat.
+  local out_cap = #cleaned_string
+  if out_cap < 1 then out_cap = 1 end
+  local dbuf = buffer.new(out_cap)
+  local dptr = dbuf:reserve(out_cap)
+  local dn = 0
   local i = 1
   local s_len = #cleaned_string
 
@@ -468,7 +476,7 @@ function PrintableBinary.decode(printable_string, options)
     local matched_char = nil
 
     if spaces_mode and cleaned_string:sub(i, i) == " " then
-      result_bytes_as_chars[#result_bytes_as_chars + 1] = " "
+      dptr[dn] = 32; dn = dn + 1
       i = i + 1
       matched_char = " "
     end
@@ -481,7 +489,7 @@ function PrintableBinary.decode(printable_string, options)
       if i + len - 1 <= s_len then
         local sub = string.sub(cleaned_string, i, i + len - 1)
         if decode_map[sub] then
-          result_bytes_as_chars[#result_bytes_as_chars + 1] = string.char(decode_map[sub])
+          dptr[dn] = decode_map[sub]; dn = dn + 1
           i = i + len
           matched_char = sub
         end
@@ -500,14 +508,15 @@ function PrintableBinary.decode(printable_string, options)
 
       -- Pass through the entire UTF-8 character
       local utf8_char = string.sub(cleaned_string, i, i + char_len - 1)
-      result_bytes_as_chars[#result_bytes_as_chars + 1] = utf8_char
+      ffi.copy(dptr + dn, utf8_char, char_len); dn = dn + char_len
 
       debug_print("Passing through unrecognized UTF-8 character at position " .. i .. ": " .. utf8_char)
       i = i + char_len
     end
   end
 
-  local result = table.concat(result_bytes_as_chars)
+  dbuf:commit(dn)
+  local result = dbuf:tostring()
   debug_print("Decoded " .. #cleaned_string .. " input bytes to " .. #result .. " output bytes")
 
   return result
