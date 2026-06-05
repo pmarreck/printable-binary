@@ -473,17 +473,17 @@ function PrintableBinary.decode(printable_string, options)
       matched_char = " "
     end
 
-    -- Try to match longest first (4-byte, then 3-byte, then 2-byte, then 1-byte)
+    -- A glyph's byte length is fixed by its UTF-8 leading byte (self-synchronizing),
+    -- so resolve it with ONE substring + lookup instead of brute-forcing all four
+    -- lengths (the map has no 4-byte glyphs, and lengths never overlap in UTF-8).
     if not matched_char then
-      for len = 4, 1, -1 do
-        if i + len - 1 <= s_len then
-          local sub = string.sub(cleaned_string, i, i + len - 1)
-          if decode_map[sub] then
-            result_bytes_as_chars[#result_bytes_as_chars + 1] = string.char(decode_map[sub])
-            i = i + len
-            matched_char = sub
-            break
-          end
+      local len = utf8_char_length(string.byte(cleaned_string, i))
+      if i + len - 1 <= s_len then
+        local sub = string.sub(cleaned_string, i, i + len - 1)
+        if decode_map[sub] then
+          result_bytes_as_chars[#result_bytes_as_chars + 1] = string.char(decode_map[sub])
+          i = i + len
+          matched_char = sub
         end
       end
     end
