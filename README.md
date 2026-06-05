@@ -48,7 +48,7 @@ All implementations share the same byte↔glyph map and pass the same test suite
 |---|---|---|
 | **Zig** (ReleaseFast) | ~107 MB/s | ~275 MB/s |
 | **C** (standalone, `-O3`) | ~61 MB/s | ~141 MB/s |
-| **Lua** (LuaJIT) | ~41 MB/s | ~18 MB/s |
+| **Lua** (LuaJIT) | ~41 MB/s | ~91 MB/s |
 | **Node.js** | ~12 MB/s | ~15 MB/s |
 
 The WebAssembly build is compiled from the same C core. Reproduce on your machine with `IMPLEMENTATION_TO_TEST=<binary> ./test/benchmark_test` (defaults to the Zig build and announces the implementation under test).
@@ -59,7 +59,7 @@ Key optimizations in the Zig core:
 - **O(1) decode lookup**: direct tables for 1-, 2-, and 3-byte UTF-8 sequences instead of an O(log 256) binary search.
 - **No inner decode loop**: a single UTF-8 length check + direct lookup per character.
 
-The C and Lua decoders were brought in line with this approach in a measured optimization pass: C now uses direct 1-/2-byte lookup tables (**1.9×** decode), and Lua resolves each glyph by its UTF-8 leading-byte length instead of brute-forcing all four lengths (**1.8–3.6×** decode, up from ~8 MB/s). Every optimization is benchmarked before and after, and a continuous memory-leak suite (`test/leak_test`) guards the FFI and C paths against regressions.
+The C and Lua decoders were tuned in a measured pass: C uses direct 1-/2-byte lookup tables (**1.9×** decode). Lua got two passes — resolving each glyph by its UTF-8 leading-byte length (instead of brute-forcing all four), then writing decoded bytes straight into a LuaJIT `string.buffer` via its FFI `reserve`/`commit` API (no per-byte `string.char`). Together that took Lua **decode from ~8 to ~91 MB/s** — now faster than its own encode (which uses `string.buffer:put`, ~1.2×). Every optimization is benchmarked before and after (hyperfine), and a continuous memory-leak suite (`test/leak_test`) guards the FFI/C paths against regressions.
 
 The optional PGO path (`make pgo-ffi`) adds a further ~1–3% via profile-guided branch layout, dogfooding the Zig library through its public C ABI.
 
