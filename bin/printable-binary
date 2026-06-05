@@ -256,6 +256,18 @@ for b = 97, 122 do hexlike_passthrough[b] = true end   -- a-z
 -- Οχ prefix: Greek Omicron (U+039F) + Greek Chi (U+03C7) — NOT ASCII "0x"
 local OX = "\xCE\x9F\xCF\x87"
 
+-- Precomputed hexlike lookup tables (built once at load) so the per-byte hot
+-- loops touch a table instead of string.format / tonumber+match per byte.
+-- HEX2[b]   -> the two-char uppercase hex string for byte b (encode side).
+-- HEXVAL[c] -> the nibble value (0-15) for an ASCII hex-digit byte c, else nil
+--              (decode side; lets us combine two nibbles with no concat/regex).
+local HEX2 = {}
+for b = 0, 255 do HEX2[b] = string.format("%02X", b) end
+local HEXVAL = {}
+for c = 0, 9 do HEXVAL[48 + c] = c end          -- '0'-'9'
+for c = 0, 5 do HEXVAL[65 + c] = 10 + c end     -- 'A'-'F'
+for c = 0, 5 do HEXVAL[97 + c] = 10 + c end     -- 'a'-'f'
+
 -- Detect Οχ hex sequences in input (for cross-format warnings)
 function PrintableBinary.detect_hexlike(input_string)
   if type(input_string) ~= "string" or #input_string == 0 then
@@ -278,42 +290,43 @@ function PrintableBinary.hexlike_encode(binary_data, options)
   for k, v in pairs(hexlike_passthrough) do pt[k] = v end
   if spaces_mode then pt[32] = true end
 
-  local result = {}
+  -- One growable buffer instead of an accumulator table + final table.concat.
+  -- Hex output is ~3x the input at most (2 hex chars + delimiters per byte),
+  -- so size the buffer generously to avoid mid-loop growth.
+  local sbuf = buffer.new(#binary_data * 3)
   local i = 1
   local len = #binary_data
+  local wrote = false   -- tracks "have we emitted anything yet" (was #result > 0)
 
   while i <= len do
     local byte = string.byte(binary_data, i)
 
     if pt[byte] then
-      -- Passthrough run
+      -- Passthrough run: copy the whole run as one slice
       local run_start = i
       while i <= len and pt[string.byte(binary_data, i)] do
         i = i + 1
       end
-      result[#result + 1] = string.sub(binary_data, run_start, i - 1)
+      sbuf:put(string.sub(binary_data, run_start, i - 1))
+      wrote = true
     else
-      -- Non-passthrough run: collect hex
-      local hex_parts = {}
+      -- Non-passthrough run: emit Οχ then per-byte hex via the precomputed LUT
+      -- Delimiter space before Οχ (unless at start of output)
+      if wrote then sbuf:put(" ") end
+      sbuf:put(OX)
       while i <= len and not pt[string.byte(binary_data, i)] do
-        hex_parts[#hex_parts + 1] = string.format("%02X", string.byte(binary_data, i))
+        sbuf:put(HEX2[string.byte(binary_data, i)])
         i = i + 1
       end
-
-      -- Delimiter space before Οχ (unless at start of output)
-      if #result > 0 then
-        result[#result + 1] = " "
-      end
-      result[#result + 1] = OX
-      result[#result + 1] = table.concat(hex_parts)
+      wrote = true
       -- Delimiter space after hex run (unless at end of output)
       if i <= len then
-        result[#result + 1] = " "
+        sbuf:put(" ")
       end
     end
   end
 
-  return table.concat(result)
+  return sbuf:tostring()
 end
 
 -- Decode hexlike format back to binary
@@ -323,10 +336,20 @@ function PrintableBinary.hexlike_decode(printable_string, options)
   end
 
   options = options or {}
-  local result = {}
-  local i = 1
   local len = #printable_string
   local found_hex = false
+
+  -- Decode shrinks (each hex pair -> 1 byte, passthrough char -> 1 byte, Οχ and
+  -- spaces drop out), so output never exceeds the input length. Reserve once and
+  -- write bytes straight into the buffer via FFI — no per-byte string.char alloc,
+  -- no accumulator table, no final concat. The hex pairs combine two nibble
+  -- lookups (HEXVAL) instead of substring + match + tonumber(h1..h2,16).
+  local out_cap = len
+  if out_cap < 1 then out_cap = 1 end
+  local dbuf = buffer.new(out_cap)
+  local dptr = dbuf:reserve(out_cap)
+  local dn = 0
+  local i = 1
 
   while i <= len do
     -- Check for Οχ (possibly preceded by delimiter space)
@@ -345,27 +368,30 @@ function PrintableBinary.hexlike_decode(printable_string, options)
       i = i + 4  -- skip past Οχ
       -- Read uppercase hex pairs
       while i + 1 <= len do
-        local h1 = printable_string:sub(i, i)
-        local h2 = printable_string:sub(i + 1, i + 1)
-        if h1:match("[0-9A-Fa-f]") and h2:match("[0-9A-Fa-f]") then
-          result[#result + 1] = string.char(tonumber(h1 .. h2, 16))
+        local n1 = HEXVAL[string.byte(printable_string, i)]
+        local n2 = HEXVAL[string.byte(printable_string, i + 1)]
+        if n1 and n2 then
+          dptr[dn] = n1 * 16 + n2
+          dn = dn + 1
           i = i + 2
         else
           break
         end
       end
       -- Consume trailing delimiter space (if present)
-      if i <= len and printable_string:sub(i, i) == " " then
+      if i <= len and string.byte(printable_string, i) == 32 then
         i = i + 1
       end
     else
       -- Passthrough byte
-      result[#result + 1] = printable_string:sub(i, i)
+      dptr[dn] = string.byte(printable_string, i)
+      dn = dn + 1
       i = i + 1
     end
   end
 
-  return table.concat(result), found_hex
+  dbuf:commit(dn)
+  return dbuf:tostring(), found_hex
 end
 
 -- Encode binary data to printable UTF-8
