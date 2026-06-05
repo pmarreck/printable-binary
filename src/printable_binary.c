@@ -1619,6 +1619,8 @@ static options_t parse_options(int argc, char *argv[]) {
 
 
 #ifndef PRINTABLE_BINARY_NO_MAIN
+/* CLI-only leak-test support: the WASM build excludes the buffer_free/CLI path. */
+#ifndef __EMSCRIPTEN__
 /* ---- memory-leak suite support (driven by test/leak_test via --leak-seconds) ---- */
 static long pb_now_ms(void) {
     struct timespec ts;
@@ -1668,8 +1670,10 @@ static void run_leak_loop(long seconds) {
     printf("RSS %ld\n", pb_rss_kb());
     fflush(stdout);
 }
+#endif /* !__EMSCRIPTEN__ */
 
 int main(int argc, char *argv[]) {
+#ifndef __EMSCRIPTEN__
     // Leak-test mode (test/leak_test): long-lived encode/decode loop, then exit.
     for (int ai = 1; ai < argc; ai++) {
         if (strcmp(argv[ai], "--leak-seconds") == 0 && ai + 1 < argc) {
@@ -1678,6 +1682,7 @@ int main(int argc, char *argv[]) {
             return 0;
         }
     }
+#endif /* !__EMSCRIPTEN__ */
     // Parse command line options first (needed for help/usage)
     options_t opts = parse_options(argc, argv);
     const char *program_display_name = resolve_program_name(argv[0]);
