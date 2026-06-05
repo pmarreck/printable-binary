@@ -296,6 +296,34 @@
             '';
             installPhase = "mkdir -p $out && touch $out/passed";
           };
+
+          test-js = pkgs.stdenv.mkDerivation {
+            name = "test-js";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ nodejs_24 python3 xxd hexdump ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              IMPLEMENTATION_TO_TEST=./bin/printable-binary-node.js bash ./test/test
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
+          # Guard against a stale generated C header: regenerating from
+          # character_map.txt must reproduce the committed character_map_embedded.h.
+          test-embedded-map-sync = pkgs.stdenv.mkDerivation {
+            name = "test-embedded-map-sync";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ luajit ];
+            buildPhase = ''
+              cp character_map_embedded.h committed.h
+              luajit utils/generate_embedded_map.lua
+              if ! diff -q committed.h character_map_embedded.h; then
+                echo "character_map_embedded.h is stale; run: luajit utils/generate_embedded_map.lua" >&2
+                exit 1
+              fi
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
         } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           test-ape = pkgs.stdenvNoCC.mkDerivation {
             name = "test-ape";
