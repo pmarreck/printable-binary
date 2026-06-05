@@ -35,3 +35,5 @@ bm/results
 
 # anything else
 ZIG_0.15_TO_0.16_MIGRATION.md
+!bin/utf8to16
+!bin/utf16to8

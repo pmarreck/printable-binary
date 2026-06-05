@@ -294,6 +294,24 @@ Because `--passthrough` sends the original binary to stdout, you can insert Prin
   # Should show 89PNG⏎␣␣ if the PNG signature is intact.
   ```
 
+### Piping to UTF-16 (or other text encodings)
+
+The encoded output is UTF-8 text. Because every glyph is in the BMP, it transcodes **losslessly** to UTF-16 — handy for Windows/PowerShell/JavaScript/.NET consumers. Two thin `iconv` wrappers default to **little-endian** (ARM and x86_64) and handle the BOM:
+
+```bash
+# Encode -> UTF-16LE (with BOM)
+printable-binary file | bin/utf8to16 > out.utf16
+
+# Decode a UTF-16 stream (BOM auto-detected; little-endian if absent)
+bin/utf16to8 < out.utf16 | printable-binary -d
+
+# Explicit endianness / no BOM
+printable-binary file | bin/utf8to16 --be        # UTF-16BE + BOM
+printable-binary file | bin/utf8to16 --no-bom    # UTF-16LE, no BOM
+```
+
+They are just `iconv` wrappers, so any encoding iconv supports works directly too (e.g. `... | iconv -f UTF-8 -t UTF-16LE`).
+
 ## Format Compatibility
 
 The PrintableBinary character set is specifically designed to be highly compatible with common text formats:
