@@ -357,6 +357,37 @@ export fn pb_detect_double_encode(input: ?[*]const u8, input_len: usize, thresho
     return detectDoubleEncode(slice, threshold);
 }
 
+/// C ABI export for hexlike encoding. Caller must call pb_free() on result.data.
+export fn pb_hexlike_encode(input: ?[*]const u8, input_len: usize, spaces: c_int) callconv(.c) FFIResult {
+    if (input == null and input_len > 0) {
+        return FFIResult{ .data = null, .len = 0, .error_code = 1 };
+    }
+    const input_slice = if (input_len > 0) input.?[0..input_len] else &[_]u8{};
+    const result = hexlikeEncode(ffi_allocator, input_slice, .{ .spaces = spaces != 0 }) catch {
+        return FFIResult{ .data = null, .len = 0, .error_code = 1 };
+    };
+    return FFIResult{ .data = result.ptr, .len = result.len, .error_code = 0 };
+}
+
+/// C ABI export for hexlike decoding. Caller must call pb_free() on result.data.
+export fn pb_hexlike_decode(input: ?[*]const u8, input_len: usize, spaces: c_int) callconv(.c) FFIResult {
+    if (input == null and input_len > 0) {
+        return FFIResult{ .data = null, .len = 0, .error_code = 1 };
+    }
+    const input_slice = if (input_len > 0) input.?[0..input_len] else &[_]u8{};
+    const result = hexlikeDecode(ffi_allocator, input_slice, .{ .spaces = spaces != 0 }) catch {
+        return FFIResult{ .data = null, .len = 0, .error_code = 1 };
+    };
+    return FFIResult{ .data = result.data.ptr, .len = result.data.len, .error_code = 0 };
+}
+
+/// C ABI export for hexlike detection. Returns 1 if input appears hexlike, else 0.
+export fn pb_detect_hexlike(input: ?[*]const u8, input_len: usize) callconv(.c) c_int {
+    if (input == null and input_len > 0) return 0;
+    const input_slice = if (input_len > 0) input.?[0..input_len] else &[_]u8{};
+    return if (detectHexlike(input_slice)) 1 else 0;
+}
+
 /// Get UTF-8 sequence length from first byte
 pub fn utf8SeqLen(first_byte: u8) u3 {
     if (first_byte < 0x80) return 1;
@@ -1477,4 +1508,20 @@ test "parseGlyphLine: filters comments/blank, strips trailing comment, takes fir
     try std.testing.expectEqualStrings("␣", parseGlyphLine("␣ ## space: kept 3-byte, no safe 2-byte glyph").?);
     // CRLF tolerance
     try std.testing.expectEqualStrings("·", parseGlyphLine("·\r").?);
+}
+
+test "FFI: pb_hexlike_encode/decode roundtrip + detect + null safety" {
+    const input = "Hi\xff!";
+    const enc = pb_hexlike_encode(input.ptr, input.len, 0);
+    try std.testing.expect(enc.error_code == 0);
+    defer pb_free(enc.data, enc.len);
+    try std.testing.expect(pb_detect_hexlike(enc.data, enc.len) == 1);
+    const dec = pb_hexlike_decode(enc.data, enc.len, 0);
+    try std.testing.expect(dec.error_code == 0);
+    defer pb_free(dec.data, dec.len);
+    try std.testing.expectEqualStrings(input, dec.data.?[0..dec.len]);
+    // null safety
+    const bad = pb_hexlike_encode(null, 100, 0);
+    try std.testing.expect(bad.error_code != 0);
+    try std.testing.expect(pb_detect_hexlike(null, 100) == 0);
 }

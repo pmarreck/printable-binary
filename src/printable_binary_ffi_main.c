@@ -29,6 +29,7 @@ typedef struct {
     bool tabs_mode;
     bool crlf_mode;
     bool strip_whitespace;
+    bool hexlike_mode;
     bool format_mode;
     bool help_mode;
     int format_group;
@@ -61,6 +62,7 @@ static void print_usage(const char *name) {
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -d, --decode       Decode mode (default is encode mode)\n");
     fprintf(stderr, "  -p, --passthrough  Pass input to stdout unchanged, send encoded data to stderr\n");
+    fprintf(stderr, "  -X, --hexlike      Hexlike mode (passthrough ASCII as-is, other bytes as \xce\x9f\xcf\x87-prefixed hex)\n");
     fprintf(stderr, "\nEncode options (preserve literal characters instead of encoding):\n");
     fprintf(stderr, "  -s, --spaces       Preserve literal spaces\n");
     fprintf(stderr, "  -t, --tabs         Preserve literal tabs\n");
@@ -230,6 +232,8 @@ static options_t parse_options(int argc, char *argv[]) {
                 opts.decode_mode = true;
             } else if (strcmp(name, "passthrough") == 0) {
                 opts.passthrough_mode = true;
+            } else if (strcmp(name, "hexlike") == 0) {
+                opts.hexlike_mode = true;
             } else if (strcmp(name, "spaces") == 0) {
                 opts.spaces_mode = true;
             } else if (strcmp(name, "tabs") == 0) {
@@ -319,6 +323,7 @@ static options_t parse_options(int argc, char *argv[]) {
                 switch (arg[j]) {
                     case 'd': opts.decode_mode = true; break;
                     case 'p': opts.passthrough_mode = true; break;
+                    case 'X': opts.hexlike_mode = true; break;
                     case 's': opts.spaces_mode = true; break;
                     case 't': opts.tabs_mode = true; break;
                     case 'n': opts.crlf_mode = true; break;
@@ -540,7 +545,9 @@ int main(int argc, char *argv[]) {
         if (opts.spaces_mode) flags |= PB_DECODE_SPACES_MODE;
         if (opts.strip_whitespace) flags |= PB_DECODE_STRIP_WS;
 
-        pb_ffi_result_t result = pb_decode(input, input_len, flags);
+        pb_ffi_result_t result = opts.hexlike_mode
+            ? pb_hexlike_decode(input, input_len, opts.spaces_mode ? 1 : 0)
+            : pb_decode(input, input_len, flags);
         if (result.error_code != 0 || !result.data) {
             fprintf(stderr, "Decode error\n");
             free(input);
@@ -578,8 +585,9 @@ int main(int argc, char *argv[]) {
         if (opts.crlf_mode) flags |= PB_ENCODE_PRESERVE_CRLF;
 
         size_t preserve_len = opts.preserve_chars ? strlen(opts.preserve_chars) : 0;
-        pb_ffi_result_t result = pb_encode(input, input_len, flags,
-                                           opts.preserve_chars, preserve_len);
+        pb_ffi_result_t result = opts.hexlike_mode
+            ? pb_hexlike_encode(input, input_len, opts.spaces_mode ? 1 : 0)
+            : pb_encode(input, input_len, flags, opts.preserve_chars, preserve_len);
         if (result.error_code != 0 || !result.data) {
             fprintf(stderr, "Encode error\n");
             free(input);

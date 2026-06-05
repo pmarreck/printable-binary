@@ -245,6 +245,34 @@ typedef struct {
 pb_double_encode_info_t pb_detect_double_encode(const char *input, size_t input_len, float threshold);
 
 /* ============================================================================
+ * Hexlike API (passthrough ASCII stays as-is; other bytes -> Οχ-prefixed hex)
+ * ============================================================================ */
+
+/**
+ * Encode binary data to hexlike format. Caller must call pb_free() on result.data.
+ * @param input      Binary data (may be NULL only when input_len == 0)
+ * @param input_len  Length of input in bytes
+ * @param spaces     Non-zero to preserve literal spaces as passthrough
+ * @return           Result with hexlike-encoded data or error
+ */
+pb_ffi_result_t pb_hexlike_encode(const char *input, size_t input_len, int spaces);
+
+/**
+ * Decode hexlike text back to binary. Caller must call pb_free() on result.data.
+ * @param input      Hexlike-encoded text (may be NULL only when input_len == 0)
+ * @param input_len  Length of input in bytes
+ * @param spaces     Non-zero to treat literal spaces as data
+ * @return           Result with decoded data or error
+ */
+pb_ffi_result_t pb_hexlike_decode(const char *input, size_t input_len, int spaces);
+
+/**
+ * Detect whether input appears to be hexlike-encoded.
+ * @return 1 if hexlike, 0 otherwise (also 0 on NULL with input_len > 0)
+ */
+int pb_detect_hexlike(const char *input, size_t input_len);
+
+/* ============================================================================
  * C Implementation Only
  * ============================================================================ */
 
