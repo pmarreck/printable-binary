@@ -313,7 +313,10 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Options {
                     'h' => opts.help_mode = true,
                     'f' => {
                         if (j + 1 < arg.len) {
-                            const parsed = parseFormatSpec(arg[j + 1 ..]) catch return error.InvalidFormat;
+                            // Accept both -f8x10 and -f=8x10 (strip an optional '=').
+                            const spec = arg[j + 1 ..];
+                            const spec_trimmed = if (spec.len > 0 and spec[0] == '=') spec[1..] else spec;
+                            const parsed = parseFormatSpec(spec_trimmed) catch return error.InvalidFormat;
                             opts.format_mode = true;
                             opts.format_group = parsed.group;
                             opts.format_groups_per_line = parsed.per_line;

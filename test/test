@@ -264,6 +264,17 @@ else
     exit 1
 fi
 
+# Test 5e: -f (bare, default grouping) and -f=NxM (attached spec) consistency
+echo -e "${BLUE}Test #5e: -f / -f=NxM format-flag consistency${NC}"
+rc1=0; printf 'AAAABBBB' | $SCRIPT -f >/dev/null 2>&1 || rc1=$?
+rc2=0; printf 'AAAABBBB' | $SCRIPT -f=2x2 >/dev/null 2>&1 || rc2=$?
+if [[ $rc1 -eq 0 && $rc2 -eq 0 ]]; then
+    echo -e "${GREEN}PASS${NC}"
+else
+    echo -e "${RED}FAIL${NC} (bare -f exit=$rc1, -f=2x2 exit=$rc2)"
+    exit 1
+fi
+
 # Test 6: Piped input
 echo -e "${BLUE}Test #6: Piped input${NC}"
 RESULT=$(echo -n "Test" | $SCRIPT | $SCRIPT -d)

@@ -172,11 +172,9 @@ function parseArgs(argv) {
     } else if (arg === '-s' || arg === '--spaces') {
       spacesMode = true;
     } else if (arg === '-f' || arg === '--format') {
-      if (i + 1 >= argv.length) {
-        process.stderr.write('Error: --format requires a value like 75x1\n');
-        process.exit(1);
-      }
-      formatSpec = argv[++i];
+      // Bare -f: default grouping (8x10), like the other implementations. Do not
+      // consume the next argument (it is the input file); use -f=NxM for a spec.
+      formatSpec = '8x10';
     } else if (arg.startsWith('-f=')) {
       formatSpec = arg.slice(3);
     } else if (arg.startsWith('--format=')) {
