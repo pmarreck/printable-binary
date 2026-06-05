@@ -85,6 +85,9 @@ typedef struct {
 
 static decode_entry_t decode_entries[256];
 static size_t decode_entry_count = 0;
+/* O(1) decode lookups for 1- and 2-byte glyphs (-1 = no mapping). */
+static int16_t decode_1byte[256];
+static int16_t decode_2byte[32][64];
 
 // High-confidence set for double-encoding detection.
 // A byte is high-confidence if its PB glyph differs from the raw byte.
@@ -383,6 +386,17 @@ static void finalize_decode_entries(void) {
         if (decode_entries[i].key == decode_entries[i - 1].key) {
             fprintf(stderr, "Error: duplicate character mapping detected\n");
             exit(1);
+        }
+    }
+
+    memset(decode_1byte, 0xFF, sizeof decode_1byte); /* 0xFFFF == -1 */
+    memset(decode_2byte, 0xFF, sizeof decode_2byte);
+    for (int i = 0; i < 256; i++) {
+        utf8_sequence_t seq = encode_table[i];
+        if (seq.length == 1) {
+            decode_1byte[seq.bytes[0]] = (int16_t)i;
+        } else if (seq.length == 2) {
+            decode_2byte[seq.bytes[0] & 0x1F][seq.bytes[1] & 0x3F] = (int16_t)i;
         }
     }
 
@@ -990,27 +1004,28 @@ static buffer_t decode_data(const uint8_t *input, size_t input_len, bool spaces_
 
         bool matched = false;
 
-        for (int len = seq_len; len >= 1; len--) {
-            if (len > MAX_UTF8_BYTES) continue;
-            if (i + (size_t)len <= input_len) {
-                uint64_t key = make_key(input + i, (uint8_t)len);
-                size_t left = 0, right = decode_entry_count;
-                while (left < right) {
-                    size_t mid = left + (right - left) / 2;
-                    if (decode_entries[mid].key == key) {
-                        uint8_t decoded_byte = decode_entries[mid].value;
-                        buffer_append_char(&output, decoded_byte);
-                        i += len;
-                        matched = true;
-                        break;
-                    } else if (decode_entries[mid].key < key) {
-                        left = mid + 1;
-                    } else {
-                        right = mid;
-                    }
-                }
-                if (matched) {
+        /* O(1) direct lookup for 1- and 2-byte glyphs (the common cases);
+         * 3-byte glyphs fall back to binary search over the ~28 entries. */
+        if (seq_len == 1) {
+            int16_t v = decode_1byte[first_byte];
+            if (v >= 0) { buffer_append_char(&output, (char)(uint8_t)v); i += 1; matched = true; }
+        } else if (seq_len == 2) {
+            int16_t v = decode_2byte[first_byte & 0x1F][input[i + 1] & 0x3F];
+            if (v >= 0) { buffer_append_char(&output, (char)(uint8_t)v); i += 2; matched = true; }
+        } else if (seq_len == 3) {
+            uint64_t key = make_key(input + i, 3);
+            size_t left = 0, right = decode_entry_count;
+            while (left < right) {
+                size_t mid = left + (right - left) / 2;
+                if (decode_entries[mid].key == key) {
+                    buffer_append_char(&output, decode_entries[mid].value);
+                    i += 3;
+                    matched = true;
                     break;
+                } else if (decode_entries[mid].key < key) {
+                    left = mid + 1;
+                } else {
+                    right = mid;
                 }
             }
         }
