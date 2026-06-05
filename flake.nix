@@ -329,6 +329,21 @@
             installPhase = "mkdir -p $out && touch $out/passed";
           };
 
+          # Continuous memory-leak detection: drive the FFI in a long-lived loop
+          # and fail if RSS climbs over time (a leak) rather than plateauing.
+          test-leak = pkgs.stdenv.mkDerivation {
+            name = "test-leak";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ zig clang ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              zig build
+              clang -O2 -Isrc -o leak_harness test/leak_harness.c zig-out/lib/libprintable_binary.a
+              LEAK_HARNESS=./leak_harness LEAK_SECONDS=6 bash test/leak_test
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
           # Guard against a stale generated C header: regenerating from
           # character_map.txt must reproduce the committed character_map_embedded.h.
           test-embedded-map-sync = pkgs.stdenv.mkDerivation {
