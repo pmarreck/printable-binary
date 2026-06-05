@@ -11,6 +11,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <time.h>
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#endif
 #include <sys/stat.h>
 #include <ctype.h>
 #include <errno.h>
@@ -1600,7 +1604,65 @@ static options_t parse_options(int argc, char *argv[]) {
 
 
 #ifndef PRINTABLE_BINARY_NO_MAIN
+/* ---- memory-leak suite support (driven by test/leak_test via --leak-seconds) ---- */
+static long pb_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+static long pb_rss_kb(void) {
+#if defined(__APPLE__)
+    mach_task_basic_info_data_t info;
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &count) != KERN_SUCCESS) return -1;
+    return (long)(info.resident_size / 1024);
+#else
+    FILE *f = fopen("/proc/self/statm", "r");
+    if (!f) return -1;
+    long total = 0, resident = 0;
+    int n = fscanf(f, "%ld %ld", &total, &resident);
+    fclose(f);
+    return n == 2 ? resident * (sysconf(_SC_PAGESIZE) / 1024) : -1;
+#endif
+}
+/* Time-bounded encode/decode loop that self-reports RSS, so the leak suite can
+ * watch the C standalone's buffer_t alloc/free path for growth over time. */
+static void run_leak_loop(long seconds) {
+    if (seconds <= 0) seconds = 8;
+    long start = pb_now_ms(), deadline = start + seconds * 1000L, last = start;
+    static uint8_t buf[8192];
+    uint64_t rng = 0x9E3779B97F4A7C15ULL;
+    options_t opts;
+    memset(&opts, 0, sizeof opts);
+    printf("RSS %ld\n", pb_rss_kb());
+    fflush(stdout);
+    for (long i = 0;; i++) {
+        if ((i & 0x3FF) == 0) {
+            long t = pb_now_ms();
+            if (t >= deadline) break;
+            if (t - last >= 100) { printf("RSS %ld\n", pb_rss_kb()); fflush(stdout); last = t; }
+        }
+        rng = rng * 6364136223846793005ULL + 1442695040888963407ULL;
+        size_t len = (size_t)((rng >> 33) % (sizeof(buf) + 1));
+        for (size_t k = 0; k < len; k++) { rng = rng * 6364136223846793005ULL + 1442695040888963407ULL; buf[k] = (uint8_t)(rng >> 33); }
+        buffer_t enc = encode_data(buf, len, &opts);
+        buffer_t dec = decode_data((uint8_t *)enc.data, enc.size, false);
+        buffer_free(&dec);
+        buffer_free(&enc);
+    }
+    printf("RSS %ld\n", pb_rss_kb());
+    fflush(stdout);
+}
+
 int main(int argc, char *argv[]) {
+    // Leak-test mode (test/leak_test): long-lived encode/decode loop, then exit.
+    for (int ai = 1; ai < argc; ai++) {
+        if (strcmp(argv[ai], "--leak-seconds") == 0 && ai + 1 < argc) {
+            init_tables(argv[0]);
+            run_leak_loop(atol(argv[ai + 1]));
+            return 0;
+        }
+    }
     // Parse command line options first (needed for help/usage)
     options_t opts = parse_options(argc, argv);
     const char *program_display_name = resolve_program_name(argv[0]);

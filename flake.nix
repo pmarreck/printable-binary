@@ -340,6 +340,9 @@
               zig build
               clang -O2 -Isrc -o leak_harness test/leak_harness.c zig-out/lib/libprintable_binary.a
               LEAK_HARNESS=./leak_harness LEAK_SECONDS=6 bash test/leak_test
+              # CLI mode: drive the C standalone's buffer_t path via --leak-seconds.
+              clang -O3 -Wall -Wextra -I. -o printable-binary-c src/printable_binary.c
+              IMPLEMENTATION_TO_TEST=./printable-binary-c LEAK_SECONDS=6 bash test/leak_test
             '';
             installPhase = "mkdir -p $out && touch $out/passed";
           };
