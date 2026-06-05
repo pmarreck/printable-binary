@@ -21,6 +21,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/zig/printable_binary.zig"),
         .target = target,
         .optimize = optimize,
+        // Position-independent so the static lib links into PIE executables
+        // (the default on modern Linux) — required by FFI consumers.
+        .pic = true,
     });
     static_lib_mod.addAnonymousImport("character_map.txt", .{ .root_source_file = b.path("character_map.txt") });
 
