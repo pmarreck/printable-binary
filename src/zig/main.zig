@@ -546,6 +546,14 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
+    // The Zig build uses a compiled-in map and cannot honor a runtime PRINTABLE_BINARY_MAP
+    // file (unlike the C/Lua/Node builds). Say so explicitly instead of silently ignoring it.
+    if (g_environ_map) |env| {
+        if (env.get("PRINTABLE_BINARY_MAP")) |_| {
+            rawWriteAll(std.Io.File.stderr(), "Warning: PRINTABLE_BINARY_MAP is ignored by the Zig build (compiled-in map); use the C, Lua, or Node build for custom maps.\n");
+        }
+    }
+
     if (opts.mappings_mode != .none) {
         try printMappings(opts.mappings_mode);
         return;

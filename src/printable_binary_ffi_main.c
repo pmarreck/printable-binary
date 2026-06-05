@@ -471,6 +471,9 @@ int main(int argc, char *argv[]) {
     const char *prog_name = argv[0] ? argv[0] : "printable-binary";
     bool stats_enabled = !env_var_truthy(getenv("PRINTABLE_BINARY_MUTE_STATS"));
 
+    if (getenv("PRINTABLE_BINARY_MAP") != NULL) {
+        fprintf(stderr, "Warning: PRINTABLE_BINARY_MAP is ignored by the FFI build (compiled-in map); use the C, Lua, or Node build for custom maps.\n");
+    }
     if (opts.help_mode) {
         print_usage(prog_name);
         return 0;
