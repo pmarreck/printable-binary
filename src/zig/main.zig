@@ -408,22 +408,59 @@ const ascii_names = [_][]const u8{
     "BS", "TAB", "LF", "VT", "FF", "CR", "SO", "SI",
     "DLE", "DC1", "DC2", "DC3", "DC4", "NAK", "SYN", "ETB",
     "CAN", "EM", "SUB", "ESC", "FS", "GS", "RS", "US",
-    "SPACE", "!", "\"", "#", "$", "%", "&", "'",
-    "(", ")", "*", "+", ",", "-", ".", "/",
-    "0", "1", "2", "3", "4", "5", "6", "7",
-    "8", "9", ":", ";", "<", "=", ">", "?",
-    "@", "A", "B", "C", "D", "E", "F", "G",
-    "H", "I", "J", "K", "L", "M", "N", "O",
-    "P", "Q", "R", "S", "T", "U", "V", "W",
-    "X", "Y", "Z", "[", "\\", "]", "^", "_",
-    "`", "a", "b", "c", "d", "e", "f", "g",
-    "h", "i", "j", "k", "l", "m", "n", "o",
-    "p", "q", "r", "s", "t", "u", "v", "w",
-    "x", "y", "z", "{", "|", "}", "~", "DEL",
+    "SPACE", "'!'", "'\"'", "'#'", "'$'", "'%'", "'&'", "'\\''",
+    "'('", "')'", "'*'", "'+'", "','", "'-'", "'.'", "'/'",
+    "'0'", "'1'", "'2'", "'3'", "'4'", "'5'", "'6'", "'7'",
+    "'8'", "'9'", "':'", "';'", "'<'", "'='", "'>'", "'?'",
+    "'@'", "'A'", "'B'", "'C'", "'D'", "'E'", "'F'", "'G'",
+    "'H'", "'I'", "'J'", "'K'", "'L'", "'M'", "'N'", "'O'",
+    "'P'", "'Q'", "'R'", "'S'", "'T'", "'U'", "'V'", "'W'",
+    "'X'", "'Y'", "'Z'", "'['", "'\\\\'", "']'", "'^'", "'_'",
+    "'`'", "'a'", "'b'", "'c'", "'d'", "'e'", "'f'", "'g'",
+    "'h'", "'i'", "'j'", "'k'", "'l'", "'m'", "'n'", "'o'",
+    "'p'", "'q'", "'r'", "'s'", "'t'", "'u'", "'v'", "'w'",
+    "'x'", "'y'", "'z'", "'{'", "'|'", "'}'", "'~'", "DEL",
 };
 
 fn writeStdout(data: []const u8) void {
     rawWriteAll(std.Io.File.stdout(), data);
+}
+
+// Append `s` to `buf` (at *len), doubling any '"' so the result is a safe CSV
+// field body (RFC 4180). Returns the new length.
+fn csvEscapeInto(buf: []u8, len_in: usize, s: []const u8) usize {
+    var len = len_in;
+    for (s) |c| {
+        if (c == '"') {
+            if (len + 2 > buf.len) return len;
+            buf[len] = '"';
+            buf[len + 1] = '"';
+            len += 2;
+        } else {
+            if (len + 1 > buf.len) return len;
+            buf[len] = c;
+            len += 1;
+        }
+    }
+    return len;
+}
+
+// Append `s` to `buf`, escaping '"' and '\\' for a JSON string body.
+fn jsonEscapeInto(buf: []u8, len_in: usize, s: []const u8) usize {
+    var len = len_in;
+    for (s) |c| {
+        if (c == '"' or c == '\\') {
+            if (len + 2 > buf.len) return len;
+            buf[len] = '\\';
+            buf[len + 1] = c;
+            len += 2;
+        } else {
+            if (len + 1 > buf.len) return len;
+            buf[len] = c;
+            len += 1;
+        }
+    }
+    return len;
 }
 
 fn printMappings(mode: MappingsMode) !void {
@@ -432,7 +469,8 @@ fn printMappings(mode: MappingsMode) !void {
         .table => {
             writeStdout("Byte   Dec   ASCII        Mapping\n");
             for (0..256) |i| {
-                const ascii_name = if (i < 128) ascii_names[i] else "";
+                var hex_ascii: [8]u8 = undefined;
+                const ascii_name = if (i < 128) ascii_names[i] else (std.fmt.bufPrint(&hex_ascii, "0x{X:0>2}", .{i}) catch "");
                 const line = std.fmt.bufPrint(&line_buf, "0x{X:0>2}   {d:<5} {s:<12} {s}\n", .{
                     i, i, ascii_name, pb.character_map[i],
                 }) catch continue;
@@ -440,29 +478,32 @@ fn printMappings(mode: MappingsMode) !void {
             }
         },
         .json => {
-            writeStdout("[\n");
+            writeStdout("[");
             for (0..256) |i| {
-                const raw_ascii = if (i < 128) ascii_names[i] else "";
-                // Escape special JSON characters
-                const ascii_escaped = if (std.mem.eql(u8, raw_ascii, "\""))
-                    "\\\""
-                else if (std.mem.eql(u8, raw_ascii, "\\"))
-                    "\\\\"
-                else
-                    raw_ascii;
-                const line = std.fmt.bufPrint(&line_buf, "  {{\"byte\": {d}, \"ascii\": \"{s}\", \"mapping\": \"{s}\"}}{s}\n", .{
-                    i, ascii_escaped, pb.character_map[i], if (i < 255) "," else "",
+                var hex_ascii: [8]u8 = undefined;
+                const raw_ascii = if (i < 128) ascii_names[i] else (std.fmt.bufPrint(&hex_ascii, "0x{X:0>2}", .{i}) catch "");
+                var ab: [64]u8 = undefined;
+                const ascii_len = jsonEscapeInto(&ab, 0, raw_ascii);
+                var mb: [64]u8 = undefined;
+                const map_len = jsonEscapeInto(&mb, 0, pb.character_map[i]);
+                const line = std.fmt.bufPrint(&line_buf, "{s}\n  {{\"byte\": {d}, \"hex\": \"0x{X:0>2}\", \"dec\": {d}, \"ascii\": \"{s}\", \"mapping\": \"{s}\"}}", .{
+                    if (i == 0) "" else ",", i, i, i, ab[0..ascii_len], mb[0..map_len],
                 }) catch continue;
                 writeStdout(line);
             }
-            writeStdout("]\n");
+            writeStdout("\n]\n");
         },
         .csv => {
             writeStdout("byte,hex,dec,ascii,mapping\n");
             for (0..256) |i| {
-                const raw_ascii = if (i < 128) ascii_names[i] else "";
+                var hex_ascii: [8]u8 = undefined;
+                const raw_ascii = if (i < 128) ascii_names[i] else (std.fmt.bufPrint(&hex_ascii, "0x{X:0>2}", .{i}) catch "");
+                var ab: [64]u8 = undefined;
+                const ascii_len = csvEscapeInto(&ab, 0, raw_ascii);
+                var mb: [64]u8 = undefined;
+                const map_len = csvEscapeInto(&mb, 0, pb.character_map[i]);
                 const line = std.fmt.bufPrint(&line_buf, "{d},0x{X:0>2},{d},\"{s}\",\"{s}\"\n", .{
-                    i, i, i, raw_ascii, pb.character_map[i],
+                    i, i, i, ab[0..ascii_len], mb[0..map_len],
                 }) catch continue;
                 writeStdout(line);
             }
