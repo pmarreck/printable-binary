@@ -9,6 +9,9 @@
 const isNodeEnv = typeof process !== 'undefined' && !!process.versions?.node;
 const isDenoEnv = typeof Deno !== 'undefined' && typeof Deno.readTextFileSync === 'function';
 
+// A TextEncoder is stateless; share one instead of allocating per character.
+const sharedTextEncoder = new TextEncoder();
+
 const CONTROL_NAMES = [
   'NUL','SOH','STX','ETX','EOT','ENQ','ACK','BEL',
   'BS','TAB','LF','VT','FF','CR','SO','SI',
@@ -363,7 +366,7 @@ class PrintableBinary {
         if (codePoint !== undefined) {
           // Encode the code point to UTF-8 bytes and add to result
           const char = String.fromCodePoint(codePoint);
-          const encoder = new TextEncoder();
+          const encoder = sharedTextEncoder;
           const bytes = encoder.encode(char);
           for (const byte of bytes) {
             result.push(byte);
@@ -550,7 +553,7 @@ class PrintableBinary {
         const codePoint = printableString.codePointAt(i);
         if (codePoint !== undefined) {
           const char = String.fromCodePoint(codePoint);
-          const encoder = new TextEncoder();
+          const encoder = sharedTextEncoder;
           const bytes = encoder.encode(char);
           for (const byte of bytes) {
             result.push(byte);
@@ -622,7 +625,7 @@ class PrintableBinary {
    * @returns {string} The encoded printable string
    */
   encodeString(str, options = {}) {
-    const encoder = new TextEncoder();
+    const encoder = sharedTextEncoder;
     const bytes = encoder.encode(str);
     return this.encode(bytes, options);
   }

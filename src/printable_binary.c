@@ -438,11 +438,9 @@ static void load_character_map(const char *argv0) {
         return;
     }
 
+    /* The embedded map is the guaranteed final fallback (load_map_from_embedded
+     * exits on a malformed embed), so reaching here always succeeds. */
     load_map_from_embedded();
-    return;
-
-    fprintf(stderr, "Error: Unable to load character_map.txt. Set PRINTABLE_BINARY_MAP or place the file alongside the executable.\n");
-    exit(1);
 }
 
 static const char *ascii_name_for_byte(uint8_t value, char *buffer, size_t buffer_size) {
