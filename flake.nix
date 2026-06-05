@@ -309,6 +309,26 @@
             installPhase = "mkdir -p $out && touch $out/passed";
           };
 
+          # Dogfood the C FFI boundary: build the C FFI CLI against the Zig static
+          # lib and round-trip through it (encode/decode + hexlike).
+          test-ffi-cli = pkgs.stdenv.mkDerivation {
+            name = "test-ffi-cli";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ zig clang ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              zig build
+              clang -O2 -I. -o pb-ffi src/printable_binary_ffi_main.c zig-out/lib/libprintable_binary.a
+              head -c 4096 /dev/urandom > in.bin
+              ./pb-ffi in.bin | ./pb-ffi -d > out.bin
+              cmp in.bin out.bin || { echo "FFI CLI encode/decode roundtrip failed" >&2; exit 1; }
+              ./pb-ffi -X in.bin | ./pb-ffi -X -d > outx.bin
+              cmp in.bin outx.bin || { echo "FFI CLI hexlike roundtrip failed" >&2; exit 1; }
+              echo "FFI CLI smoke test passed (encode/decode + hexlike through the C ABI)"
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
           # Guard against a stale generated C header: regenerating from
           # character_map.txt must reproduce the committed character_map_embedded.h.
           test-embedded-map-sync = pkgs.stdenv.mkDerivation {
