@@ -56,8 +56,13 @@ NC='\033[0m' # No Color
 
 # Auto-detect the correct path based on script location
 SCRIPT_DIR="$(dirname "$0")"
-DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../bin/printable-binary"
+# Default to the Zig implementation (reference build); override with IMPLEMENTATION_TO_TEST.
+DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../zig-out/bin/printable-binary-zig"
 SCRIPT="${IMPLEMENTATION_TO_TEST:-$DEFAULT_IMPLEMENTATION}"
+echo "==> Implementation under test: $SCRIPT" >&2
+if [ ! -e "$SCRIPT" ] && ! command -v "$SCRIPT" >/dev/null 2>&1; then
+  echo "    (not found — run 'zig build' first, or set IMPLEMENTATION_TO_TEST=<path>)" >&2
+fi
 TEST_SIZE_MB="${TEST_SIZE_MB:-1}"
 TEST_SIZE_BYTES=$((TEST_SIZE_MB * 1024 * 1024))
 
