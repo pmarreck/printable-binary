@@ -303,6 +303,7 @@
             nativeBuildInputs = with pkgs; [ nodejs_24 python3 xxd hexdump ];
             buildPhase = ''
               export HOME=$TMPDIR
+              patchShebangs bin/printable-binary-node.js
               IMPLEMENTATION_TO_TEST=./bin/printable-binary-node.js bash ./test/test
             '';
             installPhase = "mkdir -p $out && touch $out/passed";
