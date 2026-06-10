@@ -154,7 +154,7 @@ jobs:
       - name: Build C via zig cc
         shell: bash
         run: |
-          zig cc -O3 -I. -o printable-binary-c.exe src/printable_binary.c
+          zig cc -O3 -I. -o printable-binary-c.exe src/printable_binary.c -lpsapi
 
       - name: Run Zig unit tests
         run: zig build test
