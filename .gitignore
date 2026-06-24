@@ -39,3 +39,6 @@ ZIG_0.15_TO_0.16_MIGRATION.md
 !bin/utf16to8
 AGENTS*.md
 CLAUDE*.md
+# Local convenience symlink to ~/dotfiles (external target — must not be committed
+# into a published repo; broke the GitHub Pages build as a dangling symlink).
+jj_cheatsheet.md
