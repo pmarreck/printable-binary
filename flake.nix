@@ -364,6 +364,25 @@
             installPhase = "mkdir -p $out && touch $out/passed";
           };
         } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+          # Architecture invariant: importing the `printable_binary` Zig module
+          # must emit ZERO `pb_*` C symbols (the C ABI lives only in the FFI-root
+          # static lib). Two static (musl) consumers of pb otherwise collide on
+          # `duplicate symbol: pb_*` under ld.lld — this blocked difz. nm is an
+          # independent oracle. Linux-only: the dup-symbol hazard is specific to
+          # static-musl linking (darwin links dynamically and tolerates dupes),
+          # and the test's nm output parsing assumes ELF symbol naming (no Mach-O
+          # leading underscore). See test/test_module_no_ffi_symbols.
+          test-no-ffi-symbols = pkgs.stdenv.mkDerivation {
+            name = "test-no-ffi-symbols";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ zig binutils ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              bash ./test/test_module_no_ffi_symbols
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
           test-ape = pkgs.stdenvNoCC.mkDerivation {
             name = "test-ape";
             src = ./.;
