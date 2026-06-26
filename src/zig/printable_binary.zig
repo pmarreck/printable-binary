@@ -1314,3 +1314,33 @@ test "parseGlyphLine: filters comments/blank, strips trailing comment, takes fir
     // CRLF tolerance
     try std.testing.expectEqualStrings("·", parseGlyphLine("·\r").?);
 }
+
+// =========================================================================
+// CRC-32 (issue #1: printable-binary-file.json container integrity)
+// =========================================================================
+
+/// CRC-32/ISO-HDLC (the zip/gzip/png CRC): reflected input/output, polynomial
+/// 0xEDB88320, init 0xFFFFFFFF, final xor 0xFFFFFFFF. Pure helper backing the
+/// container's transport-integrity fields. Bitwise (table-free); ample for
+/// container-sized payloads. `pub` so the FFI surface (ffi.zig) can delegate.
+pub fn crc32(data: []const u8) u32 {
+    var crc: u32 = 0xFFFFFFFF;
+    for (data) |byte| {
+        crc ^= @as(u32, byte);
+        var k: usize = 0;
+        while (k < 8) : (k += 1) {
+            if (crc & 1 != 0) {
+                crc = (crc >> 1) ^ 0xEDB88320;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    return ~crc;
+}
+
+test "crc32: published vectors (ISO-HDLC)" {
+    try std.testing.expectEqual(@as(u32, 0x00000000), crc32(""));
+    try std.testing.expectEqual(@as(u32, 0xCBF43926), crc32("123456789"));
+    try std.testing.expectEqual(@as(u32, 0xE8B7BE43), crc32("a"));
+}

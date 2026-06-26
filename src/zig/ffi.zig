@@ -224,3 +224,16 @@ test "FFI: pb_hexlike_encode/decode roundtrip + detect + null safety" {
 	try std.testing.expect(bad.error_code != 0);
 	try std.testing.expect(pb_detect_hexlike(null, 100) == 0);
 }
+
+/// FFI: CRC-32/ISO-HDLC of `len` bytes at `input`. Null ptr (or len 0) yields
+/// the CRC of empty input (0). Delegates to the pure core `pb.crc32`.
+export fn pb_crc32(input: ?[*]const u8, len: usize) callconv(.c) u32 {
+	if (input == null or len == 0) return pb.crc32("");
+	return pb.crc32(input.?[0..len]);
+}
+
+test "FFI: pb_crc32 matches vectors + null safety" {
+	const s = "123456789";
+	try std.testing.expectEqual(@as(u32, 0xCBF43926), pb_crc32(s.ptr, s.len));
+	try std.testing.expectEqual(@as(u32, 0), pb_crc32(null, 100));
+}
