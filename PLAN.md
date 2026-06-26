@@ -38,18 +38,27 @@ abandoned — both await Peter's ok.
 - [x] Green on: test-zig-unit, test-ffi-cli, test-zig (ReleaseFast + cross-impl).
       no-ffi-symbols invariant safe by construction (Linux CI enforces on push).
 
-## NEXT (after Peter spec sign-off; web held for Peter mockup)
-- [ ] C header decl `uint32_t pb_crc32(const char*, size_t);` (src/printable_binary.h)
-      — add when the CLI container verb consumes it (TDD-driven).
-- [ ] Container codec — round-trip oracle FIRST: decode(encode(bytes,meta)) ==
-      (bytes,meta), byte+metadata identical. JS side (js/printable_binary.js) +
-      C CLI side.
-- [ ] JS CRC-32 (vector-pinned to same constant) for the web demo.
-- [ ] CLI verb to emit/consume <name>.pbf.json (-/@stdin/@stdout + JSON I/O conv).
-- [ ] Cross-impl differential: C-built container decodes in JS & vice versa.
-- [ ] Web demo: decode UI (paste + drop) + metadata restore. MOCK BOTH for Peter
-      FIRST (can't see rendered output), then build.
-- [ ] Docs: README section, dirtree notes, schema doc finalize.
+## DONE (JS container codec, MFIC-guarded)
+- [x] JS class `crc32`/`crc32hex` (ISO-HDLC, vector-pinned: ""=0, "123456789"=cbf43926,
+      "a"=e8b7be43) + `encodeToContainer` (bytes+meta -> schema-v1 obj) +
+      `decodeFromContainer` (self-verifying: crc32_encoded pre-decode, byte_length+
+      crc32 post-decode, throws on mismatch; tolerates missing optional fields).
+      RED->GREEN. 13 new tests in test/js/test_printable_binary.js (46 total).
+- [x] Wired orphaned test/js suite into CI as `test-js-unit` (was unguarded) — the
+      container round-trip oracle + crc32 vector pins now run in CI.
+
+## NEXT (web held for Peter mockup)
+- [ ] Node CLI (bin/printable-binary-node.js): container verb (emit/consume
+      <name>.pbf.json; reads file + best-effort fs.stat metadata; -/@stdin/@stdout).
+- [ ] C CLI (FFI, src/printable_binary_ffi_main.c): container verb dogfooding
+      pb_crc32 + pb_encode/pb_decode; add `uint32_t pb_crc32(const char*,size_t);`
+      to src/printable_binary.h; hand-rolled flat-schema JSON parse/assemble.
+- [ ] Cross-impl differential (test/test_cross_implementation.sh): C-emitted
+      container decodes in JS & vice versa (byte+metadata identical).
+- [ ] Per-impl container round-trip in the cross-impl CLI suite (feature-detected).
+- [ ] Web demo (index.html): decode UI (paste + drop) + metadata restore. MOCK
+      BOTH (explicit Encode/Decode toggle AND auto-detect) for Peter FIRST, then build.
+- [ ] Docs: README section, dirtree notes.
 
 ## Discipline
 jj-only (never raw git); rm-safe (mv ~/.Trash, never rm); per-unit ./test green;

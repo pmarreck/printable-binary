@@ -641,6 +641,104 @@ class PrintableBinary {
     const decoder = new TextDecoder();
     return decoder.decode(bytes);
   }
+
+  /**
+   * CRC-32/ISO-HDLC (the zip/gzip/png CRC): reflected, poly 0xEDB88320,
+   * init/xorout 0xFFFFFFFF. Vector-pinned to the published constants so this JS
+   * impl cannot silently diverge from the Zig core's pb_crc32 (MFIC differential).
+   * @param {Uint8Array} bytes
+   * @returns {number} unsigned 32-bit CRC
+   */
+  crc32(bytes) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) {
+      crc ^= bytes[i];
+      for (let k = 0; k < 8; k++) {
+        crc = (crc & 1) ? ((crc >>> 1) ^ 0xEDB88320) : (crc >>> 1);
+      }
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  /** Lowercase 8-hex-digit CRC-32 of `bytes` (the container's on-wire form). */
+  crc32hex(bytes) {
+    return this.crc32(bytes).toString(16).padStart(8, '0');
+  }
+
+  /**
+   * Assemble a printable-binary-file container object (schema v1) from raw bytes
+   * + optional metadata. The JSON envelope is trivial glue (A2 architecture);
+   * the only algorithms — the codec and crc32 — are shared with the core. Caller
+   * JSON.stringify's the result. Optional metadata is omitted when absent so the
+   * format degrades gracefully (browser has only name/size/lastModified; POSIX
+   * adds mode/owner/group).
+   * @param {Uint8Array} bytes
+   * @param {{filename?:string, modified_ms?:number, created_ms?:number, mode?:string, owner?:string, group?:string}} [meta]
+   * @returns {object} the container
+   */
+  encodeToContainer(bytes, meta = {}) {
+    if (!(bytes instanceof Uint8Array)) {
+      throw new Error("encodeToContainer expects a Uint8Array");
+    }
+    const data = this.encode(bytes);
+    const dataBytes = sharedTextEncoder.encode(data);
+    const container = {
+      format: "printable-binary-file",
+      version: 1,
+      filename: meta.filename ?? "",
+      data,
+      byte_length: bytes.length,
+      crc32: this.crc32hex(bytes),
+      crc32_encoded: this.crc32hex(dataBytes),
+    };
+    for (const k of ["modified_ms", "created_ms", "mode", "owner", "group"]) {
+      if (meta[k] !== undefined && meta[k] !== null) container[k] = meta[k];
+    }
+    return container;
+  }
+
+  /**
+   * Parse a printable-binary-file container (object or JSON string) back to the
+   * original bytes + metadata. Self-verifies integrity: crc32_encoded (if present)
+   * is checked BEFORE decode (catches transport corruption of `data`); byte_length
+   * and crc32 are checked AFTER decode. Any mismatch throws — never silently
+   * returns corrupt data. Missing optional fields are tolerated.
+   * @param {object|string} input
+   * @returns {{ bytes: Uint8Array, meta: object }}
+   */
+  decodeFromContainer(input) {
+    const c = typeof input === "string" ? JSON.parse(input) : input;
+    if (!c || typeof c !== "object") {
+      throw new Error("Container must be a JSON object or JSON string");
+    }
+    if (c.format !== "printable-binary-file") {
+      throw new Error("Not a printable-binary-file container (missing/invalid 'format')");
+    }
+    if (typeof c.data !== "string") {
+      throw new Error("Container 'data' must be a string");
+    }
+    if (c.crc32_encoded !== undefined && c.crc32_encoded !== null) {
+      const got = this.crc32hex(sharedTextEncoder.encode(c.data));
+      if (got !== String(c.crc32_encoded).toLowerCase()) {
+        throw new Error(`Container crc32_encoded mismatch (got ${got}, expected ${c.crc32_encoded}) — 'data' is corrupted`);
+      }
+    }
+    const bytes = this.decode(c.data);
+    if (c.byte_length !== undefined && c.byte_length !== null && bytes.length !== c.byte_length) {
+      throw new Error(`Container byte_length mismatch (decoded ${bytes.length}, expected ${c.byte_length})`);
+    }
+    if (c.crc32 !== undefined && c.crc32 !== null) {
+      const got = this.crc32hex(bytes);
+      if (got !== String(c.crc32).toLowerCase()) {
+        throw new Error(`Container crc32 mismatch (got ${got}, expected ${c.crc32}) — decoded data is corrupted`);
+      }
+    }
+    const meta = {};
+    for (const k of ["filename", "modified_ms", "created_ms", "mode", "owner", "group"]) {
+      if (c[k] !== undefined && c[k] !== null) meta[k] = c[k];
+    }
+    return { bytes, meta };
+  }
 }
 
 // Export for different environments

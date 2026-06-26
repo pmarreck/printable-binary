@@ -304,6 +304,48 @@ console.log('\n--- Error Handling Tests ---');
 
 // Summary
 console.log('\n' + '='.repeat(50));
+// --- printable-binary-file.json container Tests (issue #1) ---
+console.log('\n--- Container (printable-binary-file.json) Tests ---');
+{
+  const te = new TextEncoder();
+  // CRC-32/ISO-HDLC vector pinning (MFIC: published vectors — authorship-independent)
+  assertEquals(encoder.crc32hex(te.encode("")), "00000000", "crc32 empty vector");
+  assertEquals(encoder.crc32hex(te.encode("123456789")), "cbf43926", "crc32 '123456789' vector");
+  assertEquals(encoder.crc32hex(te.encode("a")), "e8b7be43", "crc32 'a' vector");
+
+  // Container round-trip (MFIC inverse-pair oracle): bytes + metadata identical
+  const bytes = new Uint8Array([0, 1, 2, 255, 254, 65, 66, 10, 9, 0x7f, 0x80, 0]);
+  const container = encoder.encodeToContainer(bytes, {
+    filename: "x.bin", modified_ms: 1719430000000, mode: "0644",
+  });
+  assertEquals(container.format, "printable-binary-file", "container has format discriminator");
+  assertEquals(container.version, 1, "container version 1");
+  assertEquals(container.byte_length, bytes.length, "container byte_length = original length");
+
+  const { bytes: out, meta } = encoder.decodeFromContainer(container);
+  assertArrayEquals(Array.from(out), Array.from(bytes), "container round-trip: bytes identical");
+  assertEquals(meta.filename, "x.bin", "container round-trip: filename restored");
+  assertEquals(meta.modified_ms, 1719430000000, "container round-trip: modified_ms restored");
+  assertEquals(meta.mode, "0644", "container round-trip: mode restored");
+
+  // Round-trip through a JSON string too (the on-disk form)
+  const rt = encoder.decodeFromContainer(JSON.stringify(container));
+  assertArrayEquals(Array.from(rt.bytes), Array.from(bytes), "container round-trip via JSON string");
+
+  // Self-verification is non-vacuous: corrupting data is rejected (hard error)
+  let threw = false;
+  try {
+    const bad = { ...container, data: container.data + encoder.encode(new Uint8Array([1, 2, 3])) };
+    encoder.decodeFromContainer(bad);
+  } catch (_e) { threw = true; }
+  assert(threw, "container self-verify rejects corrupted data");
+
+  // Cross-platform tolerance: a minimal container (only required fields) decodes
+  const minimal = { format: "printable-binary-file", version: 1, data: container.data };
+  const md = encoder.decodeFromContainer(minimal);
+  assertArrayEquals(Array.from(md.bytes), Array.from(bytes), "minimal container (no optional fields) decodes");
+}
+
 console.log('Test Summary:');
 console.log(`Total tests: ${testCount}`);
 console.log(`Passed: ${passCount}`);

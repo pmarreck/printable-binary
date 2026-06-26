@@ -309,6 +309,20 @@
             installPhase = "mkdir -p $out && touch $out/passed";
           };
 
+          # JS library unit tests (container codec + crc32 vector-pinning, issue #1).
+          # Previously orphaned (test-js runs only the cross-impl CLI suite); wired
+          # in so the printable-binary-file.json container is MFIC-guarded in CI.
+          test-js-unit = pkgs.stdenv.mkDerivation {
+            name = "test-js-unit";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ nodejs_24 ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              node test/js/test_printable_binary.js
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
           # Dogfood the C FFI boundary: build the C FFI CLI against the Zig static
           # lib and round-trip through it (encode/decode + hexlike).
           test-ffi-cli = pkgs.stdenv.mkDerivation {
