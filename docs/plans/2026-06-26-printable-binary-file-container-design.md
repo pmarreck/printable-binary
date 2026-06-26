@@ -134,3 +134,44 @@ cannot silently disagree (MFIC: external oracle).
 core CRC-32 (+FFI) → container codec + round-trip oracle → CLI verb → cross-impl
 differential → web UI (after Peter picks the mockup). Ping Einstein at the core
 and CLI milestones.
+
+## Web-UI mockups (for Peter's pick — the one hard gate)
+The issue's core complaint is "no CLEAR way to decode." Both options add a paste
+box + a metadata panel; they differ in how the decode path is surfaced. (Text
+mockups — I can't see rendered output; Peter picks, then I build.)
+
+### Option A — Explicit Encode / Decode tabs (Einstein's lean: most discoverable)
+```
+        ┌ ▶ ENCODE ┐ ┌  DECODE  ┐      <- mode tabs (decode is now obvious)
+ENCODE: [ drop a file / click to choose ]
+        output:  ( ) plain text   (*) .pbf.json container
+                 (keeps filename, dates, perms + self-check crc32)
+        [ Copy ] [ Download photo.png.pbf.json ] [ Clear ]
+
+DECODE: paste encoded text OR a .pbf.json container:
+        [ ............................................ ]
+              ...or drop a .pbt / .pbf.json file
+        ┌ Detected: printable-binary-file container ─────┐
+        │ name: photo.png   12.3 KB   modified 2026-06-20 │
+        │ mode 0644   integrity: ✓ crc32 verified          │
+        └─────────────────────────────────────────────────┘
+        [ Download photo.png ] [ Clear ]
+```
+
+### Option B — Auto-detect, single unified surface (fewer clicks; decode implicit)
+```
+Drop a file or paste below — auto-detects ENCODE vs DECODE.
+[ drop a file / click to choose ]
+──────────────── or paste ────────────────
+[ raw text, printable-binary, or a .pbf.json container ............ ]
+┌ Auto-detected: .pbf.json container -> DECODE ────────┐
+│ -> photo.png · 12.3 KB · modified 2026-06-20          │
+│ integrity ✓ crc32 verified                            │
+└───────────────────────────────────────────────────────┘
+(other states: "plain bytes -> ENCODE", "printable-binary -> DECODE")
+[ Copy ] [ Download ] [ Clear ]
+```
+
+**Recommendation:** A — it makes decode unmistakable (directly answers the
+issue), and the metadata panel + container option are equally expressible in B.
+Awaiting Peter's pick before building index.html.

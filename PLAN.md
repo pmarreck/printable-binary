@@ -63,3 +63,18 @@ abandoned — both await Peter's ok.
 ## Discipline
 jj-only (never raw git); rm-safe (mv ~/.Trash, never rm); per-unit ./test green;
 ./build + full suite before push; commit per logical unit; ping Einstein at milestones.
+
+## Session checkpoint (2026-06-26 ~4:18pm EDT)
+Shipped + verified GREEN across all 5 platforms (Garnix "All checks" + GH Actions):
+- cd6d32d1  feat(core): CRC-32 primitive + pb_crc32 FFI export
+- cb1ce8e3  feat(js): printable-binary-file.json container codec + crc32 (+test-js-unit CI guard)
+test-no-ffi-symbols [linux] PASSED → the pub crc32 leaked no pb_* symbol (invariant verified).
+SCM hazard caught + re-homed onto yolo (Einstein confirmed). ef7496c2 kept as safety net.
+
+BLOCKING THE ISSUE'S CORE FIX: Peter's web-UI mockup pick (Option A vs B in the
+spec's "Web-UI mockups" section). AskUserQuestion blocked in-session → awaiting his
+reply in-pane or via Einstein.
+
+Queued next (non-gated, resume here): Node CLI container verb → C FFI CLI verb
+(+pb_crc32 in src/printable_binary.h) → cross-impl differential (C container ↔ JS).
+Then web UI once Peter picks.
