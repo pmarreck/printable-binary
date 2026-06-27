@@ -42,7 +42,6 @@ NEW option, not a replacement.
   "format": "printable-binary-file",
   "version": 1,
   "filename": "photo.png",
-  "data": "<printable-binary-encoded string>",
   "byte_length": 12345,
   "crc32": "cbf43926",
   "crc32_encoded": "1a2b3c4d",
@@ -50,9 +49,16 @@ NEW option, not a replacement.
   "created_ms": 1719420000000,
   "mode": "0644",
   "owner": "pmarreck",
-  "group": "staff"
+  "group": "staff",
+  "data": "<printable-binary-encoded string>"
 }
 ```
+
+Serialized with `data` LAST so all metadata sits up front (JS object key order
+is insertion order). `created_ms` is birthtime — populated by the CLI (which can
+`stat` it); browsers expose only `lastModified` (-> `modified_ms`), so the web
+encoder omits `created_ms` (the web decoder still shows it when a CLI-made
+container carries it).
 
 ### Field semantics
 | key            | type    | required | meaning |

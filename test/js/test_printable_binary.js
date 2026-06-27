@@ -321,6 +321,7 @@ console.log('\n--- Container (printable-binary-file.json) Tests ---');
   assertEquals(container.format, "printable-binary-file", "container has format discriminator");
   assertEquals(container.version, 1, "container version 1");
   assertEquals(container.byte_length, bytes.length, "container byte_length = original length");
+  assertEquals(Object.keys(container).at(-1), "data", "container: 'data' key is always last (metadata upfront)");
 
   const { bytes: out, meta } = encoder.decodeFromContainer(container);
   assertArrayEquals(Array.from(out), Array.from(bytes), "container round-trip: bytes identical");
@@ -344,6 +345,33 @@ console.log('\n--- Container (printable-binary-file.json) Tests ---');
   const minimal = { format: "printable-binary-file", version: 1, data: container.data };
   const md = encoder.decodeFromContainer(minimal);
   assertArrayEquals(Array.from(md.bytes), Array.from(bytes), "minimal container (no optional fields) decodes");
+}
+
+// --- decodeText: decode-mode router (container vs raw), issue #1 web UI ---
+console.log('\n--- decodeText (decode-mode router) Tests ---');
+{
+  // byte 0x7B ('{') leads, to stress the "looks like JSON but is raw" heuristic
+  const bytes = new Uint8Array([123, 1, 2, 0xff, 65, 0]);
+  const container = encoder.encodeToContainer(bytes, { filename: "f.bin", modified_ms: 111 });
+
+  const viaContainer = encoder.decodeText(JSON.stringify(container));
+  assertEquals(viaContainer.kind, "container", "decodeText: detects a .pbf.json container");
+  assertEquals(viaContainer.filename, "f.bin", "decodeText: returns container filename");
+  assertEquals(viaContainer.meta.modified_ms, 111, "decodeText: returns container metadata");
+  assertArrayEquals(Array.from(viaContainer.bytes), Array.from(bytes), "decodeText: container bytes round-trip");
+
+  const rawText = encoder.encode(bytes); // raw printable-binary (may start with literal '{')
+  const viaRaw = encoder.decodeText(rawText);
+  assertEquals(viaRaw.kind, "raw", "decodeText: raw printable-binary routed as raw, not container");
+  assertArrayEquals(Array.from(viaRaw.bytes), Array.from(bytes), "decodeText: raw bytes round-trip");
+
+  // a corrupt container still throws (self-verify preserved through the router)
+  let threw = false;
+  try {
+    const bad = { ...container, data: container.data + encoder.encode(new Uint8Array([9])) };
+    encoder.decodeText(JSON.stringify(bad));
+  } catch (_e) { threw = true; }
+  assert(threw, "decodeText: corrupt container is rejected");
 }
 
 console.log('Test Summary:');

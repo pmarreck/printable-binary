@@ -686,7 +686,6 @@ class PrintableBinary {
       format: "printable-binary-file",
       version: 1,
       filename: meta.filename ?? "",
-      data,
       byte_length: bytes.length,
       crc32: this.crc32hex(bytes),
       crc32_encoded: this.crc32hex(dataBytes),
@@ -694,6 +693,9 @@ class PrintableBinary {
     for (const k of ["modified_ms", "created_ms", "mode", "owner", "group"]) {
       if (meta[k] !== undefined && meta[k] !== null) container[k] = meta[k];
     }
+    // `data` is appended LAST so all metadata sits up front (JS object key
+    // order is insertion order) -- the big payload reads at the end.
+    container.data = data;
     return container;
   }
 
@@ -738,6 +740,30 @@ class PrintableBinary {
       if (c[k] !== undefined && c[k] !== null) meta[k] = c[k];
     }
     return { bytes, meta };
+  }
+
+  /**
+   * Decode-mode router for the web/CLI: given pasted-or-loaded text, auto-route
+   * between a printable-binary-file.json container and raw printable-binary
+   * glyphs. Robust to raw output that merely starts with a literal '{' — to count
+   * as a container it must JSON-parse AND carry the format discriminator. Returns
+   * { bytes, filename, meta, kind:'container'|'raw' }. A corrupt container still
+   * throws (decodeFromContainer self-verify) — never silently mis-decodes.
+   * @param {string} text
+   * @returns {{ bytes: Uint8Array, filename: string, meta: object, kind: string }}
+   */
+  decodeText(text) {
+    const trimmed = String(text).trim();
+    if (trimmed.startsWith('{')) {
+      let parsed = null;
+      try { parsed = JSON.parse(trimmed); } catch (_e) { parsed = null; }
+      if (parsed && parsed.format === 'printable-binary-file') {
+        const { bytes, meta } = this.decodeFromContainer(parsed);
+        return { bytes, filename: meta.filename || 'decoded.bin', meta, kind: 'container' };
+      }
+    }
+    const bytes = this.decode(text);
+    return { bytes, filename: 'decoded.bin', meta: {}, kind: 'raw' };
   }
 }
 
