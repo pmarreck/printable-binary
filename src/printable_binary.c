@@ -26,6 +26,7 @@
 
 #include "character_map_embedded.h"
 #include "printable_binary.h"
+#include "container_json.h"
 
 #ifdef __EMSCRIPTEN__
 // Standalone WASM builds shouldn't depend on host-provided env functions.
@@ -126,6 +127,7 @@ typedef struct {
     int64_t range_end;
     bool no_double_encode_check;
     bool hexlike_mode;
+    bool container_mode;
 } options_t;
 
 static void parse_format_spec(options_t *opts, const char *format_str) {
@@ -801,6 +803,21 @@ pb_double_encode_info_t pb_detect_double_encode(const char *input, size_t input_
     return detect_double_encode(input, input_len, threshold);
 }
 
+// CRC-32/ISO-HDLC (vector-pinned: CRC32("123456789")=0xCBF43926). Self-contained
+// (the standalone build does not link the Zig lib). Backs .pbf.json container
+// integrity; bitwise, ample for container-sized payloads.
+uint32_t pb_crc32(const char *input, size_t input_len) {
+    if (!input || input_len == 0) return 0u;
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < input_len; i++) {
+        crc ^= (unsigned char)input[i];
+        for (int k = 0; k < 8; k++) {
+            crc = (crc & 1u) ? ((crc >> 1) ^ 0xEDB88320u) : (crc >> 1);
+        }
+    }
+    return ~crc;
+}
+
 // Hexlike passthrough set: bytes that pass through as-is in hexlike mode
 // . 0-9 @ A-Z ^ _ a-z (the same bytes that are identity-mapped in the character map)
 static bool is_hexlike_passthrough(uint8_t byte, bool spaces_mode) {
@@ -1242,6 +1259,8 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "  -p, --passthrough  Pass input to stdout unchanged, send encoded data to stderr\n");
     fprintf(stderr, "\nEncoding modes:\n");
     fprintf(stderr, "  -X, --hexlike    Hexlike mode: passthrough ASCII stays as-is, all other bytes\n");
+    fprintf(stderr, "  -C, --container  Container mode: encode a file to a self-verifying .pbf.json\n");
+    fprintf(stderr, "                   (keeps filename + crc32). With -d, decode a container back.\n");
     fprintf(stderr, "                   shown as uppercase hex runs prefixed by \xCE\x9F\xCF\x87 (Greek Omicron+Chi,\n");
     fprintf(stderr, "                   NOT ASCII 0x \xe2\x80\x94 beware when copying hex for other purposes).\n");
     fprintf(stderr, "                   Use with -d to decode hexlike-encoded data back to binary.\n");
@@ -1533,6 +1552,8 @@ static options_t parse_options(int argc, char *argv[]) {
                 opts.no_double_encode_check = true;
             } else if (long_option_equals(name, name_len, "hexlike")) {
                 opts.hexlike_mode = true;
+            } else if (long_option_equals(name, name_len, "container")) {
+                opts.container_mode = true;
             } else if (long_option_equals(name, name_len, "help")) {
                 opts.help_mode = true;
             } else {
@@ -1578,6 +1599,10 @@ static options_t parse_options(int argc, char *argv[]) {
                     break;
                 case 'X':
                     opts.hexlike_mode = true;
+                    pos++;
+                    break;
+                case 'C':
+                    opts.container_mode = true;
                     pos++;
                     break;
                 case 'P': {
@@ -1750,6 +1775,57 @@ int main(int argc, char *argv[]) {
             input.size = new_size;
         }
     }
+
+    if (opts.container_mode) {
+        if (opts.decode_mode) {
+            size_t dlen;
+            const char *draw = cj_get_string(input.data, input.size, "data", &dlen);
+            if (!draw) { fprintf(stderr, "Error: not a printable-binary-file container (missing 'data')\n"); buffer_free(&input); return 1; }
+            size_t clen;
+            char *clean = cj_canonical(draw, dlen, &clen);
+            size_t celen;
+            const char *ce = cj_get_string(input.data, input.size, "crc32_encoded", &celen);
+            if (ce) {
+                char hx[9]; snprintf(hx, 9, "%08x", (unsigned int)pb_crc32(clean, clen));
+                if (celen != 8 || memcmp(hx, ce, 8) != 0) { free(clean); buffer_free(&input); fprintf(stderr, "Error: container crc32_encoded mismatch (data corrupted)\n"); return 1; }
+            }
+            buffer_t dec = decode_data((uint8_t *)clean, clen, false);
+            free(clean);
+            size_t colen;
+            const char *co = cj_get_string(input.data, input.size, "crc32", &colen);
+            if (co) {
+                char hx[9]; snprintf(hx, 9, "%08x", (unsigned int)pb_crc32(dec.data, dec.size));
+                if (colen != 8 || memcmp(hx, co, 8) != 0) { buffer_free(&dec); buffer_free(&input); fprintf(stderr, "Error: container crc32 mismatch (decoded data corrupted)\n"); return 1; }
+            }
+            fwrite(dec.data, 1, dec.size, stdout);
+            buffer_free(&dec);
+            buffer_free(&input);
+            return 0;
+        } else {
+            options_t enc_opts = opts;
+            enc_opts.spaces_mode = false;
+            enc_opts.tabs_mode = false;
+            enc_opts.crlf_mode = false;
+            enc_opts.preserve_chars[0] = '\0';
+            buffer_t enc = encode_data((uint8_t *)input.data, input.size, &enc_opts);
+            size_t clen;
+            char *clean = cj_canonical(enc.data, enc.size, &clen);
+            char crc_orig[9], crc_enc[9];
+            snprintf(crc_orig, 9, "%08x", (unsigned int)pb_crc32(input.data, input.size));
+            snprintf(crc_enc, 9, "%08x", (unsigned int)pb_crc32(clean, clen));
+            free(clean);
+            const char *fname = (opts.input_file && strcmp(opts.input_file, "-") != 0) ? cj_basename(opts.input_file) : "";
+            printf("{\n  \"format\": \"printable-binary-file\",\n  \"version\": 1,\n  \"filename\": \"");
+            cj_fputs_escaped(stdout, fname, strlen(fname));
+            printf("\",\n  \"byte_length\": %zu,\n  \"crc32\": \"%s\",\n  \"crc32_encoded\": \"%s\",\n  \"data\": \"", input.size, crc_orig, crc_enc);
+            fwrite(enc.data, 1, enc.size, stdout);
+            printf("\"\n}\n");
+            buffer_free(&enc);
+            buffer_free(&input);
+            return 0;
+        }
+    }
+
 
     if (opts.decode_mode) {
         if (opts.passthrough_mode) {

@@ -378,6 +378,19 @@
             installPhase = "mkdir -p $out && touch $out/passed";
           };
 
+          # Container (.pbf.json) for the standalone C CLI (issue #1).
+          test-container-c = pkgs.stdenv.mkDerivation {
+            name = "test-container-c";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ clang ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              clang -O3 -Wall -Wextra -I. -o printable-binary-c src/printable_binary.c
+              IMPLEMENTATION_TO_TEST=./printable-binary-c bash ./test/test_container
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
           # Dogfood the C FFI boundary: build the C FFI CLI against the Zig static
           # lib and round-trip through it (encode/decode + hexlike).
           test-ffi-cli = pkgs.stdenv.mkDerivation {
