@@ -202,6 +202,12 @@
 
               # WebAssembly toolchain
               emscripten
+
+              # Rust toolchain (native Rust GUI<->core transport implementation)
+              cargo
+              rustc
+              clippy
+              rustfmt
             ]  ++ lib.optionals stdenv.isDarwin [ lldb ]
                ++ lib.optionals (!stdenv.isDarwin) [ gdb ]
                ++ linuxOnly;
