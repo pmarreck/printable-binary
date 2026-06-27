@@ -2,6 +2,38 @@
 local buffer = require("string.buffer")
 local ffi = require("ffi")
 
+local bit = require("bit")
+
+-- CRC-32/ISO-HDLC (vector-pinned: CRC32("123456789")=0xCBF43926). Backs the
+-- .pbf.json container integrity; bit.tohex gives the canonical 8-hex form.
+local function crc32_hex(data)
+  local crc = 0xFFFFFFFF
+  for i = 1, #data do
+    crc = bit.bxor(crc, string.byte(data, i))
+    for _ = 1, 8 do
+      if bit.band(crc, 1) ~= 0 then
+        crc = bit.bxor(bit.rshift(crc, 1), 0xEDB88320)
+      else
+        crc = bit.rshift(crc, 1)
+      end
+    end
+  end
+  return bit.tohex(bit.bxor(crc, 0xFFFFFFFF))
+end
+
+-- Strip transport whitespace (space/tab/CR/LF) from an encoded payload.
+local function canonical_payload(s)
+  return (s:gsub("[ \t\r\n]", ""))
+end
+
+-- Extract the string value of `key` from a flat JSON object. Lua `.` matches
+-- newlines, so the `data` value is captured regardless of whitespace a transport
+-- injected inside it (natural transport-resistance).
+local function json_get_string(json, key)
+  return json:match('"' .. key .. '"%s*:%s*"(.-)"')
+end
+
+
 -- PrintableBinary: A utility to encode/decode binary data into human-readable UTF-8
 -- Module definition
 local PrintableBinary = {}
@@ -561,6 +593,8 @@ if arg then
     io.stderr:write("\n")
     io.stderr:write("Encoding modes:\n")
     io.stderr:write("  -X, --hexlike    Hexlike mode: passthrough ASCII stays as-is, all other bytes\n")
+    io.stderr:write("  -C, --container  Container mode: encode a file to a self-verifying .pbf.json\n")
+    io.stderr:write("                   (keeps filename + crc32). With -d, decode a container back.\n")
     io.stderr:write("                   shown as uppercase hex runs prefixed by Οχ (Greek Omicron+Chi,\n")
     io.stderr:write("                   NOT ASCII 0x — beware when copying hex for other purposes).\n")
     io.stderr:write("                   Use with -d to decode hexlike-encoded data back to binary.\n")
@@ -690,6 +724,7 @@ if arg then
   local preserve_chars = ""
   local skip_double_encode_check = false
   local hexlike_mode = false
+  local container_mode = false
   local range_start = nil  -- nil means not set
   local range_end = nil    -- nil means not set
 
@@ -772,6 +807,8 @@ if arg then
       return true  -- consumed next argument
     elseif flag == "X" then
       hexlike_mode = true
+    elseif flag == "C" then
+      container_mode = true
     elseif flag == "f" then
       format_mode = true
     else
@@ -807,6 +844,8 @@ if arg then
       strip_whitespace = true
     elseif current_arg == "--hexlike" then
       hexlike_mode = true
+    elseif current_arg == "--container" then
+      container_mode = true
     elseif current_arg == "--no-double-encode-check" then
       skip_double_encode_check = true
     elseif current_arg == "--range" then
@@ -983,6 +1022,44 @@ if arg then
       end
       -- Lua strings are 1-indexed, so convert from 0-indexed
       input_data = input_data:sub(range_start + 1, range_end + 1)
+    end
+  end
+
+  -- Container (.pbf.json) mode (issue #1): assemble/parse the flat-JSON envelope
+  -- over the shared encode/decode + crc32 (A2). Transport-resistant.
+  if container_mode then
+    if decode_mode then
+      local data_raw = json_get_string(input_data, "data")
+      if not data_raw then
+        io.stderr:write("Error: not a printable-binary-file container (missing 'data')\n")
+        os.exit(1)
+      end
+      local clean = canonical_payload(data_raw)
+      local ce = json_get_string(input_data, "crc32_encoded")
+      if ce and crc32_hex(clean) ~= ce then
+        io.stderr:write("Error: container crc32_encoded mismatch (data corrupted)\n")
+        os.exit(1)
+      end
+      local decoded = PrintableBinary.decode(clean, {})
+      local co = json_get_string(input_data, "crc32")
+      if co and crc32_hex(decoded) ~= co then
+        io.stderr:write("Error: container crc32 mismatch (decoded data corrupted)\n")
+        os.exit(1)
+      end
+      io.write(decoded)
+      os.exit(0)
+    else
+      local data = PrintableBinary.encode(input_data, {})
+      local clean = canonical_payload(data)
+      local crc_orig = crc32_hex(input_data)
+      local crc_enc = crc32_hex(clean)
+      local fname = ""
+      if file_path and file_path ~= "-" then fname = file_path:match("[^/\\]*$") or file_path end
+      io.write('{\n  "format": "printable-binary-file",\n  "version": 1,\n  "filename": "'
+        .. json_escape(fname) .. '",\n  "byte_length": ' .. #input_data
+        .. ',\n  "crc32": "' .. crc_orig .. '",\n  "crc32_encoded": "' .. crc_enc
+        .. '",\n  "data": "' .. data .. '"\n}\n')
+      os.exit(0)
     end
   end
 

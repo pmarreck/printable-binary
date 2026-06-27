@@ -354,13 +354,18 @@
           test-container-cross = pkgs.stdenv.mkDerivation {
             name = "test-container-cross";
             src = ./.;
-            nativeBuildInputs = with pkgs; [ zig nodejs_24 ];
+            nativeBuildInputs = with pkgs; [ zig clang nodejs_24 luajit ];
             buildPhase = ''
               export HOME=$TMPDIR
-              patchShebangs bin/printable-binary-node.js
-              zig build -Doptimize=ReleaseFast
-              IMPL_A=./bin/printable-binary-node.js IMPL_B=./zig-out/bin/printable-binary-zig bash ./test/test_container_cross
+              patchShebangs bin/printable-binary-node.js bin/printable-binary
+              zig build
+              clang -O2 -I. -o pb-ffi src/printable_binary_ffi_main.c zig-out/lib/libprintable_binary.a
+              clang -O3 -Wall -Wextra -I. -o printable-binary-c src/printable_binary.c
+              for impl in ./zig-out/bin/printable-binary-zig ./pb-ffi ./printable-binary-c ./bin/printable-binary; do
+                IMPL_A=./bin/printable-binary-node.js IMPL_B="$impl" bash ./test/test_container_cross || exit 1
+              done
             '';
+
             installPhase = "mkdir -p $out && touch $out/passed";
           };
 
@@ -387,6 +392,19 @@
               export HOME=$TMPDIR
               clang -O3 -Wall -Wextra -I. -o printable-binary-c src/printable_binary.c
               IMPLEMENTATION_TO_TEST=./printable-binary-c bash ./test/test_container
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
+          # Container (.pbf.json) for the Lua reference CLI (issue #1).
+          test-container-lua = pkgs.stdenv.mkDerivation {
+            name = "test-container-lua";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ luajit ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              patchShebangs bin/printable-binary
+              IMPLEMENTATION_TO_TEST=./bin/printable-binary bash ./test/test_container
             '';
             installPhase = "mkdir -p $out && touch $out/passed";
           };
