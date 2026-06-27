@@ -181,3 +181,29 @@ Drop a file or paste below — auto-detects ENCODE vs DECODE.
 **Recommendation:** A — it makes decode unmistakable (directly answers the
 issue), and the metadata panel + container option are equally expressible in B.
 Awaiting Peter's pick before building index.html.
+
+## Transport resistance (whitespace) — added 2026-06-27
+The container must survive being pasted into email bodies / reflowed by text
+transports that inject whitespace. Empirically (test/js + test/test_container):
+- Whitespace BETWEEN JSON tokens (reindent, CRLF, trailing spaces) was always
+  fine — `JSON.parse` ignores it.
+- Whitespace landing INSIDE `data` originally broke decode two ways, both fixed:
+  1. **strict `crc32_encoded`** rejected any byte change, even whitespace the
+     glyph payload is indifferent to → **fix:** `crc32_encoded` is computed over
+     the *canonical* payload (data with `[\r\n\t ]` stripped). The default
+     encoding emits none of those, so clean containers' checksum is UNCHANGED
+     (backward-compatible); only transport-injected whitespace is tolerated.
+  2. **JSON forbids a raw newline inside a string** (a hard line-wrap of the long
+     `data` line) → **fix:** a lenient parse — on `JSON.parse` failure, strip raw
+     control whitespace (`[\r\n\t]`, never legitimate in our metadata strings or
+     the glyph payload) and retry.
+- Decode strips the canonical whitespace from `data` before `decode()` (default
+  decode does NOT ignore whitespace; that is opt-in `-S`). **Integrity is intact:
+  a genuine non-whitespace corruption is still rejected** (crc32 of the original
+  bytes, checked post-decode).
+
+**Required of EVERY impl** (the "all executables" goal): canonicalize the payload
+(`strip [\r\n\t ]`) for the `crc32_encoded` check + before decoding, and parse
+leniently (hand-rolled C/Lua parsers get this free by skipping whitespace while
+scanning `data`; strict parsers like JS `JSON.parse` / Zig `std.json` need the
+strip-and-retry fallback). `test/test_container` enforces this per impl.

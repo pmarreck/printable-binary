@@ -374,6 +374,38 @@ console.log('\n--- decodeText (decode-mode router) Tests ---');
   assert(threw, "decodeText: corrupt container is rejected");
 }
 
+// --- Container transport-resistance (whitespace) Tests, issue #1 ---
+console.log('\n--- Container transport-resistance (whitespace) Tests ---');
+{
+  const bytes = new Uint8Array([0,1,2,9,10,13,32,65,66,67,0x7b,34,92,128,200,255]);
+  const container = encoder.encodeToContainer(bytes, { filename: "t.bin", modified_ms: 123 });
+  const json = JSON.stringify(container, null, 2);
+  const eq = (a) => Array.from(a).length === bytes.length && Array.from(a).every((b,i)=>b===bytes[i]);
+  const insertEvery = (s,n,sep)=>Array.from(s).map((ch,i)=>(i>0&&i%n===0)?sep+ch:ch).join('');
+  const decOk = (label, text) => {
+    try { const {bytes:out}=encoder.decodeFromContainer(text); assert(eq(out), label); }
+    catch(e){ assert(false, label + ' (threw: ' + e.message.slice(0,45) + ')'); }
+  };
+
+  decOk("transport A: reindented JSON structure", json.replace(/\n/g,'\n   ').replace(/: /g,'  :  '));
+  decOk("transport B: CRLF line endings", json.replace(/\n/g,'\r\n'));
+  decOk("transport C: trailing spaces per line", json.split('\n').map(l=>l+'   ').join('\n'));
+  { const c=JSON.parse(json); c.data=insertEvery(c.data,4,' ');  decOk("transport D: spaces inside data (escaped)", JSON.stringify(c)); }
+  { const c=JSON.parse(json); c.data=insertEvery(c.data,8,'\n'); decOk("transport E: newlines inside data (escaped)", JSON.stringify(c)); }
+  decOk("transport F: raw spaces injected into data", json.replace(/("data": ".{8})/, '$1   '));
+  decOk("transport G: raw newline wrapped into data", json.replace(/("data": ".{8})/, '$1\n'));
+
+  // the decode-mode router (web UI + Node CLI path) must be transport-resistant too
+  { const m = json.replace(/("data": ")/, "$1\n   "); const r = encoder.decodeText(m);
+    assert(r.kind === "container" && eq(r.bytes), "transport: decodeText routes a mangled container (not misread as raw)"); }
+
+  // integrity preserved: a GENUINE (non-whitespace) corruption must STILL be rejected
+  let threw=false;
+  try { const c=JSON.parse(json); c.data=c.data.slice(0,-3)+'AzQ'; encoder.decodeFromContainer(JSON.stringify(c)); }
+  catch(_e){ threw=true; }
+  assert(threw, "transport: genuine (non-whitespace) corruption still rejected");
+}
+
 console.log('Test Summary:');
 console.log(`Total tests: ${testCount}`);
 console.log(`Passed: ${passCount}`);

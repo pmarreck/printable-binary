@@ -676,12 +676,35 @@ class PrintableBinary {
    * @param {{filename?:string, modified_ms?:number, created_ms?:number, mode?:string, owner?:string, group?:string}} [meta]
    * @returns {object} the container
    */
+  /**
+   * Strip transport-injected whitespace from an encoded payload. The default
+   * encoding emits no literal spaces/tabs/CR/LF (all are glyph'd), so a clean
+   * payload is unchanged; this only removes whitespace a text transport (email
+   * wrap, reflow) added — making the container as whitespace-tolerant as raw
+   * printable-binary while keeping crc integrity intact for real corruption.
+   */
+  _canonicalPayload(data) {
+    return String(data).replace(/[\r\n\t ]/g, '');
+  }
+
+  /**
+   * JSON.parse with a transport-tolerant fallback: a hard line-wrap can inject a
+   * raw newline into the long `data` string, which JSON forbids unescaped inside
+   * a string literal. On a parse failure, strip raw control whitespace (never
+   * legitimate in our short metadata strings nor in the glyph payload) and retry.
+   */
+  _parseLenient(text) {
+    try { return JSON.parse(text); }
+    catch (_e) { return JSON.parse(String(text).replace(/[\r\n\t]/g, '')); }
+  }
+
+
   encodeToContainer(bytes, meta = {}) {
     if (!(bytes instanceof Uint8Array)) {
       throw new Error("encodeToContainer expects a Uint8Array");
     }
     const data = this.encode(bytes);
-    const dataBytes = sharedTextEncoder.encode(data);
+    const dataBytes = sharedTextEncoder.encode(this._canonicalPayload(data));
     const container = {
       format: "printable-binary-file",
       version: 1,
@@ -709,7 +732,7 @@ class PrintableBinary {
    * @returns {{ bytes: Uint8Array, meta: object }}
    */
   decodeFromContainer(input) {
-    const c = typeof input === "string" ? JSON.parse(input) : input;
+    const c = typeof input === "string" ? this._parseLenient(input) : input;
     if (!c || typeof c !== "object") {
       throw new Error("Container must be a JSON object or JSON string");
     }
@@ -719,13 +742,14 @@ class PrintableBinary {
     if (typeof c.data !== "string") {
       throw new Error("Container 'data' must be a string");
     }
+    const cleanData = this._canonicalPayload(c.data);
     if (c.crc32_encoded !== undefined && c.crc32_encoded !== null) {
-      const got = this.crc32hex(sharedTextEncoder.encode(c.data));
+      const got = this.crc32hex(sharedTextEncoder.encode(cleanData));
       if (got !== String(c.crc32_encoded).toLowerCase()) {
         throw new Error(`Container crc32_encoded mismatch (got ${got}, expected ${c.crc32_encoded}) — 'data' is corrupted`);
       }
     }
-    const bytes = this.decode(c.data);
+    const bytes = this.decode(cleanData);
     if (c.byte_length !== undefined && c.byte_length !== null && bytes.length !== c.byte_length) {
       throw new Error(`Container byte_length mismatch (decoded ${bytes.length}, expected ${c.byte_length})`);
     }
@@ -756,7 +780,7 @@ class PrintableBinary {
     const trimmed = String(text).trim();
     if (trimmed.startsWith('{')) {
       let parsed = null;
-      try { parsed = JSON.parse(trimmed); } catch (_e) { parsed = null; }
+      try { parsed = this._parseLenient(trimmed); } catch (_e) { parsed = null; }
       if (parsed && parsed.format === 'printable-binary-file') {
         const { bytes, meta } = this.decodeFromContainer(parsed);
         return { bytes, filename: meta.filename || 'decoded.bin', meta, kind: 'container' };

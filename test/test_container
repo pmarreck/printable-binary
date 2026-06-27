@@ -34,5 +34,11 @@ if cmp -s "$TMP/orig.bin" "$TMP/restored.bin"; then ok "round-trip bytes identic
 sed 's/\("data": *"\)/\1ZZZ/' "$TMP/orig.pbf.json" > "$TMP/corrupt.pbf.json"
 if "$IMPL" -d -C "$TMP/corrupt.pbf.json" > /dev/null 2>&1; then bad "corrupt container rejected (nonzero exit)"; else ok "corrupt container rejected (nonzero exit)"; fi
 
+# 6. transport resistance: inject a raw newline + spaces INTO the data value (as an
+# email wrap/reflow would). The glyph payload is whitespace-agnostic, so decode must
+# still recover the original bytes (canonicalize + lenient JSON parse).
+awk '{ sub(/"data": "/, "&\n   ") } 1' "$TMP/orig.pbf.json" > "$TMP/wrapped.pbf.json"
+if "$IMPL" -d -C "$TMP/wrapped.pbf.json" > "$TMP/restored2.bin" 2>/dev/null && cmp -s "$TMP/orig.bin" "$TMP/restored2.bin"; then ok "transport-mangled container still decodes (whitespace-resistant)"; else bad "transport-mangled container still decodes (whitespace-resistant)"; fi
+
 echo "container CLI test [$IMPL]: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
