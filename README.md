@@ -134,6 +134,47 @@ echo -n "Hello, World!" | ./bin/printable-binary --passthrough 2>encoded.txt | w
 - Default wrapping is 75 characters per line to balance readability and density; copy/download buttons reuse the exact bytes produced by the CLI and Node implementations.
 - To hack locally, open `docs/index.html` (or `index.html`) in any modern browser; the page loads the shared `js/printable_binary.js` module with no build step required.
 
+### File Container (`.pbf.json`)
+
+The `-C`/`--container` flag wraps a file as a self-describing
+**`printable-binary-file.json`** — one JSON object that keeps the filename and a
+CRC-32 integrity check alongside the encoded data, so a decode can restore the
+original file and verify it round-tripped exactly.
+
+```bash
+# Encode a file into a container (filename + crc32 embedded)
+./bin/printable-binary -C photo.png > photo.png.pbf.json
+
+# Decode the container back to the original bytes (verifies crc32)
+./bin/printable-binary -d -C photo.png.pbf.json > photo.png
+```
+
+Every implementation understands it (Lua, Node, C, Zig, the C-FFI CLI, and the
+browser demo) and they produce **mutually-decodable** containers. The format is
+**transport-resistant**: the encoded payload is whitespace-agnostic and
+`crc32_encoded` is verified over the canonical (whitespace-stripped) payload —
+with a lenient JSON parse for hard line-wraps — so a container survives being
+pasted into an email body or reflowed by a text transport, while a genuine
+(non-whitespace) corruption is still rejected. Schema (v1, `data` serialized
+last so metadata reads up front):
+
+```json
+{
+  "format": "printable-binary-file",
+  "version": 1,
+  "filename": "photo.png",
+  "byte_length": 12345,
+  "crc32": "cbf43926",
+  "crc32_encoded": "1a2b3c4d",
+  "data": "…encoded glyphs…"
+}
+```
+
+The browser demo's **Decode** tab consumes the same container (drag-drop or
+paste) and restores the file under its original name. Optional metadata
+(timestamps, POSIX permissions/owner) is included when the tool can read it and
+omitted otherwise; decode never fails on a missing optional field.
+
 ### As a Lua Library
 
 ```lua

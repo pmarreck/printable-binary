@@ -102,3 +102,16 @@ Schema: data LAST; optional POSIX/birthtime fields omitted when unavailable.
 
 NOTE: local web preview server (node) still running on http://localhost:8099/ (bg
 task biipba32h) — kill when done; the live GitHub Pages site also reflects 7b70844c.
+
+## ALL EXECUTABLES DONE (2026-06-27) — issue #1 fully delivered
+Every printable-binary executable understands .pbf.json (-C/--container):
+- [x] JS library + web demo (Interface A)        [x] C FFI CLI (dogfoods pb_crc32)
+- [x] Node CLI                                    [x] C standalone CLI
+- [x] Zig CLI                                     [x] Lua reference CLI
+- [x] Transport-resistance (canonicalize + lenient/pattern parse) in ALL impls
+- [x] crc32 vector-pinned (CRC32("123456789")=0xCBF43926) across all
+- [x] CI guards: test-container-{node,zig,ffi,c,lua} + test-container-cross
+      (comprehensive MFIC differential: every impl decodes the Node reference's
+      container byte-identically, and vice versa)
+Shared: src/container_json.h (C), test/test_container (parameterized),
+test/test_container_cross (differential).
