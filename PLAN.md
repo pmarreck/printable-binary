@@ -78,3 +78,27 @@ reply in-pane or via Einstein.
 Queued next (non-gated, resume here): Node CLI container verb → C FFI CLI verb
 (+pb_crc32 in src/printable_binary.h) → cross-impl differential (C container ↔ JS).
 Then web UI once Peter picks.
+
+## Session checkpoint 2 (2026-06-26 ~9:16pm EDT)
+ISSUE #1 CORE FIX SHIPPED + Peter-approved:
+- 7b70844c  feat(web): Interface A (Encode/Decode tabs) + .pbf.json decode & metadata
+  (decodeText router; container `data` serialized LAST per Peter; created_ms note).
+Peter follow-up request: "all printable-binary executables understand .pbf.json".
+- 9dda0bbd  feat(node-cli): -C/--container (emit+consume); test/test_container
+  (parameterized CLI round-trip + self-verify) wired into CI as test-container-node.
+
+ALL-EXECUTABLES STATUS (Peter's ask):
+- [x] JS library + web demo
+- [x] Node CLI (-C/--container)
+- [ ] Zig CLI (src/zig/main.zig) — core has crc32; use std.json for the envelope.
+- [ ] C FFI CLI (src/printable_binary_ffi_main.c) — pb_crc32 + hand-rolled flat JSON.
+- [ ] C standalone (src/printable_binary.c) — own crc32 + hand-rolled flat JSON.
+- [ ] Lua (bin/printable-binary) — own crc32 + Lua JSON.
+PATTERN for each: add `-C` (encode→container, `-d -C` decode→restore+self-verify),
+crc32 VECTOR-PINNED to CRC32("123456789")=0xCBF43926 (so all impls agree), then add
+a test-container-<impl> flake check running test/test_container against it. Once ≥2
+CLIs support it, add a cross-impl differential (impl-A container decodes via impl-B).
+Schema: data LAST; optional POSIX/birthtime fields omitted when unavailable.
+
+NOTE: local web preview server (node) still running on http://localhost:8099/ (bg
+task biipba32h) — kill when done; the live GitHub Pages site also reflects 7b70844c.
