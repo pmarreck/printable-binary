@@ -364,6 +364,20 @@
             installPhase = "mkdir -p $out && touch $out/passed";
           };
 
+          # Container (.pbf.json) for the C FFI CLI — dogfoods the FFI (pb_crc32 etc).
+          test-container-ffi = pkgs.stdenv.mkDerivation {
+            name = "test-container-ffi";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ zig clang ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              zig build
+              clang -O2 -I. -o pb-ffi src/printable_binary_ffi_main.c zig-out/lib/libprintable_binary.a
+              IMPLEMENTATION_TO_TEST=./pb-ffi bash ./test/test_container
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
           # Dogfood the C FFI boundary: build the C FFI CLI against the Zig static
           # lib and round-trip through it (encode/decode + hexlike).
           test-ffi-cli = pkgs.stdenv.mkDerivation {

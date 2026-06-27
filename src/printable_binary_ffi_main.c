@@ -20,6 +20,7 @@
 #include <errno.h>
 
 #include "printable_binary.h"
+#include "container_json.h"
 
 /* Program options */
 typedef struct {
@@ -42,6 +43,7 @@ typedef struct {
     int64_t range_start;
     int64_t range_end;
     bool no_double_encode_check;
+    bool container_mode;
 } options_t;
 
 static bool env_var_truthy(const char *value) {
@@ -63,6 +65,8 @@ static void print_usage(const char *name) {
     fprintf(stderr, "  -d, --decode       Decode mode (default is encode mode)\n");
     fprintf(stderr, "  -p, --passthrough  Pass input to stdout unchanged, send encoded data to stderr\n");
     fprintf(stderr, "  -X, --hexlike      Hexlike mode (passthrough ASCII as-is, other bytes as \xce\x9f\xcf\x87-prefixed hex)\n");
+    fprintf(stderr, "  -C, --container    Container mode: encode a file to a self-verifying .pbf.json\n");
+    fprintf(stderr, "                     (keeps filename + crc32). With -d, decode a container back.\n");
     fprintf(stderr, "\nEncode options (preserve literal characters instead of encoding):\n");
     fprintf(stderr, "  -s, --spaces       Preserve literal spaces\n");
     fprintf(stderr, "  -t, --tabs         Preserve literal tabs\n");
@@ -235,6 +239,8 @@ static options_t parse_options(int argc, char *argv[]) {
                 opts.passthrough_mode = true;
             } else if (strcmp(name, "hexlike") == 0) {
                 opts.hexlike_mode = true;
+            } else if (strcmp(name, "container") == 0) {
+                opts.container_mode = true;
             } else if (strcmp(name, "spaces") == 0) {
                 opts.spaces_mode = true;
             } else if (strcmp(name, "tabs") == 0) {
@@ -325,6 +331,7 @@ static options_t parse_options(int argc, char *argv[]) {
                     case 'd': opts.decode_mode = true; break;
                     case 'p': opts.passthrough_mode = true; break;
                     case 'X': opts.hexlike_mode = true; break;
+                    case 'C': opts.container_mode = true; break;
                     case 's': opts.spaces_mode = true; break;
                     case 't': opts.tabs_mode = true; break;
                     case 'n': opts.crlf_mode = true; break;
@@ -522,6 +529,54 @@ int main(int argc, char *argv[]) {
         }
         input_len = range.length;
     }
+
+    if (opts.container_mode) {
+        if (opts.decode_mode) {
+            size_t dlen;
+            const char *draw = cj_get_string(input, input_len, "data", &dlen);
+            if (!draw) { fprintf(stderr, "Error: not a printable-binary-file container (missing 'data')\n"); free(input); return 1; }
+            size_t clen;
+            char *clean = cj_canonical(draw, dlen, &clen);
+            size_t celen;
+            const char *ce = cj_get_string(input, input_len, "crc32_encoded", &celen);
+            if (ce) {
+                char hx[9]; snprintf(hx, 9, "%08x", pb_crc32(clean, clen));
+                if (celen != 8 || memcmp(hx, ce, 8) != 0) { free(clean); free(input); fprintf(stderr, "Error: container crc32_encoded mismatch (data corrupted)\n"); return 1; }
+            }
+            pb_ffi_result_t dr = pb_decode(clean, clen, 0);
+            free(clean);
+            if (dr.error_code) { free(input); fprintf(stderr, "Error: container decode failed\n"); return 1; }
+            size_t colen;
+            const char *co = cj_get_string(input, input_len, "crc32", &colen);
+            if (co) {
+                char hx[9]; snprintf(hx, 9, "%08x", pb_crc32(dr.data, dr.len));
+                if (colen != 8 || memcmp(hx, co, 8) != 0) { pb_free(dr.data, dr.len); free(input); fprintf(stderr, "Error: container crc32 mismatch (decoded data corrupted)\n"); return 1; }
+            }
+            fwrite(dr.data, 1, dr.len, stdout);
+            pb_free(dr.data, dr.len);
+            free(input);
+            return 0;
+        } else {
+            pb_ffi_result_t er = pb_encode(input, input_len, 0, NULL, 0);
+            if (er.error_code) { free(input); fprintf(stderr, "Error: container encode failed\n"); return 1; }
+            size_t clen;
+            char *clean = cj_canonical(er.data, er.len, &clen);
+            char crc_orig[9], crc_enc[9];
+            snprintf(crc_orig, 9, "%08x", pb_crc32(input, input_len));
+            snprintf(crc_enc, 9, "%08x", pb_crc32(clean, clen));
+            free(clean);
+            const char *fname = (opts.input_file && strcmp(opts.input_file, "-") != 0) ? cj_basename(opts.input_file) : "";
+            printf("{\n  \"format\": \"printable-binary-file\",\n  \"version\": 1,\n  \"filename\": \"");
+            cj_fputs_escaped(stdout, fname, strlen(fname));
+            printf("\",\n  \"byte_length\": %zu,\n  \"crc32\": \"%s\",\n  \"crc32_encoded\": \"%s\",\n  \"data\": \"", input_len, crc_orig, crc_enc);
+            fwrite(er.data, 1, er.len, stdout);
+            printf("\"\n}\n");
+            pb_free(er.data, er.len);
+            free(input);
+            return 0;
+        }
+    }
+
 
     if (opts.decode_mode) {
         if (opts.passthrough_mode) {

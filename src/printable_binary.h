@@ -138,6 +138,13 @@ typedef struct {
 void pb_free(char *ptr, size_t len);
 
 /**
+ * CRC-32/ISO-HDLC of `input_len` bytes at `input` (the zip/gzip/png CRC); used
+ * for printable-binary-file.json container integrity. NULL or zero-length input
+ * yields the CRC of empty input (0).
+ */
+uint32_t pb_crc32(const char *input, size_t input_len);
+
+/**
  * Encode binary data to printable UTF-8.
  * Caller must call pb_free() on result.data when done.
  *
