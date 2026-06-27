@@ -1780,14 +1780,14 @@ int main(int argc, char *argv[]) {
         if (opts.decode_mode) {
             size_t dlen;
             const char *draw = cj_get_string(input.data, input.size, "data", &dlen);
-            if (!draw) { fprintf(stderr, "Error: not a printable-binary-file container (missing 'data')\n"); buffer_free(&input); return 1; }
+            if (!draw) { fprintf(stderr, "Error: not a printable-binary-file container (missing 'data')\n"); return 1; }
             size_t clen;
             char *clean = cj_canonical(draw, dlen, &clen);
             size_t celen;
             const char *ce = cj_get_string(input.data, input.size, "crc32_encoded", &celen);
             if (ce) {
                 char hx[9]; snprintf(hx, 9, "%08x", (unsigned int)pb_crc32(clean, clen));
-                if (celen != 8 || memcmp(hx, ce, 8) != 0) { free(clean); buffer_free(&input); fprintf(stderr, "Error: container crc32_encoded mismatch (data corrupted)\n"); return 1; }
+                if (celen != 8 || memcmp(hx, ce, 8) != 0) { free(clean); fprintf(stderr, "Error: container crc32_encoded mismatch (data corrupted)\n"); return 1; }
             }
             buffer_t dec = decode_data((uint8_t *)clean, clen, false);
             free(clean);
@@ -1795,11 +1795,9 @@ int main(int argc, char *argv[]) {
             const char *co = cj_get_string(input.data, input.size, "crc32", &colen);
             if (co) {
                 char hx[9]; snprintf(hx, 9, "%08x", (unsigned int)pb_crc32(dec.data, dec.size));
-                if (colen != 8 || memcmp(hx, co, 8) != 0) { buffer_free(&dec); buffer_free(&input); fprintf(stderr, "Error: container crc32 mismatch (decoded data corrupted)\n"); return 1; }
+                if (colen != 8 || memcmp(hx, co, 8) != 0) { fprintf(stderr, "Error: container crc32 mismatch (decoded data corrupted)\n"); return 1; }
             }
             fwrite(dec.data, 1, dec.size, stdout);
-            buffer_free(&dec);
-            buffer_free(&input);
             return 0;
         } else {
             options_t enc_opts = opts;
@@ -1820,8 +1818,6 @@ int main(int argc, char *argv[]) {
             printf("\",\n  \"byte_length\": %zu,\n  \"crc32\": \"%s\",\n  \"crc32_encoded\": \"%s\",\n  \"data\": \"", input.size, crc_orig, crc_enc);
             fwrite(enc.data, 1, enc.size, stdout);
             printf("\"\n}\n");
-            buffer_free(&enc);
-            buffer_free(&input);
             return 0;
         }
     }
