@@ -340,7 +340,7 @@
         if (fmt === 'container') {
           updateProgress(40);
           const bytes = new Uint8Array(await file.arrayBuffer());
-          const container = encoder.encodeToContainer(bytes, { filename: file.name, modified_ms: file.lastModified });
+          const container = encoder.encodeToContainer(bytes, { filename: file.name, modified_ms: file.lastModified, mime: file.type || undefined });
           const json = JSON.stringify(container, null, 2);
           updateProgress(100);
           const dur = ((performance.now() - start) / 1000).toFixed(2);
@@ -385,6 +385,7 @@
         if (m.created_ms != null) html += `<div class="mp-row"><span class="mp-key">created</span> ${new Date(m.created_ms).toLocaleString()}</div>`;
         if (m.mode != null) html += `<div class="mp-row"><span class="mp-key">mode</span> ${escapeHtml(String(m.mode))}</div>`;
         if (m.owner != null) html += `<div class="mp-row"><span class="mp-key">owner</span> ${escapeHtml(String(m.owner))}${m.group != null ? ':' + escapeHtml(String(m.group)) : ''}</div>`;
+        if (m.mime) html += `<div class="mp-row"><span class="mp-key">type</span> ${escapeHtml(String(m.mime))}</div>`;
         html += `<div class="mp-row"><span class="mp-key">integrity</span> <span class="mp-ok">✓ CRC-32 verified</span></div>`;
       } else {
         html += `<div class="mp-title">Raw printable-binary → decoded</div>`;
@@ -410,7 +411,7 @@
         renderMeta(res);
         decStats.textContent = `Decoded ${formatFileSize(res.bytes.length)} in ${dur}s — ready to download as “${res.filename}”.`;
         decDownloadBtn.disabled = false;
-        decDownloadBtn.payload = { bytes: res.bytes, filename: res.filename, mime: 'application/octet-stream' };
+        decDownloadBtn.payload = { bytes: res.bytes, filename: res.filename, mime: res.meta.mime || 'application/octet-stream' };
         decClearBtn.disabled = false;
       } catch (err) {
         metaPanel.classList.remove('visible');

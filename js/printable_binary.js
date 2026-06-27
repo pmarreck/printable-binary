@@ -713,7 +713,7 @@ class PrintableBinary {
       crc32: this.crc32hex(bytes),
       crc32_encoded: this.crc32hex(dataBytes),
     };
-    for (const k of ["modified_ms", "created_ms", "mode", "owner", "group"]) {
+    for (const k of ["modified_ms", "created_ms", "mode", "owner", "group", "mime"]) {
       if (meta[k] !== undefined && meta[k] !== null) container[k] = meta[k];
     }
     // `data` is appended LAST so all metadata sits up front (JS object key
@@ -760,7 +760,7 @@ class PrintableBinary {
       }
     }
     const meta = {};
-    for (const k of ["filename", "modified_ms", "created_ms", "mode", "owner", "group"]) {
+    for (const k of ["filename", "modified_ms", "created_ms", "mode", "owner", "group", "mime"]) {
       if (c[k] !== undefined && c[k] !== null) meta[k] = c[k];
     }
     return { bytes, meta };

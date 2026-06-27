@@ -316,7 +316,7 @@ console.log('\n--- Container (printable-binary-file.json) Tests ---');
   // Container round-trip (MFIC inverse-pair oracle): bytes + metadata identical
   const bytes = new Uint8Array([0, 1, 2, 255, 254, 65, 66, 10, 9, 0x7f, 0x80, 0]);
   const container = encoder.encodeToContainer(bytes, {
-    filename: "x.bin", modified_ms: 1719430000000, mode: "0644",
+    filename: "x.bin", modified_ms: 1719430000000, mode: "0644", mime: "image/png",
   });
   assertEquals(container.format, "printable-binary-file", "container has format discriminator");
   assertEquals(container.version, 1, "container version 1");
@@ -328,6 +328,7 @@ console.log('\n--- Container (printable-binary-file.json) Tests ---');
   assertEquals(meta.filename, "x.bin", "container round-trip: filename restored");
   assertEquals(meta.modified_ms, 1719430000000, "container round-trip: modified_ms restored");
   assertEquals(meta.mode, "0644", "container round-trip: mode restored");
+  assertEquals(meta.mime, "image/png", "container round-trip: mime restored");
 
   // Round-trip through a JSON string too (the on-disk form)
   const rt = encoder.decodeFromContainer(JSON.stringify(container));
