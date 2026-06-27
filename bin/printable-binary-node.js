@@ -41,6 +41,9 @@ Encoding modes:
                    shown as uppercase hex runs prefixed by \u039F\u03C7 (Greek Omicron+Chi,
                    NOT ASCII 0x \u2014 beware when copying hex for other purposes).
                    Use with -d to decode hexlike-encoded data back to binary.
+  -C, --container  Container mode: encode a file to a self-verifying .pbf.json
+                   (keeps filename, dates, perms + crc32). Use with -d to decode
+                   a .pbf.json container back to the original file.
 
 Range options (select byte range from input before processing):
   --range X-Y              Byte range, 0-indexed inclusive (e.g., --range 0-9)
@@ -152,6 +155,7 @@ function parseArgs(argv) {
   let crlfMode = false;
   let preserveChars = '';
   let hexlikeMode = false;
+  let containerMode = false;
 
   const setMappingsFormat = (mode) => {
     if (mappingsFormat && mappingsFormat !== mode) {
@@ -207,6 +211,8 @@ function parseArgs(argv) {
       preserveChars = arg.slice(11);
     } else if (arg === '-X' || arg === '--hexlike') {
       hexlikeMode = true;
+    } else if (arg === '-C' || arg === '--container') {
+      containerMode = true;
     } else if (arg === '--no-double-encode-check') {
       noDoubleEncodeCheck = true;
     } else if (arg === '--range') {
@@ -258,6 +264,7 @@ function parseArgs(argv) {
           case 'p': passthrough = true; break;
           case 'S': stripWhitespace = true; break;
           case 'X': hexlikeMode = true; break;
+          case 'C': containerMode = true; break;
           default:
             process.stderr.write(`Error: Unknown option -${ch}\n`);
             printUsage();
@@ -287,7 +294,7 @@ function parseArgs(argv) {
     }
   }
 
-  return { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, stripWhitespace, tabsMode, crlfMode, preserveChars, rangeStart, rangeEnd, noDoubleEncodeCheck, hexlikeMode };
+  return { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, stripWhitespace, tabsMode, crlfMode, preserveChars, rangeStart, rangeEnd, noDoubleEncodeCheck, hexlikeMode, containerMode };
 }
 
 async function readInput(filePath) {
@@ -314,7 +321,7 @@ function stats(msg) {
 }
 
 async function main() {
-  const { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, stripWhitespace, tabsMode, crlfMode, preserveChars, rangeStart, rangeEnd, noDoubleEncodeCheck, hexlikeMode } = parseArgs(process.argv.slice(2));
+  const { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, stripWhitespace, tabsMode, crlfMode, preserveChars, rangeStart, rangeEnd, noDoubleEncodeCheck, hexlikeMode, containerMode } = parseArgs(process.argv.slice(2));
   const pb = new PrintableBinary();
 
   try {
@@ -352,6 +359,30 @@ async function main() {
         input = input.subarray(start, end + 1);
       }
     }
+
+    if (containerMode) {
+      if (decodeMode) {
+        const res = pb.decodeText(input.toString('utf8'));
+        stats(`Decoded ${res.kind} container${res.filename && res.filename !== 'decoded.bin' ? ' (' + res.filename + ')' : ''}: ${res.bytes.length} bytes`);
+        process.stdout.write(Buffer.from(res.bytes));
+      } else {
+        const meta = {};
+        if (filePath) {
+          meta.filename = filePath.split(/[\\/]/).pop();
+          try {
+            const st = fs.statSync(filePath);
+            meta.modified_ms = Math.round(st.mtimeMs);
+            if (st.birthtimeMs && st.birthtimeMs > 0) meta.created_ms = Math.round(st.birthtimeMs);
+            meta.mode = '0' + (st.mode & 0o777).toString(8);
+          } catch (_e) { /* metadata is best-effort */ }
+        }
+        const container = pb.encodeToContainer(new Uint8Array(input), meta);
+        stats(`Encoded ${input.length} bytes -> .pbf.json container (crc32 ${container.crc32})`);
+        process.stdout.write(JSON.stringify(container, null, 2) + '\n');
+      }
+      return;
+    }
+
 
     if (decodeMode) {
       if (passthrough) {

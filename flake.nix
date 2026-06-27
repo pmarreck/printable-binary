@@ -323,6 +323,20 @@
             installPhase = "mkdir -p $out && touch $out/passed";
           };
 
+          # Container (.pbf.json) CLI round-trip + self-verify, issue #1. Parameterized
+          # by IMPLEMENTATION_TO_TEST; one check per impl as they gain -C/--container.
+          test-container-node = pkgs.stdenv.mkDerivation {
+            name = "test-container-node";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ nodejs_24 ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              patchShebangs bin/printable-binary-node.js
+              IMPLEMENTATION_TO_TEST=./bin/printable-binary-node.js bash ./test/test_container
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
           # Dogfood the C FFI boundary: build the C FFI CLI against the Zig static
           # lib and round-trip through it (encode/decode + hexlike).
           test-ffi-cli = pkgs.stdenv.mkDerivation {

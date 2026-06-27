@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Container (.pbf.json) CLI round-trip + self-verify test, parameterized by
+# IMPLEMENTATION_TO_TEST so every printable-binary executable is exercised the
+# same way as it gains `-C`/`--container` support. (issue #1)
+#
+# MFIC: inverse-pair oracle (decode(encode(file)) == file, byte-identical) plus a
+# non-vacuous self-verify (a corrupted container MUST be rejected with nonzero exit).
+set -u
+IMPL="${IMPLEMENTATION_TO_TEST:-./bin/printable-binary-node.js}"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+pass=0; fail=0
+ok()  { echo "  ✓ $1"; pass=$((pass+1)); }
+bad() { echo "  ✗ $1"; fail=$((fail+1)); }
+
+echo "=== container CLI test: $IMPL ==="
+
+# 1. a file with known, binary-ish bytes
+printf 'Hello\x00\x01\xff binary\n{not json}\n' > "$TMP/orig.bin"
+
+# 2. encode -> container
+if "$IMPL" -C "$TMP/orig.bin" > "$TMP/orig.pbf.json" 2>"$TMP/enc.err"; then ok "encode -C exits 0"; else bad "encode -C exits 0"; echo "    $(cat "$TMP/enc.err")"; fi
+
+# 3. container shape
+grep -q '"format"' "$TMP/orig.pbf.json" 2>/dev/null && grep -q 'printable-binary-file' "$TMP/orig.pbf.json" && ok "container has format=printable-binary-file" || bad "container has format=printable-binary-file"
+grep -q '"filename"' "$TMP/orig.pbf.json" 2>/dev/null && grep -q 'orig.bin' "$TMP/orig.pbf.json" && ok "container carries filename" || bad "container carries filename"
+grep -q '"crc32"' "$TMP/orig.pbf.json" 2>/dev/null && ok "container carries crc32" || bad "container carries crc32"
+
+# 4. decode -> original bytes
+if "$IMPL" -d -C "$TMP/orig.pbf.json" > "$TMP/restored.bin" 2>"$TMP/dec.err"; then ok "decode -d -C exits 0"; else bad "decode -d -C exits 0"; echo "    $(cat "$TMP/dec.err")"; fi
+if cmp -s "$TMP/orig.bin" "$TMP/restored.bin"; then ok "round-trip bytes identical"; else bad "round-trip bytes identical"; fi
+
+# 5. self-verify is non-vacuous: corrupt the data string -> decode MUST fail
+sed 's/\("data": *"\)/\1ZZZ/' "$TMP/orig.pbf.json" > "$TMP/corrupt.pbf.json"
+if "$IMPL" -d -C "$TMP/corrupt.pbf.json" > /dev/null 2>&1; then bad "corrupt container rejected (nonzero exit)"; else ok "corrupt container rejected (nonzero exit)"; fi
+
+echo "container CLI test [$IMPL]: $pass passed, $fail failed"
+[ "$fail" -eq 0 ]
