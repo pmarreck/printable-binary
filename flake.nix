@@ -337,6 +337,33 @@
             installPhase = "mkdir -p $out && touch $out/passed";
           };
 
+          # Container (.pbf.json) for the Zig CLI (issue #1).
+          test-container-zig = pkgs.stdenv.mkDerivation {
+            name = "test-container-zig";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ zig ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              zig build -Doptimize=ReleaseFast
+              IMPLEMENTATION_TO_TEST=./zig-out/bin/printable-binary-zig bash ./test/test_container
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
+          # Cross-impl container differential: Node <-> Zig must agree (issue #1).
+          test-container-cross = pkgs.stdenv.mkDerivation {
+            name = "test-container-cross";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ zig nodejs_24 ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              patchShebangs bin/printable-binary-node.js
+              zig build -Doptimize=ReleaseFast
+              IMPL_A=./bin/printable-binary-node.js IMPL_B=./zig-out/bin/printable-binary-zig bash ./test/test_container_cross
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
           # Dogfood the C FFI boundary: build the C FFI CLI against the Zig static
           # lib and round-trip through it (encode/decode + hexlike).
           test-ffi-cli = pkgs.stdenv.mkDerivation {

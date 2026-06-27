@@ -29,6 +29,7 @@ const Options = struct {
     range_end: ?i64 = null,
     no_double_encode_check: bool = false,
     hexlike: bool = false,
+    container: bool = false,
 };
 
 const MappingsMode = enum { none, table, json, csv };
@@ -290,6 +291,8 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Options {
                 opts.no_double_encode_check = true;
             } else if (std.mem.eql(u8, name, "hexlike")) {
                 opts.hexlike = true;
+            } else if (std.mem.eql(u8, name, "container")) {
+                opts.container = true;
             } else if (std.mem.eql(u8, name, "help")) {
                 opts.help_mode = true;
             } else {
@@ -312,6 +315,7 @@ fn parseArgs(allocator: std.mem.Allocator, args: []const []const u8) !Options {
                     },
                     'S' => opts.strip_whitespace = true,
                     'X' => opts.hexlike = true,
+                    'C' => opts.container = true,
                     'h' => opts.help_mode = true,
                     'f' => {
                         if (j + 1 < arg.len) {
@@ -367,6 +371,8 @@ fn printUsage(io: std.Io) void {
         \\                     shown as uppercase hex runs prefixed by Οχ (Greek Omicron+Chi,
         \\                     NOT ASCII 0x — beware when copying hex for other purposes).
         \\                     Use with -d to decode hexlike-encoded data back to binary.
+        \\  -C, --container    Container mode: encode a file to a self-verifying .pbf.json
+        \\                     (keeps filename + crc32). With -d, decode a container back.
         \\
         \\Encode options (preserve literal characters instead of encoding):
         \\  -s, --spaces       Preserve literal spaces (don't encode to visible glyph)
@@ -587,6 +593,14 @@ pub fn main(init: std.process.Init) !void {
         input = raw_input[range.offset .. range.offset + range.length];
     }
 
+    if (opts.container) {
+        handleContainer(io, allocator, opts, input) catch |err| {
+            writeStats("Container error: {}\n", .{err});
+            std.process.exit(1);
+        };
+        return;
+    }
+
     if (opts.decode_mode) {
         // Decode mode - call core library
         if (opts.passthrough_mode) {
@@ -715,5 +729,163 @@ pub fn main(init: std.process.Init) !void {
             writeStats("Encoded {d} bytes of input to {d} bytes\n", .{ input.len, output.len });
             try writeOutput(io, output, opts.passthrough_mode);
         }
+    }
+}
+
+// ============================================================================
+// Container (.pbf.json) support (issue #1)
+//
+// Hand-rolled flat-JSON, naturally transport-resistant: the `data` value is read
+// to its closing quote regardless of any whitespace a text transport injected
+// inside it, then canonicalized (whitespace stripped) before the crc check and
+// decode. crc32 is vector-pinned in the core (CRC32("123456789")=0xCBF43926), so
+// every implementation agrees. Architecture A2: the JSON envelope is assembled
+// here, the codec + crc32 come from the shared core.
+// ============================================================================
+
+/// Strip transport whitespace (space/tab/CR/LF) from an encoded payload. The
+/// default encoding emits none of these (all glyph'd), so a clean payload is
+/// unchanged; only transport-injected whitespace is removed.
+fn canonicalPayload(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
+    var count: usize = 0;
+    for (data) |c| {
+        if (c != ' ' and c != '\t' and c != '\r' and c != '\n') count += 1;
+    }
+    const out = try allocator.alloc(u8, count);
+    var n: usize = 0;
+    for (data) |c| {
+        if (c != ' ' and c != '\t' and c != '\r' and c != '\n') {
+            out[n] = c;
+            n += 1;
+        }
+    }
+    return out;
+}
+
+/// Extract the raw string value of `key` from a flat JSON object (bytes between
+/// the quotes; no unescaping — our data/crc fields carry no escapes). Tolerant
+/// of surrounding whitespace. null if absent.
+fn jsonGetString(json: []const u8, key: []const u8) ?[]const u8 {
+    var keybuf: [64]u8 = undefined;
+    const needle = std.fmt.bufPrint(&keybuf, "\"{s}\"", .{key}) catch return null;
+    const kpos = std.mem.indexOf(u8, json, needle) orelse return null;
+    var i = kpos + needle.len;
+    while (i < json.len and (json[i] == ' ' or json[i] == '\t' or json[i] == '\r' or json[i] == '\n' or json[i] == ':')) : (i += 1) {}
+    if (i >= json.len or json[i] != '"') return null;
+    i += 1;
+    const start = i;
+    while (i < json.len) : (i += 1) {
+        if (json[i] == '\\') {
+            i += 1;
+            continue;
+        }
+        if (json[i] == '"') break;
+    }
+    if (i >= json.len) return null;
+    return json[start..i];
+}
+
+/// JSON-escape `s` into a freshly allocated buffer.
+fn jsonEscapeAlloc(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
+    var extra: usize = 0;
+    for (s) |c| {
+        if (c == '"' or c == '\\' or c == '\n' or c == '\r' or c == '\t') extra += 1;
+    }
+    const out = try allocator.alloc(u8, s.len + extra);
+    var n: usize = 0;
+    for (s) |c| {
+        switch (c) {
+            '"' => {
+                out[n] = '\\';
+                out[n + 1] = '"';
+                n += 2;
+            },
+            '\\' => {
+                out[n] = '\\';
+                out[n + 1] = '\\';
+                n += 2;
+            },
+            '\n' => {
+                out[n] = '\\';
+                out[n + 1] = 'n';
+                n += 2;
+            },
+            '\r' => {
+                out[n] = '\\';
+                out[n + 1] = 'r';
+                n += 2;
+            },
+            '\t' => {
+                out[n] = '\\';
+                out[n + 1] = 't';
+                n += 2;
+            },
+            else => {
+                out[n] = c;
+                n += 1;
+            },
+        }
+    }
+    return out;
+}
+
+fn basenameOf(path: []const u8) []const u8 {
+    var start: usize = 0;
+    for (path, 0..) |c, idx| {
+        if (c == '/' or c == '\\') start = idx + 1;
+    }
+    return path[start..];
+}
+
+fn handleContainer(io: std.Io, allocator: std.mem.Allocator, opts: Options, input: []const u8) !void {
+    if (opts.decode_mode) {
+        const data_raw = jsonGetString(input, "data") orelse {
+            writeStats("Error: not a printable-binary-file container (missing 'data')\n", .{});
+            std.process.exit(1);
+        };
+        const clean = try canonicalPayload(allocator, data_raw);
+        defer allocator.free(clean);
+        if (jsonGetString(input, "crc32_encoded")) |want| {
+            var gb: [8]u8 = undefined;
+            const got = std.fmt.bufPrint(&gb, "{x:0>8}", .{pb.crc32(clean)}) catch unreachable;
+            if (!std.mem.eql(u8, got, want)) {
+                writeStats("Error: container crc32_encoded mismatch (data corrupted)\n", .{});
+                std.process.exit(1);
+            }
+        }
+        const decoded = pb.decode(allocator, clean, .{}) catch |err| {
+            writeStats("Container decode error: {}\n", .{err});
+            std.process.exit(1);
+        };
+        defer allocator.free(decoded);
+        if (jsonGetString(input, "crc32")) |want| {
+            var gb: [8]u8 = undefined;
+            const got = std.fmt.bufPrint(&gb, "{x:0>8}", .{pb.crc32(decoded)}) catch unreachable;
+            if (!std.mem.eql(u8, got, want)) {
+                writeStats("Error: container crc32 mismatch (decoded data corrupted)\n", .{});
+                std.process.exit(1);
+            }
+        }
+        writeStats("Decoded container: {d} bytes\n", .{decoded.len});
+        try writeOutput(io, decoded, false);
+    } else {
+        const data = pb.encode(allocator, input, .{}) catch |err| {
+            writeStats("Container encode error: {}\n", .{err});
+            std.process.exit(1);
+        };
+        defer allocator.free(data);
+        const clean = try canonicalPayload(allocator, data);
+        defer allocator.free(clean);
+        var ob: [8]u8 = undefined;
+        var eb: [8]u8 = undefined;
+        const crc_orig = std.fmt.bufPrint(&ob, "{x:0>8}", .{pb.crc32(input)}) catch unreachable;
+        const crc_enc = std.fmt.bufPrint(&eb, "{x:0>8}", .{pb.crc32(clean)}) catch unreachable;
+        const fname_in: []const u8 = if (opts.input_file) |p| (if (std.mem.eql(u8, p, "-")) "" else basenameOf(p)) else "";
+        const fname = try jsonEscapeAlloc(allocator, fname_in);
+        defer allocator.free(fname);
+        // `data` is LAST so all metadata sits up front.
+        const json = try std.fmt.allocPrint(allocator, "{{\n  \"format\": \"printable-binary-file\",\n  \"version\": 1,\n  \"filename\": \"{s}\",\n  \"byte_length\": {d},\n  \"crc32\": \"{s}\",\n  \"crc32_encoded\": \"{s}\",\n  \"data\": \"{s}\"\n}}\n", .{ fname, input.len, crc_orig, crc_enc, data });
+        defer allocator.free(json);
+        try writeOutput(io, json, false);
     }
 }
