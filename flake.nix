@@ -415,6 +415,29 @@
             installPhase = "mkdir -p $out && touch $out/passed";
           };
 
+          # Rust crate: in-crate tests + the transport-critical cross-impl guard
+          # (Rust encode must be byte-identical to Zig over all 256 bytes).
+          test-rust = pkgs.stdenv.mkDerivation {
+            name = "test-rust";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ cargo rustc zig ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              export CARGO_HOME=$TMPDIR/cargo
+              cargo test --release --offline --manifest-path rust/Cargo.toml
+              cargo build --release --offline --manifest-path rust/Cargo.toml
+              zig build
+              for i in $(seq 0 255); do printf "\\$(printf '%03o' "$i")"; done > allbytes
+              ./rust/target/release/printable-binary-rs < allbytes > r.out
+              PRINTABLE_BINARY_MUTE_STATS=1 ./zig-out/bin/printable-binary-zig < allbytes > z.out
+              cmp r.out z.out || { echo "FAIL: Rust encode != Zig encode" >&2; exit 1; }
+              ./rust/target/release/printable-binary-rs -d < z.out > rt.out
+              cmp allbytes rt.out || { echo "FAIL: Rust decode(Zig encode) != original" >&2; exit 1; }
+              echo "Rust <-> Zig byte-identical across all 256 bytes"
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
           # Dogfood the C FFI boundary: build the C FFI CLI against the Zig static
           # lib and round-trip through it (encode/decode + hexlike).
           test-ffi-cli = pkgs.stdenv.mkDerivation {
