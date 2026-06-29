@@ -45,3 +45,6 @@ jj_cheatsheet.md
 
 # Inter-LLM coordination notes (LLMsend) — transient/local, never tracked
 inbox/
+
+# Rust build artifacts
+/rust/target/
