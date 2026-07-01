@@ -4,6 +4,7 @@ annotate=[
 	PLAN.md = Issue #1 plan: decode workflow + printable-binary-file.json container
 	docs/plans/2026-06-26-printable-binary-file-container-design.md = Design spec: printable-binary-file.json container + web decode workflow (issue #1)
 	rust/build.rs = Codegens byte<->glyph map + O(1) decode tables from character_map.txt (single source)
+	rust/examples/bench.rs = In-process Rust codec throughput bench (isolates codec from CLI I/O)
 	rust/src/lib.rs = Rust printable-binary core: raw encode/decode + zero-alloc *_into (byte-identical to Zig, ~1.8x faster)
 	rust/src/main.rs = Minimal Rust CLI (encode default, -d decode; stdin->stdout) for cross-impl verification
 	src/container_json.h = Shared pure transport-resistant flat-JSON helpers for the .pbf.json container (C FFI + standalone C)

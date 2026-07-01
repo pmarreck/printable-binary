@@ -537,6 +537,13 @@ pub fn main(init: std.process.Init) !void {
     const args_buf = try init.arena.allocator().alloc([]const u8, args_z.len);
     for (args_z, 0..) |a, idx| args_buf[idx] = a;
 
+    for (args_buf) |a| {
+        if (std.mem.eql(u8, a, "--bench")) {
+            runBench(io, allocator) catch |e| { writeStats("bench error: {}\n", .{e}); std.process.exit(1); };
+            return;
+        }
+    }
+
     const opts = parseArgs(allocator, args_buf) catch |err| {
         switch (err) {
             error.UnknownOption => writeStats("Error: Unknown option\n", .{}),
@@ -888,4 +895,42 @@ fn handleContainer(io: std.Io, allocator: std.mem.Allocator, opts: Options, inpu
         defer allocator.free(json);
         try writeOutput(io, json, false);
     }
+}
+
+// In-process codec micro-benchmark (`--bench`): pure encode/decode throughput,
+// no stdio, using the Zig 0.16 monotonic clock via the Io interface — for a fair
+// codec-vs-codec comparison with the other implementations.
+fn runBench(io: std.Io, allocator: std.mem.Allocator) !void {
+    const n: usize = 10_000_000;
+    const data = try allocator.alloc(u8, n);
+    defer allocator.free(data);
+    for (data, 0..) |*b, i| b.* = @truncate(i *% 2654435761);
+    const enc0 = try pb.encode(allocator, data, .{});
+    defer allocator.free(enc0);
+    {
+        const d = try pb.decode(allocator, enc0, .{});
+        defer allocator.free(d);
+        if (d.len != n) return error.BenchMismatch;
+    }
+    const iters: usize = 20;
+    const t0 = std.Io.Timestamp.now(io, .awake);
+    var k: usize = 0;
+    while (k < iters) : (k += 1) {
+        const e = try pb.encode(allocator, data, .{});
+        allocator.free(e);
+    }
+    const t1 = std.Io.Timestamp.now(io, .awake);
+    k = 0;
+    while (k < iters) : (k += 1) {
+        const d = try pb.decode(allocator, enc0, .{});
+        allocator.free(d);
+    }
+    const t2 = std.Io.Timestamp.now(io, .awake);
+    const mb: f64 = @as(f64, @floatFromInt(n)) / 1e6;
+    const iters_f: f64 = @as(f64, @floatFromInt(iters));
+    const es: f64 = @as(f64, @floatFromInt(@as(i128, t1.toNanoseconds()) - @as(i128, t0.toNanoseconds()))) / 1e9 / iters_f;
+    const ds: f64 = @as(f64, @floatFromInt(@as(i128, t2.toNanoseconds()) - @as(i128, t1.toNanoseconds()))) / 1e9 / iters_f;
+    var buf: [256]u8 = undefined;
+    const msg = std.fmt.bufPrint(&buf, "Zig codec (in-process, alloc/call): encode {d:.0} MB/s ({d:.2} ms), decode {d:.0} MB/s ({d:.2} ms)\n", .{ mb / es, es * 1000.0, mb / ds, ds * 1000.0 }) catch return;
+    rawWriteAll(std.Io.File.stderr(), msg);
 }
