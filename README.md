@@ -261,6 +261,35 @@ cat input.bin | ./bin/printable-binary-node.js -f=8x10 > encoded.txt
 
 Supported flags: `-d/--decode`, `-f/--format NxM`, `-s/--spaces`, `--mappings*`, `-h/--help`. The CLI shares the exact encode/decode implementation with the browser UI.
 
+### As an Elixir `~PB` Sigil (compile-time)
+
+The `~PB` sigil decodes printable-binary glyphs to a **raw binary at compile
+time**, so you can embed binary data legibly inline in Elixir source (no
+separate fixture files) with zero runtime cost — the decoded bytes are baked
+straight into the compiled BEAM module. A literal `"` never appears in the
+encoding, so a `"""` heredoc can safely hold multi-line payloads.
+
+```elixir
+import PrintableBinary
+
+# Decoded to raw bytes at COMPILE time, then trivially assigned to a variable.
+# (Letters/digits pass through; comma -> ٫, space -> ␣, ! -> ǃ, etc.)
+greeting = ~PB"Hello٫␣Worldǃ"      # => "Hello, World!"
+
+# Heredoc form — whitespace is ignored, so wrapped/pasted glyphs are safe:
+blob = ~PB"""
+       ·OK
+       """                        # => <<0, "OK">>   (byte 0 -> ·)
+
+# Runtime helper for dynamic (non-literal) input:
+PrintableBinary.decode(encoded)   # => raw binary
+```
+
+Generate the glyphs for any file with the CLI (`printable-binary secret.bin`)
+and paste them between the sigil delimiters. See `elixir/` for the module and
+tests; the `test-elixir` CI check verifies the decoder against the Zig encoder
+(an independent oracle) across all 256 byte values plus random multi-byte input.
+
 ### Character Map
 
 Every CLI (and the WASM build, when built) ships with the canonical 256-entry table embedded, so you can always inspect it:
