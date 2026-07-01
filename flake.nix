@@ -208,6 +208,9 @@
               rustc
               clippy
               rustfmt
+
+              # Elixir/Erlang (the ~PB compile-time sigil demo)
+              elixir
             ]  ++ lib.optionals stdenv.isDarwin [ lldb ]
                ++ lib.optionals (!stdenv.isDarwin) [ gdb ]
                ++ linuxOnly;
@@ -434,6 +437,37 @@
               ./rust/target/release/printable-binary-rs -d < z.out > rt.out
               cmp allbytes rt.out || { echo "FAIL: Rust decode(Zig encode) != original" >&2; exit 1; }
               echo "Rust <-> Zig byte-identical across all 256 bytes"
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
+          # ~PB compile-time sigil (Elixir). Runs the crate's own unit + doctest
+          # suite, then the MFIC cross-impl guard: the Zig CLI is the INDEPENDENT
+          # encoder oracle (Elixir did not write it), so Elixir decode/1 must
+          # reproduce the original bytes for all 256 single bytes AND an 8 KiB
+          # random multi-byte stream (exercises 2/3-byte glyph boundaries).
+          test-elixir = pkgs.stdenv.mkDerivation {
+            name = "test-elixir";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ elixir zig ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              export MIX_HOME=$TMPDIR/mix
+              export HEX_HOME=$TMPDIR/hex
+              ( cd elixir && mix test --no-deps-check )
+              zig build
+              for i in $(seq 0 255); do printf "\\$(printf '%03o' "$i")"; done > allbytes
+              head -c 8192 /dev/urandom > rand.bin
+              PRINTABLE_BINARY_MUTE_STATS=1 ./zig-out/bin/printable-binary-zig < allbytes > z_all.out
+              PRINTABLE_BINARY_MUTE_STATS=1 ./zig-out/bin/printable-binary-zig < rand.bin  > z_rand.out
+              ( cd elixir && mix run --no-start -e '
+                  for {enc, orig} <- [{"../z_all.out", "../allbytes"}, {"../z_rand.out", "../rand.bin"}] do
+                    got = PrintableBinary.decode(File.read!(enc))
+                    exp = File.read!(orig)
+                    if got != exp, do: raise "Elixir decode(Zig encode) mismatch for #{enc}"
+                  end
+                  IO.puts("Elixir decode(Zig encode) == original for all-256 + 8KiB random")
+              ' )
             '';
             installPhase = "mkdir -p $out && touch $out/passed";
           };

@@ -115,3 +115,18 @@ Every printable-binary executable understands .pbf.json (-C/--container):
       container byte-identically, and vice versa)
 Shared: src/container_json.h (C), test/test_container (parameterized),
 test/test_container_cross (differential).
+
+## Elixir ~PB compile-time sigil demo (2026-06-30) — DONE, green in CI
+Demonstrates embedding raw binary legibly inline in source (no fixture files):
+`import PrintableBinary; @magic ~PB"..."` decodes glyphs -> raw bytes AT COMPILE
+TIME (zero runtime cost; bytes baked into the BEAM). `"""` heredoc works since a
+literal `"` never appears in the payload.
+- [x] elixir/lib/printable_binary.ex — `defmacro sigil_PB({:"<<>>",_,[str]},_)` +
+      `decode/1` (whitespace-tolerant). Map parsed from character_map.txt at compile
+      time via @external_resource (single source of truth; same parse as all impls).
+- [x] elixir/test/printable_binary_test.exs — 5 tests + 1 doctest (passthrough,
+      control glyph byte0=·, whitespace-ignored heredoc, all-256 round-trip, raise).
+- [x] flake check `test-elixir`: `mix test` + MFIC cross-impl guard — Zig CLI is the
+      INDEPENDENT encoder oracle; Elixir decode/1 must reproduce originals over
+      all-256 single bytes + 8 KiB random (2/3-byte glyph boundaries). Green.
+- [x] elixir/_build gitignored (swept-in artifacts moved out, not committed).

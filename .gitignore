@@ -48,3 +48,9 @@ inbox/
 
 # Rust build artifacts
 /rust/target/
+
+# Elixir build artifacts (~PB sigil demo)
+elixir/_build/
+elixir/deps/
+elixir/.elixir_ls/
+elixir/*.ez
