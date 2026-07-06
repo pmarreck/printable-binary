@@ -130,3 +130,34 @@ literal `"` never appears in the payload.
       INDEPENDENT encoder oracle; Elixir decode/1 must reproduce originals over
       all-256 single bytes + 8 KiB random (2/3-byte glyph boundaries). Green.
 - [x] elixir/_build gitignored (swept-in artifacts moved out, not committed).
+
+## WIND-DOWN STATE (2026-07-06 ~07:05 EDT) — fleet migrates to Thelio
+STATUS: fully green, everything pushed. `yolo = yolo@origin = e4b7275c` (clean WC).
+Last CI (GH Actions run 28490792396 + Garnix, both commits): ALL GREEN incl test-elixir.
+
+DONE (shipped + CI-green):
+- [x] Issue #1: web decode workflow + `.pbf.json` container across ALL 5 impls
+      (JS/web, Node, Zig, C-FFI, C-standalone, Lua); transport-resistant; MIME;
+      crc32 vector-pinned; CI guards test-container-{node,zig,ffi,c,lua}+cross.
+- [x] Rust crate (rust/): byte-identical to Zig, zero-alloc encode/decode, LTO;
+      CI test-rust (Rust encode == Zig encode + decode round-trip over all 256).
+- [x] build.zig: ReleaseFast default; in-process `--bench` (Zig 0.16 Io clock).
+- [x] Elixir `~PB` compile-time sigil (elixir/): decodes glyphs -> raw binary at
+      compile time. 5 tests + doctest. CI test-elixir = mix test + MFIC cross-check
+      (Zig CLI is the INDEPENDENT encoder oracle; Elixir decode/1 must reproduce
+      originals over all-256 + 8KiB random). README documented w/ verified glyphs.
+
+PARKED — Peter's call, do NOT start autonomously:
+- [ ] Transport protocol (Rust GUI <-> Zig core, RAW not container). GATED: Peter
+      was speccing details with another LLM ("stand by on the specifics").
+- [ ] crc32 table-driven optimization (Peter approved earlier, CONTAINER-ONLY scope).
+      Bench before/after per the benchmark-before-after-optimizations discipline.
+- [ ] Zig decode perf: Rust decode measured ~2.2x faster than Zig decode (encode is
+      ~tied). Zig decode has headroom — candidate optimization pass if transport
+      use-case wants it. (Rust uses O(1) decode tables: decode_1[256],
+      decode_2[32][64] payload-indexed, decode_3 sorted binary-search.)
+
+NEXT SESSION (on Thelio, full context restored): pick ONE parked item once Peter
+directs. The concrete non-gated win is the Zig-decode optimization (mirror Rust's
+table strategy in src/zig/printable_binary.zig decode path); everything else waits
+on Peter's transport-protocol decision.
