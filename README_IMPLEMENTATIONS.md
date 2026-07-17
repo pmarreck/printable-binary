@@ -1,6 +1,6 @@
 # PrintableBinary Implementations Guide
 
-A comprehensive guide to the LuaJIT, C, and Zig implementations of PrintableBinary - a tool for encoding binary data into human-readable UTF-8 strings and decoding them back.
+A guide to the LuaJIT, C, Cosmopolitan APE, Zig, Rust, JavaScript/Node, and WebAssembly implementations of PrintableBinary—a tool for encoding binary data into human-readable UTF-8 and decoding it back.
 
 ## Overview
 
@@ -18,11 +18,28 @@ PrintableBinary is available in multiple high-performance implementations:
 - **CLI parity**: Same flags, environment variables, and character map behavior as the ELF build
 - **Great for distribution**: Ship one file (`printable-binary-ape.com`) and it just works
 
+### 🕸️ **WebAssembly Implementation** (Portable Sandbox)
+- **Same C CLI core**: Built from `src/printable_binary.c` with Emscripten
+- **WASI runner**: Execute it through wazero on a host with no native installation
+- **Full CLI parity**: Same arguments and mapping behavior as the native C binary
+- **Measured honestly**: The benchmark includes wazero startup and runtime overhead
+
 ### 🦎 **Zig Implementation** (Modern, Memory-Safe)
 - **Memory-safe**: Zig's safety features catch bugs at compile time and runtime
 - **Cross-compilation**: Easy cross-compilation to many platforms from a single host
 - **Fast compilation**: Incremental builds and fast compile times
 - **CLI parity**: Same flags and behavior as C implementation
+
+### 🦀 **Rust Implementation** (Embedded Raw Codec)
+- **Byte-identical core**: Compile-time tables generated from `character_map.txt`
+- **Low-allocation API**: `encode_into` and `decode_into` reuse caller-owned buffers
+- **Transport-focused CLI**: Minimal stdin→stdout encode/decode path for Rust↔Zig integration
+- **Deliberately narrow surface**: Formatting, containers, runtime map overrides, and mapping reports remain the job of the full CLIs
+
+### 🌐 **JavaScript / Node.js Implementation** (Web and Automation)
+- **Shared core**: One module powers the browser UI and Node CLI
+- **Portable runtime**: Runs in browsers, Node.js, and compatible bundlers
+- **CLI parity**: Node exposes the full user-facing command surface
 
 ### ⚡ **LuaJIT Implementation** (Original)
 - **Reference implementation**: Easy to modify and extend
@@ -31,23 +48,23 @@ PrintableBinary is available in multiple high-performance implementations:
 
 ## Performance Comparison
 
-### Benchmark Results (Apple M4 Max)
+Performance depends on input mix, CPU, filesystem, runtime version, and whether a runtime must start. Rather than preserve a partial historical C-vs-Lua table as a project-wide claim, run the reproducible comparison locally:
 
-| File Size | Operation | LuaJIT Time | C Time   | C Speedup | C Improvement |
-|-----------|-----------|-------------|----------|-----------|---------------|
-| 1KB       | Encode    | 19.3 ms     | 17.4 ms  | 1.11x     | 10.9%         |
-| 1KB       | Decode    | 19.0 ms     | 17.4 ms  | 1.09x     | 8.6%          |
-| 100KB     | Encode    | 19.6 ms     | 17.4 ms  | 1.12x     | 10.9%         |
-| 100KB     | Decode    | 24.3 ms     | 17.6 ms  | 1.38x     | **27.7%**     |
-| 1MB       | Encode    | 23.9 ms     | 20.3 ms  | 1.18x     | **15.4%**     |
-| 1MB       | Decode    | 90.3 ms     | 20.9 ms  | 4.31x     | **76.8%**     |
+```bash
+./build
+nix develop -c cargo build --release --manifest-path rust/Cargo.toml
+nix develop -c ./bm/benchmark-zig-opt --list-impls
+nix develop -c ./bm/benchmark-zig-opt --quick --sizes "1M"
+```
 
-### Performance Highlights
+| Implementation | Included in comparison runner | Measurement boundary |
+| --- | --- | --- |
+| C (native), Zig, LuaJIT, Node.js | Yes, direct when built | CLI process and file I/O |
+| APE | Yes, through a clean-environment adapter | Cosmopolitan process and file I/O |
+| Rust | Yes, through an stdin adapter | Rust process and stdin/stdout I/O |
+| WebAssembly | Yes, through wazero | WASM runtime startup plus CLI I/O |
 
-- **Overall Encoding**: C is 1.14x faster (12.2% improvement)
-- **Overall Decoding**: C is 2.08x faster (52.0% improvement)
-- **Large Files**: Up to **6x speedup** for 1MB+ binary/random data decoding
-- **Memory Usage**: C implementation uses significantly less memory
+`--impls rust,wasm,ape` makes those three targets mandatory, so a missing artifact fails instead of producing a misleading partial result. The runner round-trips a deterministic random input before it invokes `hyperfine`; it also includes an ASCII input set. Rust's `cargo run --release --example bench` is a separate in-process codec microbenchmark and should not be compared directly with CLI timings.
 
 ## Quick Start
 
@@ -80,6 +97,19 @@ make ape
 make test-ape
 ```
 
+### WebAssembly Implementation
+
+```bash
+# Build the standalone WASM CLI from the C core.
+./build wasm
+
+# Run it through the WASI runtime supplied by the development shell.
+nix develop -c wazero run bin/printable-binary.wasm < input.bin > encoded.pbt
+nix develop -c wazero run bin/printable-binary.wasm -- -d < encoded.pbt > restored.bin
+```
+
+WASM has the C CLI's feature set. The runtime does not automatically inherit host environment variables; pass `--env=NAME=value` to wazero when a variable such as `PRINTABLE_BINARY_MUTE_STATS` matters.
+
 ### Zig Implementation
 
 ```bash
@@ -91,6 +121,21 @@ nix build .#printableBinaryZig
 zig build -Doptimize=ReleaseFast
 ./zig-out/bin/printable-binary-zig file.bin
 ```
+
+### Rust Implementation
+
+```bash
+# Build the raw codec and its deliberately minimal stdin-only CLI.
+nix develop -c cargo build --release --manifest-path rust/Cargo.toml
+
+rust/target/release/printable-binary-rs < file.bin > encoded.pbt
+rust/target/release/printable-binary-rs --decode < encoded.pbt > restored.bin
+
+# Measure the in-process codec alone (not directly comparable to CLI timings).
+nix develop -c cargo run --release --manifest-path rust/Cargo.toml --example bench
+```
+
+Use Rust as an embedded codec or a Rust↔Zig transport boundary. Its CLI currently supports only raw stdin encode and `-d`/`--decode`; use a full CLI for file arguments, format options, mapping reports, containers, or runtime map overrides.
 
 ### LuaJIT Implementation
 
@@ -142,11 +187,14 @@ nix build .#printableBinaryNative   # ELF/Mach-O binary
 nix build .#printableBinaryApe      # Cosmopolitan APE fat binary (x86_64 + arm64, pinned cosmocc 4.0.2)
 nix build .#printableBinaryWasm     # WebAssembly module
 nix build .#default                 # Suite: native + APE + WASM
+
+# Rust is a Cargo crate; the Nix development shell provides its offline toolchain.
+nix develop -c cargo build --release --manifest-path rust/Cargo.toml
 ```
 
 ## Command-Line Usage
 
-All compiled variants (ELF, APE, WASM via wazero) share **identical** command-line interfaces. Use whichever binary suits your platform (`./bin/printable-binary-c`, `./bin/printable-binary-ape.com`, etc.).
+The full compiled variants (native C, APE, Zig, and WASM via wazero) share the user-facing command-line interface. The Rust transport CLI is intentionally narrower: raw stdin encode plus `-d`/`--decode`.
 
 ### Basic Operations
 
@@ -205,12 +253,14 @@ Input/Output:
 All binaries embed the canonical 256-entry map, so the `--mappings*` flags work even when `character_map.txt` is missing. If you place a custom map alongside the executable (or set `PRINTABLE_BINARY_MAP`), these options will reflect the override automatically. The override file should contain **exactly 256 lines**, each a single UTF-8 glyph (line 0 = byte 0x00, line 255 = byte 0xFF).
 ```
 
-### Environment Variables (All Implementations)
+### Environment Variables (Full CLIs)
 
 ```
 PRINTABLE_BINARY_MAP       – points to an alternate character_map.txt
 PRINTABLE_BINARY_MUTE_STATS – set to 1/true/yes to suppress stderr statistics
 ```
+
+The Rust crate consumes its map at compile time and has no runtime map/environment configuration. When invoking WASM, pass variables explicitly with wazero's `--env` option because WASI does not inherit the host environment by default.
 
 ## When to Use Which Implementation
 
@@ -228,9 +278,22 @@ PRINTABLE_BINARY_MUTE_STATS – set to 1/true/yes to suppress stderr statistics
 
 ✅ **Cross-compilation** to other platforms
 ✅ **Memory-safe production** where safety is paramount
-✅ **WebAssembly targets** (future capability)
+✅ **A safe native CLI** with the complete option surface
 ✅ **Modern tooling** with built-in package manager
 ✅ **Environments** where C toolchains are unavailable
+
+### Use APE or WebAssembly For:
+
+✅ **APE** — a single distributable executable across Linux, macOS, and Windows
+✅ **WebAssembly** — a sandboxed/WASI deployment where a native binary is unsuitable
+✅ **Both** — the familiar full C CLI behavior; factor the runtime/loader into performance expectations
+
+### Use Rust Implementation For:
+
+✅ **Embedding** the byte↔glyph codec in Rust code
+✅ **High-frequency transport** with reusable encode/decode buffers
+✅ **Rust↔Zig boundaries** that need byte-identical raw codec output
+✅ **A deliberately small raw stdin CLI**, not file/container/format workflows
 
 ### Use LuaJIT Implementation For:
 
@@ -242,43 +305,35 @@ PRINTABLE_BINARY_MUTE_STATS – set to 1/true/yes to suppress stderr statistics
 
 ## Feature Comparison
 
-| Feature | LuaJIT | C | Zig | Notes |
-|---------|--------|---|-----|-------|
-| **Performance** | Fast | **Faster** | **Faster** | C/Zig are 1.1-6x faster |
-| **Memory Usage** | Good | **Better** | **Better** | Native uses less memory |
-| **Memory Safety** | ✅ | ⚠️ | ✅ | Zig has built-in safety checks |
-| **Basic Encoding/Decoding** | ✅ | ✅ | ✅ | Identical output |
-| **Passthrough Mode** | ✅ | ✅ | ✅ | Same functionality |
-| **Formatted Output** | ✅ | ✅ | ✅ | Same formatting |
-| **Preserve Options** | ✅ | ✅ | ✅ | -s/-t/-n/-w/-p flags |
-| **Cross-Platform** | ✅ | ✅ | ✅ | All work everywhere |
-| **Binary Size** | Small | **Smaller** | Small | C compiles to ~50KB |
-| **Startup Time** | Fast | **Faster** | **Faster** | No interpreter overhead |
-| **Development** | **Easier** | Harder | Medium | Lua is most flexible |
-| **Cross-Compilation** | N/A | Manual | **Easy** | Zig has built-in cross-compile |
+| Variant | Raw codec | Full CLI | Runtime / distribution focus |
+| --- | --- | --- | --- |
+| LuaJIT | Yes | Yes | Reference implementation and scripting |
+| Native C | Yes | Yes | Fast direct native executable |
+| Cosmopolitan APE | Yes | Yes | One portable executable across major desktop OSes |
+| Zig | Yes | Yes | Safe native CLI and broad cross-compilation |
+| JavaScript / Node | Yes | Yes | Browser UI and Node automation share a core |
+| WebAssembly | Yes | Yes | WASI sandbox via wazero; includes runtime startup cost |
+| Rust | Yes | No—raw stdin codec only | Embedded transport API with reusable buffers |
 
 ## Compatibility
 
 ### 100% Output Compatibility ✅
 
-Both implementations produce **byte-for-byte identical** outputs:
+All implementations produce **byte-for-byte identical raw codec** outputs:
 
 - ✅ All 256 possible byte values
 - ✅ Unicode and special characters  
 - ✅ Edge cases and corner conditions
-- ✅ Formatted output modes
-- ✅ Passthrough functionality
+- ✅ Full CLI formatting/passthrough/container modes where that surface is implemented
 
 ### Tested Compatibility
 
 ```bash
 # Run comprehensive compatibility tests
-./test                    # LuaJIT test suite
-./test_optimized          # C test suite (uses same test cases)
-./bm/benchmark_c_vs_lua.sh   # Performance + compatibility verification
+./test/test                                      # LuaJIT CLI suite
+nix build .#checks.x86_64-linux.test-rust        # Rust + Zig differential guard (Linux)
+nix develop -c ./bm/benchmark-zig-opt --quick    # Per-implementation round trips before timing
 ```
-
-**Test Results**: 24/24 compatibility tests passed ✅
 
 ## Build Requirements
 
@@ -545,12 +600,11 @@ When reporting issues, please include:
 
 ## Summary
 
-PrintableBinary offers three excellent native implementations:
+PrintableBinary offers a byte-identical raw codec through several deliberate deployment choices:
 
-- **C Implementation**: Maximum performance for production use
-- **Zig Implementation**: Memory-safe with easy cross-compilation
-- **LuaJIT Implementation**: Maximum flexibility for development
+- **Native C / Zig / LuaJIT / Node**: full CLIs for direct use
+- **Cosmopolitan APE**: the full C CLI in one portable executable
+- **WebAssembly**: the full C CLI under a WASI runtime
+- **Rust**: an embedded, reusable-buffer raw codec and narrow stdin transport CLI
 
-All maintain perfect compatibility while offering different trade-offs. Choose based on your specific needs: performance-critical applications benefit from the C or Zig versions, while development and scripting scenarios may prefer the LuaJIT version.
-
-**🚀 For most users, we recommend the C or Zig implementation for superior performance and efficiency.**
+Choose a full CLI for files, formatting, mappings, containers, and interactive workflows. Choose Rust when the raw codec belongs inside a Rust process or transport boundary. Use `bm/benchmark-zig-opt` on the deployment hardware before making a performance claim—its adapters make Rust, WASM, and APE first-class comparison targets.

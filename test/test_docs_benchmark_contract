@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Guards the public implementation inventory and the generated mapping reference.
+
+set -u
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+failures=0
+
+pass() {
+	printf 'PASS: %s\n' "$1"
+}
+
+fail() {
+	printf 'FAIL: %s\n' "$1" >&2
+	failures=$((failures + 1))
+}
+
+expect_file_contains() {
+	local file="$1"
+	local needle="$2"
+	local description="$3"
+	if grep -Fq -- "$needle" "$file"; then
+		pass "$description"
+	else
+		fail "$description (missing: $needle)"
+	fi
+}
+
+readme="$repo_root/README.md"
+guide="$repo_root/README_IMPLEMENTATIONS.md"
+
+expect_file_contains "$readme" "Rust" "README identifies the Rust implementation"
+expect_file_contains "$readme" "WebAssembly" "README identifies the WebAssembly implementation"
+expect_file_contains "$readme" "Actually Portable Executable" "README identifies the APE implementation"
+expect_file_contains "$guide" "Rust Implementation" "implementation guide has a Rust section"
+expect_file_contains "$guide" "WebAssembly Implementation" "implementation guide has a WebAssembly section"
+expect_file_contains "$guide" "Cosmopolitan APE" "implementation guide has an APE section"
+
+expect_file_contains "$readme" "| Byte | ASCII byte | Char | Unicode | UTF-8 | Glyph name |" "mapping reference labels source byte and glyph separately"
+expect_file_contains "$readme" "| 0 | NUL | · |" "mapping reference names NUL"
+expect_file_contains "$readme" "| 9 | TAB | ⇥ |" "mapping reference names TAB"
+expect_file_contains "$readme" "| 10 | LF | ¶ |" "mapping reference names LF"
+expect_file_contains "$readme" "| 13 | CR | ⏎ |" "mapping reference names CR"
+expect_file_contains "$readme" "| 32 | SPACE | ␣ |" "mapping reference names SPACE"
+expect_file_contains "$readme" "| 127 | DEL | ⌦ |" "mapping reference names DEL"
+expect_file_contains "$readme" "| 128 | — |" "mapping reference marks non-ASCII bytes"
+
+mapping_rows=$(awk '/^\| [0-9]+ \|/ { count += 1 } END { print count + 0 }' "$readme")
+if [[ "$mapping_rows" == "256" ]]; then
+	pass "mapping reference retains 256 rows"
+else
+	fail "mapping reference has $mapping_rows rows (expected 256)"
+fi
+
+benchmark_inventory=$(bash "$repo_root/bm/benchmark-zig-opt" --list-impls 2>&1)
+benchmark_status=$?
+if [[ $benchmark_status -ne 0 ]]; then
+	fail "benchmark implementation inventory exits successfully"
+else
+	pass "benchmark implementation inventory exits successfully"
+	for implementation in rust wasm ape; do
+		if grep -Fq -- "$implementation" <<<"$benchmark_inventory"; then
+			pass "benchmark inventory includes $implementation"
+		else
+			fail "benchmark inventory omits $implementation"
+		fi
+	done
+fi
+
+exit "$failures"

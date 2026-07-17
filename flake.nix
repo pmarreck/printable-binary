@@ -272,6 +272,19 @@
         };
 
         checks = {
+          # Documentation and benchmark inventory stay in sync with the supported
+          # implementations and the 256-row source-byte mapping reference.
+          test-docs-benchmark-contract = pkgs.stdenvNoCC.mkDerivation {
+            name = "test-docs-benchmark-contract";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ bash gawk gnugrep ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              bash ./test/test_docs_benchmark_contract
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
           test-c = pkgs.stdenv.mkDerivation {
             name = "test-c";
             src = ./.;

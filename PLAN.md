@@ -6,6 +6,22 @@ maintained_by: agent
 
 # PLAN — issue #1: decode workflow + printable-binary-file.json
 
+## Docs and benchmark parity — active (2026-07-17 EDT)
+
+- [x] Document every supported implementation—especially Rust, WebAssembly, and
+      the Cosmopolitan APE—in the primary README and implementation guide.
+      Curiosity poke: distinguish Rust's deliberately minimal stdin codec CLI
+      from the feature-complete C/Zig/Lua/Node CLI surface. (2026-07-17 01:56 PM EDT)
+- [x] Extend the comparative benchmark runner with Rust, WASM (wazero), and APE
+      adapters, explicit selection, and availability reporting. Curiosity poke:
+      preserve identical input/round-trip verification despite their different
+      process invocation conventions. (2026-07-17 01:56 PM EDT)
+- [x] Add conventional ASCII byte names to all 256 README mapping rows, including
+      control-byte mnemonics. Curiosity poke: retain a mechanically checked
+      distinction between source-byte names and Unicode glyph names. (2026-07-17 01:56 PM EDT)
+- [x] Run the documentation/benchmark contracts and full relevant suite; update
+      file notes. Commit once reattached to the `yolo` branch. (2026-07-17 01:56 PM EDT)
+
 GitHub: https://github.com/pmarreck/printable_binary/issues/1
 Dispatch: inbox/2026-06-26-handle-issue-1.md (from Einstein)
 Spec: docs/plans/2026-06-26-printable-binary-file-container-design.md
