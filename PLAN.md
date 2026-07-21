@@ -41,6 +41,16 @@ nondeterministic mtime would sink a stable "compressed hash"; max level 9), so
 integration would be awkward anyway. If ever revived, the open question is
 LZMA2-library-vs-CLI cross-impl parity (Zig/C could link z7z's core in-process;
 Lua/Node/Rust/Elixir could not without shelling out or their own LZMA).
+
+## Container metadata injection (`-k`/`-v`/`--kv`/`--key-namespace`) — SPEC'd, FUTURE (2026-07-21 EDT)
+
+Design approved by Peter (all forks ruled), NOT yet implemented — a future
+nice-to-have. Attach arbitrary key/value metadata to a container for other
+tooling to read first (xattr / HTTP-`X-`-header analogue). Full spec + TDD plan:
+`docs/plans/2026-07-21-container-metadata-injection-design.md`.
+- [ ] Implement TDD-first (Lua reference → Node → Zig → standalone-C → FFI-C) +
+      extend the shared `test/test_container` guard. Reserved-key rejection is an
+      MFIC cross-impl contract.
 ## Docs and benchmark parity — active (2026-07-17 EDT)
 
 - [x] Document every supported implementation—especially Rust, WebAssembly, and
