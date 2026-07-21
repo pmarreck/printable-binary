@@ -14,18 +14,31 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Strip transport whitespace (space/tab/CR/LF). malloc'd result (caller frees);
- * *out_len set. Clean payloads (no literal whitespace) are unchanged. */
-static char *cj_canonical(const char *data, size_t len, size_t *out_len) {
+/* Strip transport whitespace from an encoded payload. malloc'd result (caller
+ * frees); *out_len set. Normally space/tab/CR/LF are all transport noise. When
+ * keep_spaces is nonzero (container --spaces), literal spaces are DATA, so only
+ * tab/CR/LF are stripped as noise. */
+static char *cj_canonical(const char *data, size_t len, size_t *out_len, int keep_spaces) {
     char *out = (char *)malloc(len ? len : 1);
     if (!out) { *out_len = 0; return NULL; }
     size_t n = 0;
     for (size_t i = 0; i < len; i++) {
         char c = data[i];
-        if (c != ' ' && c != '\t' && c != '\r' && c != '\n') out[n++] = c;
+        int strip = (c == '\t' || c == '\r' || c == '\n') || (!keep_spaces && c == ' ');
+        if (!strip) out[n++] = c;
     }
     *out_len = n;
     return out;
+}
+
+/* Nonzero iff `needle` (nlen bytes) occurs within `hay` (hlen bytes). Used to
+ * detect the space glyph inside a payload for the ambiguity warning. */
+static int cj_contains(const char *hay, size_t hlen, const char *needle, size_t nlen) {
+    if (nlen == 0 || nlen > hlen) return 0;
+    for (size_t i = 0; i + nlen <= hlen; i++) {
+        if (memcmp(hay + i, needle, nlen) == 0) return 1;
+    }
+    return 0;
 }
 
 /* Raw string value of "key" in a flat JSON object: pointer into `json` (not

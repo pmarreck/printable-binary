@@ -750,18 +750,20 @@ pub fn main(init: std.process.Init) !void {
 // here, the codec + crc32 come from the shared core.
 // ============================================================================
 
-/// Strip transport whitespace (space/tab/CR/LF) from an encoded payload. The
-/// default encoding emits none of these (all glyph'd), so a clean payload is
-/// unchanged; only transport-injected whitespace is removed.
-fn canonicalPayload(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
+/// Strip transport whitespace from an encoded payload. Normally space/tab/CR/LF
+/// are all transport noise. When keep_spaces is set (container --spaces), literal
+/// spaces are DATA, so only tab/CR/LF are stripped as noise.
+fn canonicalPayload(allocator: std.mem.Allocator, data: []const u8, keep_spaces: bool) ![]u8 {
     var count: usize = 0;
     for (data) |c| {
-        if (c != ' ' and c != '\t' and c != '\r' and c != '\n') count += 1;
+        const strip = c == '\t' or c == '\r' or c == '\n' or (!keep_spaces and c == ' ');
+        if (!strip) count += 1;
     }
     const out = try allocator.alloc(u8, count);
     var n: usize = 0;
     for (data) |c| {
-        if (c != ' ' and c != '\t' and c != '\r' and c != '\n') {
+        const strip = c == '\t' or c == '\r' or c == '\n' or (!keep_spaces and c == ' ');
+        if (!strip) {
             out[n] = c;
             n += 1;
         }
@@ -791,7 +793,6 @@ fn jsonGetString(json: []const u8, key: []const u8) ?[]const u8 {
     if (i >= json.len) return null;
     return json[start..i];
 }
-
 /// JSON-escape `s` into a freshly allocated buffer.
 fn jsonEscapeAlloc(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
     var extra: usize = 0;
@@ -845,22 +846,49 @@ fn basenameOf(path: []const u8) []const u8 {
 }
 
 fn handleContainer(io: std.Io, allocator: std.mem.Allocator, opts: Options, input: []const u8) !void {
+    // Only --spaces is honored in container mode; --tabs/--crlf/-w/--preserve
+    // would put raw tab/CR/LF (or arbitrary chars) into the JSON value, breaking
+    // single-line-JSON validity and the tab/CR/LF-stripping transport-resistance.
+    if (opts.tabs_mode or opts.crlf_mode or opts.preserve_chars != null) {
+        writeStats("Error: --tabs/--crlf/-w/--preserve are not supported with --container (only --spaces is honored; other whitespace stays encoded)\n", .{});
+        std.process.exit(1);
+    }
     if (opts.decode_mode) {
         const data_raw = jsonGetString(input, "data") orelse {
             writeStats("Error: not a printable-binary-file container (missing 'data')\n", .{});
             std.process.exit(1);
         };
-        const clean = try canonicalPayload(allocator, data_raw);
+        // Flagless crc-probe: no schema flag records whether --spaces was used; the
+        // crc32_encoded oracle disambiguates. Try keeping literal spaces (DATA in a
+        // --spaces container); if the crc mismatches, strip them as transport noise.
+        var clean = try canonicalPayload(allocator, data_raw, true);
         defer allocator.free(clean);
+        var spaces = true;
         if (jsonGetString(input, "crc32_encoded")) |want| {
             var gb: [8]u8 = undefined;
             const got = std.fmt.bufPrint(&gb, "{x:0>8}", .{pb.crc32(clean)}) catch unreachable;
             if (!std.mem.eql(u8, got, want)) {
-                writeStats("Error: container crc32_encoded mismatch (data corrupted)\n", .{});
-                std.process.exit(1);
+                const stripped = try canonicalPayload(allocator, data_raw, false);
+                var sb: [8]u8 = undefined;
+                const gots = std.fmt.bufPrint(&sb, "{x:0>8}", .{pb.crc32(stripped)}) catch unreachable;
+                if (std.mem.eql(u8, gots, want)) {
+                    // Literal spaces were noise. If the space glyph is ALSO present, the
+                    // payload mixed real (glyph) spaces with formatting spaces -> warn.
+                    const space_glyph = pb.character_map[' '];
+                    if (std.mem.indexOf(u8, clean, space_glyph) != null) {
+                        writeStats("Warning: literal spaces in container data were assumed to be ignorable formatting because the space glyph {s} was also present; stripping them\n", .{space_glyph});
+                    }
+                    allocator.free(clean);
+                    clean = stripped;
+                    spaces = false;
+                } else {
+                    allocator.free(stripped);
+                    writeStats("Error: container crc32_encoded mismatch (data corrupted)\n", .{});
+                    std.process.exit(1);
+                }
             }
         }
-        const decoded = pb.decode(allocator, clean, .{}) catch |err| {
+        const decoded = pb.decode(allocator, clean, .{ .spaces = spaces }) catch |err| {
             writeStats("Container decode error: {}\n", .{err});
             std.process.exit(1);
         };
@@ -876,12 +904,12 @@ fn handleContainer(io: std.Io, allocator: std.mem.Allocator, opts: Options, inpu
         writeStats("Decoded container: {d} bytes\n", .{decoded.len});
         try writeOutput(io, decoded, false);
     } else {
-        const data = pb.encode(allocator, input, .{}) catch |err| {
+        const data = pb.encode(allocator, input, .{ .spaces = opts.spaces_mode }) catch |err| {
             writeStats("Container encode error: {}\n", .{err});
             std.process.exit(1);
         };
         defer allocator.free(data);
-        const clean = try canonicalPayload(allocator, data);
+        const clean = try canonicalPayload(allocator, data, opts.spaces_mode);
         defer allocator.free(clean);
         var ob: [8]u8 = undefined;
         var eb: [8]u8 = undefined;

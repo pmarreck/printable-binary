@@ -6,6 +6,32 @@ maintained_by: agent
 
 # PLAN — issue #1: decode workflow + printable-binary-file.json
 
+## Container honors `--spaces` (legible-markdown containers) — DONE (2026-07-21 EDT)
+
+Goal (Peter): put a markdown file into a `.pbf.json` container but keep it legible;
+`--spaces` was silently ignored in container mode. Fixed across all 5 container
+surfaces (Lua, Node, Zig, standalone-C, FFI-C) + shared `test/test_container`.
+
+- [x] `--spaces` honored in container encode: literal spaces in the JSON `data`
+      value (letters/digits/`. @ ^ _` already pass through, so markdown reads
+      naturally; newlines stay `¶` glyphs → still valid single-line JSON). (2026-07-21 03:00 PM EDT)
+- [x] **Flagless** design (Peter's call): NO `spaces` schema field, `version` stays 1.
+      Decode uses a **crc-probe** — try keeping literal spaces; if `crc32_encoded`
+      mismatches, strip them as transport noise. The crc is the disambiguation oracle. (2026-07-21 03:00 PM EDT)
+- [x] Ambiguity warning: a non-spaces container (space-glyph present) with a
+      transport-injected literal space → recover by stripping + WARN that literal
+      spaces were assumed formatting because the space glyph was also present.
+      Space glyph read from the map (DRY), never hardcoded. (2026-07-21 03:00 PM EDT)
+- [x] `--tabs`/`--crlf`/`-w`/`--preserve` + `--container` = HARD ERROR (would break
+      JSON-validity + transport-resistance). (2026-07-21 03:00 PM EDT)
+- [x] Corrected `character_map.txt` header comment: documents the 66/94 printable-ASCII
+      passthrough (the legibility property), verified behavior-neutral. (2026-07-21 03:00 PM EDT)
+- [x] Guard #4 (map redefines space→space) proven UNNECESSARY: the "first
+      whitespace-delimited token" parser + 256-glyph-count check make a literal-space
+      glyph structurally unloadable (physics over policy). (2026-07-21 03:00 PM EDT)
+- [x] Fixed FFI NULL-deref: `preserve_chars` is `char *` (NULL) in FFI opts, not an
+      array — guard now NULL-checks. Caught by hermetic nix check, not exit code. (2026-07-21 03:00 PM EDT)
+
 ## Docs and benchmark parity — active (2026-07-17 EDT)
 
 - [x] Document every supported implementation—especially Rust, WebAssembly, and
