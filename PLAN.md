@@ -32,6 +32,15 @@ surfaces (Lua, Node, Zig, standalone-C, FFI-C) + shared `test/test_container`.
 - [x] Fixed FFI NULL-deref: `preserve_chars` is `char *` (NULL) in FFI opts, not an
       array — guard now NULL-checks. Caught by hermetic nix check, not exit code. (2026-07-21 03:00 PM EDT)
 
+## Integrated compression (z7z/LZMA in `-C`) — DECLINED (2026-07-21 EDT)
+
+Considered then dropped (Peter): a user can compress in a pipe chain *before*
+printable-binary and stay truer to the Unix philosophy — no need to bake it in.
+Also, z7z is an archive tool (no raw stdin→stdout stream; `.7z` header +
+nondeterministic mtime would sink a stable "compressed hash"; max level 9), so
+integration would be awkward anyway. If ever revived, the open question is
+LZMA2-library-vs-CLI cross-impl parity (Zig/C could link z7z's core in-process;
+Lua/Node/Rust/Elixir could not without shelling out or their own LZMA).
 ## Docs and benchmark parity — active (2026-07-17 EDT)
 
 - [x] Document every supported implementation—especially Rust, WebAssembly, and
