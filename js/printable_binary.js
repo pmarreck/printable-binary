@@ -683,8 +683,10 @@ class PrintableBinary {
    * wrap, reflow) added — making the container as whitespace-tolerant as raw
    * printable-binary while keeping crc integrity intact for real corruption.
    */
-  _canonicalPayload(data) {
-    return String(data).replace(/[\r\n\t ]/g, '');
+  _canonicalPayload(data, keepSpaces) {
+    // keepSpaces (container --spaces): literal spaces are DATA, so strip only
+    // tab/CR/LF as transport noise; otherwise strip spaces too.
+    return String(data).replace(keepSpaces ? /[\r\n\t]/g : /[\r\n\t ]/g, '');
   }
 
   /**
@@ -699,12 +701,15 @@ class PrintableBinary {
   }
 
 
-  encodeToContainer(bytes, meta = {}) {
+  encodeToContainer(bytes, meta = {}, opts = {}) {
     if (!(bytes instanceof Uint8Array)) {
       throw new Error("encodeToContainer expects a Uint8Array");
     }
-    const data = this.encode(bytes);
-    const dataBytes = sharedTextEncoder.encode(this._canonicalPayload(data));
+    // opts.spaces: preserve literal spaces in the payload (legible ASCII). No schema
+    // flag is written -- decode's crc-probe disambiguates spaces-as-data vs noise.
+    const spaces = opts.spaces === true;
+    const data = this.encode(bytes, { spaces });
+    const dataBytes = sharedTextEncoder.encode(this._canonicalPayload(data, spaces));
     const container = {
       format: "printable-binary-file",
       version: 1,
@@ -742,14 +747,30 @@ class PrintableBinary {
     if (typeof c.data !== "string") {
       throw new Error("Container 'data' must be a string");
     }
-    const cleanData = this._canonicalPayload(c.data);
+    // Flagless crc-probe: no schema flag records whether --spaces was used; the
+    // crc32_encoded oracle disambiguates. Try keeping literal spaces (DATA in a
+    // --spaces container); if the crc mismatches, strip them as transport noise.
+    let cleanData = this._canonicalPayload(c.data, true);
+    let spaces = true;
     if (c.crc32_encoded !== undefined && c.crc32_encoded !== null) {
-      const got = this.crc32hex(sharedTextEncoder.encode(cleanData));
-      if (got !== String(c.crc32_encoded).toLowerCase()) {
-        throw new Error(`Container crc32_encoded mismatch (got ${got}, expected ${c.crc32_encoded}) — 'data' is corrupted`);
+      const want = String(c.crc32_encoded).toLowerCase();
+      if (this.crc32hex(sharedTextEncoder.encode(cleanData)) !== want) {
+        const stripped = this._canonicalPayload(c.data, false);
+        if (this.crc32hex(sharedTextEncoder.encode(stripped)) === want) {
+          // Literal spaces were noise. If the space glyph is ALSO present, the payload
+          // mixed real (glyph) spaces with formatting spaces -> warn we dropped them.
+          const spaceGlyph = this.encodeMap.get(0x20);
+          if (spaceGlyph && cleanData.includes(spaceGlyph)) {
+            console.warn(`Warning: literal spaces in container data were assumed to be ignorable formatting because the space glyph ${spaceGlyph} was also present; stripping them`);
+          }
+          cleanData = stripped;
+          spaces = false;
+        } else {
+          throw new Error(`Container crc32_encoded mismatch (got ${this.crc32hex(sharedTextEncoder.encode(cleanData))}, expected ${c.crc32_encoded}) — 'data' is corrupted`);
+        }
       }
     }
-    const bytes = this.decode(cleanData);
+    const bytes = this.decode(cleanData, { spaces });
     if (c.byte_length !== undefined && c.byte_length !== null && bytes.length !== c.byte_length) {
       throw new Error(`Container byte_length mismatch (decoded ${bytes.length}, expected ${c.byte_length})`);
     }

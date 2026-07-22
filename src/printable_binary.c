@@ -1777,19 +1777,51 @@ int main(int argc, char *argv[]) {
     }
 
     if (opts.container_mode) {
+        /* Only --spaces is honored in container mode; --tabs/--crlf/-w/--preserve
+         * would put raw tab/CR/LF (or arbitrary chars) into the JSON value, breaking
+         * single-line-JSON validity and the tab/CR/LF-stripping transport-resistance. */
+        if (opts.tabs_mode || opts.crlf_mode || opts.preserve_chars[0] != '\0') {
+            fprintf(stderr, "Error: --tabs/--crlf/-w/--preserve are not supported with --container (only --spaces is honored; other whitespace stays encoded)\n");
+            return 1;
+        }
         if (opts.decode_mode) {
             size_t dlen;
             const char *draw = cj_get_string(input.data, input.size, "data", &dlen);
             if (!draw) { fprintf(stderr, "Error: not a printable-binary-file container (missing 'data')\n"); return 1; }
+            /* Flagless crc-probe: no schema flag records whether --spaces was used; the
+             * crc32_encoded oracle disambiguates. Try keeping literal spaces (DATA in a
+             * --spaces container); if the crc mismatches, strip them as transport noise. */
             size_t clen;
-            char *clean = cj_canonical(draw, dlen, &clen);
+            char *clean = cj_canonical(draw, dlen, &clen, 1);
+            bool spaces = true;
             size_t celen;
             const char *ce = cj_get_string(input.data, input.size, "crc32_encoded", &celen);
             if (ce) {
                 char hx[9]; snprintf(hx, 9, "%08x", (unsigned int)pb_crc32(clean, clen));
-                if (celen != 8 || memcmp(hx, ce, 8) != 0) { free(clean); fprintf(stderr, "Error: container crc32_encoded mismatch (data corrupted)\n"); return 1; }
+                if (celen != 8 || memcmp(hx, ce, 8) != 0) {
+                    size_t slen;
+                    char *stripped = cj_canonical(draw, dlen, &slen, 0);
+                    char hs[9]; snprintf(hs, 9, "%08x", (unsigned int)pb_crc32(stripped, slen));
+                    if (celen == 8 && memcmp(hs, ce, 8) == 0) {
+                        /* Literal spaces were noise. If the space glyph is ALSO present, the
+                         * payload mixed real (glyph) spaces with formatting spaces -> warn. */
+                        const char *sg = (const char *)encode_table[' '].bytes;
+                        size_t sglen = encode_table[' '].length;
+                        if (cj_contains(clean, clen, sg, sglen)) {
+                            fprintf(stderr, "Warning: literal spaces in container data were assumed to be ignorable formatting because the space glyph %.*s was also present; stripping them\n", (int)sglen, sg);
+                        }
+                        free(clean);
+                        clean = stripped;
+                        clen = slen;
+                        spaces = false;
+                    } else {
+                        free(stripped); free(clean);
+                        fprintf(stderr, "Error: container crc32_encoded mismatch (data corrupted)\n");
+                        return 1;
+                    }
+                }
             }
-            buffer_t dec = decode_data((uint8_t *)clean, clen, false);
+            buffer_t dec = decode_data((uint8_t *)clean, clen, spaces);
             free(clean);
             size_t colen;
             const char *co = cj_get_string(input.data, input.size, "crc32", &colen);
@@ -1801,13 +1833,12 @@ int main(int argc, char *argv[]) {
             return 0;
         } else {
             options_t enc_opts = opts;
-            enc_opts.spaces_mode = false;
             enc_opts.tabs_mode = false;
             enc_opts.crlf_mode = false;
             enc_opts.preserve_chars[0] = '\0';
             buffer_t enc = encode_data((uint8_t *)input.data, input.size, &enc_opts);
             size_t clen;
-            char *clean = cj_canonical(enc.data, enc.size, &clen);
+            char *clean = cj_canonical(enc.data, enc.size, &clen, opts.spaces_mode ? 1 : 0);
             char crc_orig[9], crc_enc[9];
             snprintf(crc_orig, 9, "%08x", (unsigned int)pb_crc32(input.data, input.size));
             snprintf(crc_enc, 9, "%08x", (unsigned int)pb_crc32(clean, clen));

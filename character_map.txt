@@ -5,6 +5,13 @@
 ## is the glyph for byte N. Exactly 256 glyph lines. The glyph is the FIRST
 ## whitespace-delimited token on the line.
 ##
+## ASCII passthrough (the core point): letters (A–Z, a–z), digits (0–9), and
+## . @ ^ _ map to THEMSELVES — 66 of the 94 printable non-space bytes — so ASCII
+## text stays legible in the encoded form even when mixed with control/high bytes.
+## The other printable bytes take look-alike glyphs to stay unambiguous: 0x20
+## space -> ␣, plus the 28 punctuation ! " # $ % & ' ( ) * + , - / : ; < = > ? [ \ ] ` { | } ~
+## (see per-line trailing notes). Byte 0x23 '#' -> ♯ is discussed below.
+##
 ## Comments:
 ##   - A line beginning with `##` (two or more '#') is a full-line comment, skipped.
 ##   - A trailing `<glyph> ## comment` is ignored (only the first token is taken).

@@ -21,8 +21,13 @@ local function crc32_hex(data)
   return bit.tohex(bit.bxor(crc, 0xFFFFFFFF))
 end
 
--- Strip transport whitespace (space/tab/CR/LF) from an encoded payload.
-local function canonical_payload(s)
+-- Strip transport whitespace from an encoded payload. Normally all of space/tab/
+-- CR/LF are transport noise. When keep_spaces is set (container --spaces), literal
+-- spaces are DATA, so only tab/CR/LF are stripped as noise.
+local function canonical_payload(s, keep_spaces)
+  if keep_spaces then
+    return (s:gsub("[\t\r\n]", ""))
+  end
   return (s:gsub("[ \t\r\n]", ""))
 end
 
@@ -32,8 +37,6 @@ end
 local function json_get_string(json, key)
   return json:match('"' .. key .. '"%s*:%s*"(.-)"')
 end
-
-
 -- PrintableBinary: A utility to encode/decode binary data into human-readable UTF-8
 -- Module definition
 local PrintableBinary = {}
@@ -1028,19 +1031,45 @@ if arg then
   -- Container (.pbf.json) mode (issue #1): assemble/parse the flat-JSON envelope
   -- over the shared encode/decode + crc32 (A2). Transport-resistant.
   if container_mode then
+    -- Only --spaces is honored in container mode. --tabs/--crlf/-w/--preserve would
+    -- put raw tab/CR/LF (or arbitrary chars) into the JSON value, breaking both
+    -- single-line-JSON validity and the tab/CR/LF-stripping transport-resistance.
+    if tabs_mode or crlf_mode or preserve_chars ~= "" then
+      io.stderr:write("Error: --tabs/--crlf/-w/--preserve are not supported with "
+        .. "--container (only --spaces is honored; other whitespace stays encoded)\n")
+      os.exit(1)
+    end
     if decode_mode then
       local data_raw = json_get_string(input_data, "data")
       if not data_raw then
         io.stderr:write("Error: not a printable-binary-file container (missing 'data')\n")
         os.exit(1)
       end
-      local clean = canonical_payload(data_raw)
+      -- Flagless crc-probe: no schema flag records whether --spaces was used; the
+      -- crc32_encoded oracle disambiguates. Try keeping literal spaces (they're DATA
+      -- in a --spaces container); if the crc mismatches, strip them as transport noise.
+      local clean = canonical_payload(data_raw, true)
+      local spaces = true
       local ce = json_get_string(input_data, "crc32_encoded")
       if ce and crc32_hex(clean) ~= ce then
-        io.stderr:write("Error: container crc32_encoded mismatch (data corrupted)\n")
-        os.exit(1)
+        local stripped = canonical_payload(data_raw, false)
+        if crc32_hex(stripped) == ce then
+          -- Literal spaces were noise. If the space glyph is ALSO present, the payload
+          -- mixed real (glyph) spaces with formatting spaces -> warn we dropped them.
+          local space_glyph = encode_map[32]
+          if space_glyph and clean:find(space_glyph, 1, true) then
+            io.stderr:write("Warning: literal spaces in container data were assumed to be "
+              .. "ignorable formatting because the space glyph " .. space_glyph
+              .. " was also present; stripping them\n")
+          end
+          clean = stripped
+          spaces = false
+        else
+          io.stderr:write("Error: container crc32_encoded mismatch (data corrupted)\n")
+          os.exit(1)
+        end
       end
-      local decoded = PrintableBinary.decode(clean, {})
+      local decoded = PrintableBinary.decode(clean, { spaces = spaces })
       local co = json_get_string(input_data, "crc32")
       if co and crc32_hex(decoded) ~= co then
         io.stderr:write("Error: container crc32 mismatch (decoded data corrupted)\n")
@@ -1049,8 +1078,8 @@ if arg then
       io.write(decoded)
       os.exit(0)
     else
-      local data = PrintableBinary.encode(input_data, {})
-      local clean = canonical_payload(data)
+      local data = PrintableBinary.encode(input_data, { spaces = spaces_mode })
+      local clean = canonical_payload(data, spaces_mode)
       local crc_orig = crc32_hex(input_data)
       local crc_enc = crc32_hex(clean)
       local fname = ""

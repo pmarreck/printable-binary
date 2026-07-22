@@ -214,6 +214,25 @@ paste) and restores the file under its original name. Optional metadata
 (timestamps, POSIX permissions/owner) is included when the tool can read it and
 omitted otherwise; decode never fails on a missing optional field.
 
+**Legible-text containers with `-s`/`--spaces`.** Add `--spaces` to keep literal
+spaces in the `data` value instead of encoding them to the space glyph. Since
+letters, digits and `. @ ^ _` already pass through as themselves, a text file —
+e.g. Markdown — reads naturally inside the container while staying valid,
+single-line JSON (newlines remain `¶` glyphs):
+
+```bash
+./bin/printable-binary -C --spaces notes.md > notes.md.pbf.json
+# data value reads like:  "♯ Title¶¶Some ⁎⁎bold⁎⁎ text.¶˗ a list item¶"
+```
+
+No schema flag records this — the format stays `version: 1`. Decode disambiguates
+with the `crc32_encoded` oracle: it keeps literal spaces if they check out as
+data, otherwise strips them as transport formatting (and warns if the space glyph
+was also present, i.e. the spaces were injected into a non-`--spaces` container).
+`--spaces` is the only preserve flag allowed with `-C`; `--tabs`/`--crlf`/`-w`/
+`--preserve` are rejected, since raw tab/CR/LF would break both JSON validity and
+the whitespace-stripping transport-resistance.
+
 ### Hexlike Mode (`-X`)
 
 `-X`/`--hexlike` is a hybrid view: printable ASCII passes through untouched while

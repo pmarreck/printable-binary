@@ -361,6 +361,13 @@ async function main() {
     }
 
     if (containerMode) {
+      // Only --spaces is honored in container mode; --tabs/--crlf/-w/--preserve
+      // would put raw tab/CR/LF (or arbitrary chars) into the JSON value, breaking
+      // single-line-JSON validity and the tab/CR/LF-stripping transport-resistance.
+      if (tabsMode || crlfMode || preserveChars) {
+        process.stderr.write('Error: --tabs/--crlf/-w/--preserve are not supported with --container (only --spaces is honored; other whitespace stays encoded)\n');
+        process.exit(1);
+      }
       if (decodeMode) {
         const res = pb.decodeText(input.toString('utf8'));
         stats(`Decoded ${res.kind} container${res.filename && res.filename !== 'decoded.bin' ? ' (' + res.filename + ')' : ''}: ${res.bytes.length} bytes`);
@@ -376,7 +383,7 @@ async function main() {
             meta.mode = '0' + (st.mode & 0o777).toString(8);
           } catch (_e) { /* metadata is best-effort */ }
         }
-        const container = pb.encodeToContainer(new Uint8Array(input), meta);
+        const container = pb.encodeToContainer(new Uint8Array(input), meta, { spaces: spacesMode });
         stats(`Encoded ${input.length} bytes -> .pbf.json container (crc32 ${container.crc32})`);
         process.stdout.write(JSON.stringify(container, null, 2) + '\n');
       }

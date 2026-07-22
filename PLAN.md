@@ -19,6 +19,51 @@ maintained_by: agent
       a webhook HTTP response proves delivery, not queue admission or a passing
       build.
 
+## Container honors `--spaces` (legible-markdown containers) — DONE (2026-07-21 EDT)
+
+Goal (Peter): put a markdown file into a `.pbf.json` container but keep it legible;
+`--spaces` was silently ignored in container mode. Fixed across all 5 container
+surfaces (Lua, Node, Zig, standalone-C, FFI-C) + shared `test/test_container`.
+
+- [x] `--spaces` honored in container encode: literal spaces in the JSON `data`
+      value (letters/digits/`. @ ^ _` already pass through, so markdown reads
+      naturally; newlines stay `¶` glyphs → still valid single-line JSON). (2026-07-21 03:00 PM EDT)
+- [x] **Flagless** design (Peter's call): NO `spaces` schema field, `version` stays 1.
+      Decode uses a **crc-probe** — try keeping literal spaces; if `crc32_encoded`
+      mismatches, strip them as transport noise. The crc is the disambiguation oracle. (2026-07-21 03:00 PM EDT)
+- [x] Ambiguity warning: a non-spaces container (space-glyph present) with a
+      transport-injected literal space → recover by stripping + WARN that literal
+      spaces were assumed formatting because the space glyph was also present.
+      Space glyph read from the map (DRY), never hardcoded. (2026-07-21 03:00 PM EDT)
+- [x] `--tabs`/`--crlf`/`-w`/`--preserve` + `--container` = HARD ERROR (would break
+      JSON-validity + transport-resistance). (2026-07-21 03:00 PM EDT)
+- [x] Corrected `character_map.txt` header comment: documents the 66/94 printable-ASCII
+      passthrough (the legibility property), verified behavior-neutral. (2026-07-21 03:00 PM EDT)
+- [x] Guard #4 (map redefines space→space) proven UNNECESSARY: the "first
+      whitespace-delimited token" parser + 256-glyph-count check make a literal-space
+      glyph structurally unloadable (physics over policy). (2026-07-21 03:00 PM EDT)
+- [x] Fixed FFI NULL-deref: `preserve_chars` is `char *` (NULL) in FFI opts, not an
+      array — guard now NULL-checks. Caught by hermetic nix check, not exit code. (2026-07-21 03:00 PM EDT)
+
+## Integrated compression (z7z/LZMA in `-C`) — DECLINED (2026-07-21 EDT)
+
+Considered then dropped (Peter): a user can compress in a pipe chain *before*
+printable-binary and stay truer to the Unix philosophy — no need to bake it in.
+Also, z7z is an archive tool (no raw stdin→stdout stream; `.7z` header +
+nondeterministic mtime would sink a stable "compressed hash"; max level 9), so
+integration would be awkward anyway. If ever revived, the open question is
+LZMA2-library-vs-CLI cross-impl parity (Zig/C could link z7z's core in-process;
+Lua/Node/Rust/Elixir could not without shelling out or their own LZMA).
+
+## Container metadata injection (`-k`/`-v`/`--kv`/`--key-namespace`) — SPEC'd, FUTURE (2026-07-21 EDT)
+
+Design approved by Peter (all forks ruled), NOT yet implemented — a future
+nice-to-have. Attach arbitrary key/value metadata to a container for other
+tooling to read first (xattr / HTTP-`X-`-header analogue). Full spec + TDD plan:
+`docs/plans/2026-07-21-container-metadata-injection-design.md`.
+- [ ] Implement TDD-first (Lua reference → Node → Zig → standalone-C → FFI-C) +
+      extend the shared `test/test_container` guard. Reserved-key rejection is an
+      MFIC cross-impl contract.
 ## Docs and benchmark parity — active (2026-07-17 EDT)
 
 - [x] Document every supported implementation—especially Rust, WebAssembly, and
