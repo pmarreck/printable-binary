@@ -6,6 +6,19 @@ maintained_by: agent
 
 # PLAN — issue #1: decode workflow + printable-binary-file.json
 
+## Mechatron Prime CI — active (2026-07-22 EDT)
+
+- [x] Add the exact-commit Mechatron target manifest and dynamic README badge.
+      Curiosity poke: select only real, complete Linux Nix outputs; a badge is
+      evidence only after the pushed manifest is built by Thelio. (2026-07-22 02:04 PM EDT)
+- [x] Verify every selected target locally. Curiosity poke:
+      the source snapshot must build in Nix rather than merely evaluating.
+      (2026-07-22 02:04 PM EDT)
+- [ ] Commit the green integration, push, and observe the public badge through
+      its final state. Curiosity poke:
+      a webhook HTTP response proves delivery, not queue admission or a passing
+      build.
+
 ## Docs and benchmark parity — active (2026-07-17 EDT)
 
 - [x] Document every supported implementation—especially Rust, WebAssembly, and

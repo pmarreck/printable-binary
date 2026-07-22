@@ -1,6 +1,7 @@
 # Dirtree: Stateful directory trees in the CLI for humans and LLMs. https://github.com/pmarreck/dirtree
 ver=1.2
 annotate=[
+	.mechatron-prime/targets = Exact Nix package and check targets that Mechatron Prime builds from each pushed commit.
 	MEMORIES/WASM benchmarks must stream inputs and APE needs a clean environment = WASI and Cosmopolitan runtime requirements for benchmark adapters.
 	PLAN.md = Issue #1 plan: decode workflow + printable-binary-file.json container
 	bm/benchmark-zig-opt = Benchmarks all available CLI variants, including Rust stdin, WASM, and APE adapters.
@@ -17,6 +18,6 @@ annotate=[
 	test/module_consumer.zig = Test fixture: minimal downstream importer of the printable_binary Zig module (mirrors how difz/blip consume it) for the FFI-symbol-leak test
 	test/test_container = Container (.pbf.json) CLI round-trip + self-verify test, parameterized by IMPLEMENTATION_TO_TEST (issue #1)
 	test/test_container_cross = Cross-impl container differential: impl-A container decodes via impl-B (MFIC, issue #1)
-	test/test_docs_benchmark_contract = Checks docs coverage, mapping byte names, and benchmark implementation inventory.
+	test/test_docs_benchmark_contract = Guards implementation docs, mapping labels, benchmark inventory, and Mechatron CI manifest/badge contract.
 	test/test_module_no_ffi_symbols = Regression test (nm oracle): importing the module must emit 0 pb_* symbols while the FFI static lib keeps all 12 — guards the difz-blocking duplicate-symbol bug
 ]

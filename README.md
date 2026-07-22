@@ -1,6 +1,6 @@
 # PrintableBinary
 
-[![Garnix CI](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fpmarreck%2Fprintable_binary%3Fbranch%3Dyolo)](https://garnix.io/repo/pmarreck/printable_binary)
+[![Mechatron Prime CI](https://img.shields.io/endpoint?url=https%3A%2F%2Fthelio-nixos.tail66c90.ts.net%2Fbadges%2Fprintable_binary.json&style=for-the-badge)](https://thelio-nixos.tail66c90.ts.net/mechatron-prime/)
 [![GitHub CI](https://github.com/pmarreck/printable_binary/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/printable_binary/actions/workflows/ci.yml)
 
 A cross-platform utility with LuaJIT, C, Zig, JavaScript/Node, Rust, WebAssembly, and Cosmopolitan **Actually Portable Executable (APE)** variants for encoding arbitrary binary data into human-readable UTF-8 text, and then decoding it back to the original binary data.
@@ -8,6 +8,13 @@ A cross-platform utility with LuaJIT, C, Zig, JavaScript/Node, Rust, WebAssembly
 ## Overview
 
 PrintableBinary is designed to [de]serialize binary data to/from a visually distinct, human-readable format that is also copy-pastable and embeddable in any UTF-8-aware context. It's an alternative to hexadecimal encoding that offers better visual density and makes embedded ASCII text immediately recognizable, while also making it possible to incorporate binary data into text-based formats (such as JSON, TOML, XML, YAML, etc.) without escaping issues.
+
+### Self-hosted CI
+
+Mechatron Prime builds the exact committed target list in
+[`.mechatron-prime/targets`](.mechatron-prime/targets). For the fleet-wide
+onboarding, webhook, and live-verification procedure, follow the canonical
+[Mechatron Prime CI guide](https://github.com/pmarreck/mechatron-prime/blob/yolo/MECHATRON_PRIME_CI.md).
 
 This implementation allows you to view binary data directly in a terminal (it even has a pipe inspection mode with `--passthrough`) without breaking the display, making it particularly useful for debugging, logging, sharing binary data in human-readable form, embedding binary values directly in tests as legible inline literals instead of separate fixture files, and even dragging files into a web UI for instant encode/decode.
 
