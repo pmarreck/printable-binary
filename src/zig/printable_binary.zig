@@ -112,6 +112,20 @@ const padded_map_data: [256][4]u8 = blk: {
     break :blk data;
 };
 
+/// Check one vector-width block against the map's literal ASCII passthrough
+/// ranges. This is the simdutf-style common-case gate: successful blocks copy
+/// unchanged, while mixed/binary input immediately falls back to scalar slots.
+fn isSelfMappedBlock16(bytes: *const [16]u8) bool {
+    const ByteVector = @Vector(16, u8);
+    const block: ByteVector = bytes.*;
+    const period = block == @as(ByteVector, @splat('.'));
+    const digits = (block >= @as(ByteVector, @splat('0'))) & (block <= @as(ByteVector, @splat('9')));
+    const upper = (block >= @as(ByteVector, @splat('A'))) & (block <= @as(ByteVector, @splat('Z')));
+    const punctuation = (block >= @as(ByteVector, @splat('^'))) & (block <= @as(ByteVector, @splat('_')));
+    const lower = (block >= @as(ByteVector, @splat('a'))) & (block <= @as(ByteVector, @splat('z')));
+    return @reduce(.And, period | digits | upper | punctuation | lower);
+}
+
 /// Direct O(1) decode lookup for 1-byte UTF-8 sequences
 const decode_1byte: [256]?u8 = blk: {
     @setEvalBranchQuota(100000);
@@ -379,8 +393,15 @@ fn encodeDefault(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
     var result = try allocator.alloc(u8, capacity);
     errdefer allocator.free(result);
 
+    var input_pos: usize = 0;
     var pos: usize = 0;
-    for (input) |byte| {
+    while (input.len - input_pos >= 16 and isSelfMappedBlock16(input[input_pos..][0..16])) {
+        @memcpy(result[pos..][0..16], input[input_pos..][0..16]);
+        input_pos += 16;
+        pos += 16;
+    }
+
+    for (input[input_pos..]) |byte| {
         @memcpy(result[pos..][0..4], &padded_map_data[byte]);
         pos += flat_map_entries[byte].len;
     }
@@ -1143,6 +1164,14 @@ test "encode: ASCII passthrough characters are preserved" {
     defer allocator.free(encoded);
     // These ASCII chars should pass through (their map entry equals themselves)
     try std.testing.expectEqualStrings("Hello.World@123", encoded);
+}
+
+test "encode: 16-byte literal prefix remains compact before a mapped glyph" {
+    const allocator = std.testing.allocator;
+    const input = "ABCDEFGHIJKLMNOP\x00";
+    const encoded = try encode(allocator, input, .{});
+    defer allocator.free(encoded);
+    try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOP" ++ character_map[0], encoded);
 }
 
 test "encode: spaces option preserves literal spaces" {

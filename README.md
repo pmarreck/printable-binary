@@ -77,6 +77,7 @@ The Rust crate also has an in-process codec microbenchmark (`nix develop -c carg
 Key optimizations in the Zig core:
 - **Pre-allocated buffers**: encode/decode output sized upfront (no growth checks in the hot loop).
 - **Flat character map**: a comptime-built contiguous byte buffer (~1.5 KB) replacing 256 scattered fat pointers — fits in L1 cache.
+- **SIMD literal-prefix gate**: a portable 16-byte vector check copies a contiguous run of literal passthrough glyphs unchanged, then falls back to the compact variable-width mapper at the first mapped byte.
 - **O(1) decode lookup**: direct tables for 1- and 2-byte UTF-8 sequences plus a compact 24 KiB table for the map's three 3-byte lead-byte planes, replacing the former binary search.
 - **No inner decode loop**: a single UTF-8 length check + direct lookup per character.
 

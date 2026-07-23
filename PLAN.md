@@ -45,11 +45,13 @@ maintained_by: agent
       classifier branch. Curiosity poke: revisit only with a genuinely vector
       block classifier that does not tax non-passthrough data. (2026-07-23
       12:25 AM EDT)
-- [ ] Prototype a portable SIMD/hybrid classifier only if the measured
-      scalar loop remains dominant. Use `simdutf` as a technique reference,
-      not a dependency: its UTF-8 transcoder cannot directly express this
-      custom byte-to-glyph map. Curiosity poke: 1–3-byte output compaction can
-      cost more than the scalar table path on mixed data.
+- [x] Add a portable 16-byte SIMD literal-prefix gate using `@Vector`, modeled
+      on simdutf's block classification rather than depending on it. LLVM emits
+      a `<16 x i8>` load and vector range checks. Mixed encode remains
+      ~612–629 MB/s; a 10 MB all-literal CLI input improved from 46.2 to
+      37.1 ms (~20%). Curiosity poke: this gate stops at the first mapped glyph,
+      so prose containing default-encoded spaces needs a separate benchmarked
+      design. (2026-07-23 12:28 AM EDT)
 
 ## Container honors `--spaces` (legible-markdown containers) — DONE (2026-07-21 EDT)
 
