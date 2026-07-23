@@ -139,65 +139,57 @@ const decode_2byte: [32][64]?u8 = blk: {
     break :blk table;
 };
 
-/// Sorted lookup table for 3-byte UTF-8 sequences (binary search on ~30 entries)
-const Decode3Entry = struct {
-    codepoint: u16,
-    value: u8,
-};
-
-const decode_3byte_count: usize = blk: {
+/// Number of distinct UTF-8 lead bytes used by the map's 3-byte glyphs.
+/// The current map uses E1, E2, and EA, so its direct table occupies 24 KiB.
+const decode_3byte_lead_count: usize = blk: {
+    var seen = [_]bool{false} ** 256;
     var count: usize = 0;
-    for (0..256) |i| {
-        if (character_map[i].len == 3) count += 1;
+    for (character_map) |glyph| {
+        if (glyph.len == 3 and !seen[glyph[0]]) {
+            seen[glyph[0]] = true;
+            count += 1;
+        }
     }
     break :blk count;
 };
 
-const decode_3byte_table: [decode_3byte_count]Decode3Entry = blk: {
-    @setEvalBranchQuota(100000);
-    var entries: [decode_3byte_count]Decode3Entry = undefined;
-    var idx: usize = 0;
-    for (0..256) |i| {
-        if (character_map[i].len == 3) {
-            const b = character_map[i];
-            const cp: u16 = (@as(u16, b[0] & 0x0F) << 12) |
-                (@as(u16, b[1] & 0x3F) << 6) |
-                @as(u16, b[2] & 0x3F);
-            entries[idx] = .{ .codepoint = cp, .value = @intCast(i) };
-            idx += 1;
+/// Maps a 3-byte UTF-8 lead byte to its compact table index, if present.
+const decode_3byte_lead_index: [256]?u8 = blk: {
+    var indices = [_]?u8{null} ** 256;
+    var next: u8 = 0;
+    for (character_map) |glyph| {
+        if (glyph.len == 3 and indices[glyph[0]] == null) {
+            indices[glyph[0]] = next;
+            next += 1;
         }
     }
-    // Insertion sort by codepoint
-    for (0..decode_3byte_count) |i| {
-        var j = i;
-        while (j > 0 and entries[j].codepoint < entries[j - 1].codepoint) {
-            const tmp = entries[j];
-            entries[j] = entries[j - 1];
-            entries[j - 1] = tmp;
-            j -= 1;
+    break :blk indices;
+};
+
+/// Direct O(1) lookup for 3-byte glyphs, compacted by actual lead bytes.
+/// 0x100 is an out-of-range sentinel, avoiding a collision with source byte FF.
+const decode_3byte: [decode_3byte_lead_count][64][64]u16 = blk: {
+    @setEvalBranchQuota(300000);
+    var table: [decode_3byte_lead_count][64][64]u16 = undefined;
+    for (0..decode_3byte_lead_count) |lead| {
+        for (0..64) |second| {
+            for (0..64) |third| table[lead][second][third] = 0x100;
         }
     }
-    break :blk entries;
+    for (character_map, 0..) |glyph, i| {
+        if (glyph.len == 3) {
+            const lead = decode_3byte_lead_index[glyph[0]].?;
+            table[lead][glyph[1] & 0x3F][glyph[2] & 0x3F] = @intCast(i);
+        }
+    }
+    break :blk table;
 };
 
 fn decode3ByteLookup(bytes: []const u8) ?u8 {
     if (bytes.len < 3) return null;
-    const cp: u16 = (@as(u16, bytes[0] & 0x0F) << 12) |
-        (@as(u16, bytes[1] & 0x3F) << 6) |
-        @as(u16, bytes[2] & 0x3F);
-    var left: usize = 0;
-    var right: usize = decode_3byte_count;
-    while (left < right) {
-        const mid = left + (right - left) / 2;
-        if (decode_3byte_table[mid].codepoint == cp) {
-            return decode_3byte_table[mid].value;
-        } else if (decode_3byte_table[mid].codepoint < cp) {
-            left = mid + 1;
-        } else {
-            right = mid;
-        }
-    }
-    return null;
+    const lead = decode_3byte_lead_index[bytes[0]] orelse return null;
+    const value = decode_3byte[lead][bytes[1] & 0x3F][bytes[2] & 0x3F];
+    return if (value == 0x100) null else @intCast(value);
 }
 
 /// Encoding options

@@ -33,10 +33,12 @@ maintained_by: agent
       capacity; exposing an owned-capacity buffer is an API design, not a
       transparent micro-optimization. Curiosity poke: callers must never
       observe stale bytes after a shorter subsequent encode/decode.
-- [ ] Prototype and measure a cache-resident O(1) decoder for the 28 three-byte
-      glyphs before replacing the current ~100-byte binary-search table.
-      Curiosity poke: a 24 KB direct table may cost more cache than five
-      predictable comparisons.
+- [x] Prototype and measure a cache-resident O(1) decoder for the 28 three-byte
+      glyphs. The compact three-lead-byte table is 24 KiB and improves mixed
+      decode from ~310 to 330–341 MB/s (~8%), so it replaces the ~100-byte
+      binary-search table. Curiosity poke: cross-architecture measurements
+      still decide whether the cache trade holds beyond this x86_64 host.
+      (2026-07-23 12:22 AM EDT)
 - [ ] Prototype a portable SIMD/hybrid classifier only if the measured
       scalar loop remains dominant. Use `simdutf` as a technique reference,
       not a dependency: its UTF-8 transcoder cannot directly express this
