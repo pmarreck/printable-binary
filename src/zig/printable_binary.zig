@@ -466,6 +466,12 @@ fn decodeDefault(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
 
     var i: usize = 0;
     var pos: usize = 0;
+    while (input.len - i >= 16 and isSelfMappedBlock16(input[i..][0..16])) {
+        @memcpy(result[pos..][0..16], input[i..][0..16]);
+        i += 16;
+        pos += 16;
+    }
+
     while (i < input.len) {
         const seq_len = utf8SeqLen(input[i]);
         const remaining = input.len - i;
@@ -1195,6 +1201,14 @@ test "decode: unrecognized UTF-8 passes through" {
     const decoded = try decode(allocator, input, .{});
     defer allocator.free(decoded);
     try std.testing.expectEqualSlices(u8, input, decoded);
+}
+
+test "decode: 16-byte literal prefix reaches the following mapped glyph" {
+    const allocator = std.testing.allocator;
+    const input = "ABCDEFGHIJKLMNOP" ++ character_map[0];
+    const decoded = try decode(allocator, input, .{});
+    defer allocator.free(decoded);
+    try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOP\x00", decoded);
 }
 
 test "decode: mixed known and unknown UTF-8" {

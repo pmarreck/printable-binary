@@ -49,9 +49,10 @@ maintained_by: agent
       on simdutf's block classification rather than depending on it. LLVM emits
       a `<16 x i8>` load and vector range checks. Mixed encode remains
       ~612–629 MB/s; a 10 MB all-literal CLI input improved from 46.2 to
-      37.1 ms (~20%). Curiosity poke: this gate stops at the first mapped glyph,
-      so prose containing default-encoded spaces needs a separate benchmarked
-      design. (2026-07-23 12:28 AM EDT)
+      37.1 ms (~20%) on encode and from 41.6 to 25.1 ms (~40%) on decode.
+      Curiosity poke: this gate stops at the first mapped glyph, so prose
+      containing default-encoded spaces needs a separate benchmarked design.
+      (2026-07-23 12:35 AM EDT)
 
 ## Container honors `--spaces` (legible-markdown containers) — DONE (2026-07-21 EDT)
 
