@@ -99,6 +99,19 @@ const flat_map_entries: [256]FlatMapEntry = blk: {
     break :blk entries;
 };
 
+/// Four-byte internal slots let the default encoder use one fixed-width write
+/// per glyph while retaining the compact 1–3 byte PrintableBinary wire format.
+/// The final three bytes are allocation-only padding and are excluded on return.
+const padded_map_data: [256][4]u8 = blk: {
+    @setEvalBranchQuota(100000);
+    var data = [_][4]u8{[_]u8{0} ** 4} ** 256;
+    for (0..256) |i| {
+        const glyph = character_map[i];
+        for (glyph, 0..) |byte, j| data[i][j] = byte;
+    }
+    break :blk data;
+};
+
 /// Direct O(1) decode lookup for 1-byte UTF-8 sequences
 const decode_1byte: [256]?u8 = blk: {
     @setEvalBranchQuota(100000);
@@ -365,11 +378,33 @@ fn decodeLookup(bytes: []const u8) ?u8 {
     }
 }
 
+/// Encode the common option-free case with fixed-width internal writes.
+/// Each map glyph is stored in a four-byte slot, avoiding per-glyph variable
+/// copies; only the true 1–3 byte length advances the public output.
+fn encodeDefault(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+    // Three trailing bytes make a four-byte store safe even for the final glyph.
+    const capacity = try std.math.add(usize, try std.math.mul(usize, input.len, 3), 3);
+    var result = try allocator.alloc(u8, capacity);
+    errdefer allocator.free(result);
+
+    var pos: usize = 0;
+    for (input) |byte| {
+        @memcpy(result[pos..][0..4], &padded_map_data[byte]);
+        pos += flat_map_entries[byte].len;
+    }
+
+    return allocator.realloc(result, pos);
+}
+
 /// Encode binary data to printable UTF-8.
+/// The option-free path specializes the dominant CLI/library workload so
+/// disabled formatting switches do not branch inside the per-byte loop.
 /// Caller owns the returned slice and must free it with the same allocator.
 pub fn encode(allocator: std.mem.Allocator, input: []const u8, options: EncodeOptions) ![]u8 {
-    if (input.len == 0) {
-        return try allocator.alloc(u8, 0);
+    if (input.len == 0) return try allocator.alloc(u8, 0);
+
+    if (!options.spaces and !options.tabs and !options.crlf and options.preserve_chars.len == 0) {
+        return encodeDefault(allocator, input);
     }
 
     // Pre-allocate worst case: every byte → max 3-byte UTF-8
@@ -410,10 +445,44 @@ pub fn encode(allocator: std.mem.Allocator, input: []const u8, options: EncodeOp
 
 /// Decode printable UTF-8 back to binary data.
 /// Unrecognized UTF-8 characters pass through unchanged.
+/// The normal path has neither literal-space nor whitespace formatting rules;
+/// specializing it keeps those option checks out of the UTF-8 character loop.
+fn decodeDefault(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+    var result = try allocator.alloc(u8, input.len);
+    errdefer allocator.free(result);
+
+    var i: usize = 0;
+    var pos: usize = 0;
+    while (i < input.len) {
+        const seq_len = utf8SeqLen(input[i]);
+        const remaining = input.len - i;
+        const actual_len: usize = if (seq_len > remaining) remaining else seq_len;
+
+        if (actual_len == seq_len) {
+            if (decodeLookup(input[i .. i + actual_len])) |byte| {
+                result[pos] = byte;
+                pos += 1;
+                i += actual_len;
+                continue;
+            }
+        }
+
+        @memcpy(result[pos..][0..actual_len], input[i..][0..actual_len]);
+        pos += actual_len;
+        i += actual_len;
+    }
+
+    return allocator.realloc(result, pos);
+}
+
+/// Decode printable UTF-8 back to binary data.
+/// Unrecognized UTF-8 characters pass through unchanged.
 /// Caller owns the returned slice and must free it with the same allocator.
 pub fn decode(allocator: std.mem.Allocator, input: []const u8, options: DecodeOptions) ![]u8 {
-    if (input.len == 0) {
-        return try allocator.alloc(u8, 0);
+    if (input.len == 0) return try allocator.alloc(u8, 0);
+
+    if (!options.spaces and !options.strip_whitespace) {
+        return decodeDefault(allocator, input);
     }
 
     // Optionally strip whitespace (pre-allocated buffer, no ArrayList)

@@ -22,13 +22,26 @@ maintained_by: agent
 
 ## Deferred performance investigation
 
-- [ ] Benchmark SIMD feasibility for PrintableBinary encode/decode using
-      `simdutf` as a technique reference (or dependency only if it cleanly
-      fits). Start with a scalar profile and a reproducible before/after
-      benchmark; prioritize byte classification, UTF-8 validation, and
-      variable-width packing only where measurements show a bottleneck.
-      Curiosity poke: per-byte map lookup plus 1–3-byte output may make gathers
-      and compaction slower than the scalar table path on real inputs.
+- [x] Baseline the deterministic 10 MB mixed-byte core benchmark against Rust,
+      then implement and measure a four-byte internal glyph slot. Zig began at
+      236 MB/s encode / 308 MB/s decode; Rust measured 300/462 MB/s alloc/call.
+      The compact-wire-format-preserving slot plus default-option fast path
+      reaches 605–631 MB/s encode; decode remains ~310 MB/s. (2026-07-23
+      12:17 AM EDT)
+- [ ] Measure reusable-output ownership only if a consumer needs it. The public
+      `[]u8` API must shrink before return, whereas Rust's `Vec` retains
+      capacity; exposing an owned-capacity buffer is an API design, not a
+      transparent micro-optimization. Curiosity poke: callers must never
+      observe stale bytes after a shorter subsequent encode/decode.
+- [ ] Prototype and measure a cache-resident O(1) decoder for the 28 three-byte
+      glyphs before replacing the current ~100-byte binary-search table.
+      Curiosity poke: a 24 KB direct table may cost more cache than five
+      predictable comparisons.
+- [ ] Prototype a portable SIMD/hybrid classifier only if the measured
+      scalar loop remains dominant. Use `simdutf` as a technique reference,
+      not a dependency: its UTF-8 transcoder cannot directly express this
+      custom byte-to-glyph map. Curiosity poke: 1–3-byte output compaction can
+      cost more than the scalar table path on mixed data.
 
 ## Container honors `--spaces` (legible-markdown containers) — DONE (2026-07-21 EDT)
 
