@@ -39,6 +39,12 @@ maintained_by: agent
       binary-search table. Curiosity poke: cross-architecture measurements
       still decide whether the cache trade holds beyond this x86_64 host.
       (2026-07-23 12:22 AM EDT)
+- [x] Reject a scalar ASCII passthrough-run copy fast path. It improved a 10 MB
+      all-`A` CLI run only ~4% (within process/I/O noise) but slowed the mixed
+      core encoder from ~600 to ~498 MB/s (~17%) because every byte paid the
+      classifier branch. Curiosity poke: revisit only with a genuinely vector
+      block classifier that does not tax non-passthrough data. (2026-07-23
+      12:25 AM EDT)
 - [ ] Prototype a portable SIMD/hybrid classifier only if the measured
       scalar loop remains dominant. Use `simdutf` as a technique reference,
       not a dependency: its UTF-8 transcoder cannot directly express this
