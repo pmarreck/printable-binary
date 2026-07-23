@@ -14,10 +14,21 @@ maintained_by: agent
 - [x] Verify every selected target locally. Curiosity poke:
       the source snapshot must build in Nix rather than merely evaluating.
       (2026-07-22 02:04 PM EDT)
-- [ ] Commit the green integration, push, and observe the public badge through
+- [x] Commit the green integration, push, and observe the public badge through
       its final state. Curiosity poke:
       a webhook HTTP response proves delivery, not queue admission or a passing
-      build.
+      build. Pushed as `1281b38`; Mechatron reported `PASSING` on
+      2026-07-22 10:28 PM EDT.
+
+## Deferred performance investigation
+
+- [ ] Benchmark SIMD feasibility for PrintableBinary encode/decode using
+      `simdutf` as a technique reference (or dependency only if it cleanly
+      fits). Start with a scalar profile and a reproducible before/after
+      benchmark; prioritize byte classification, UTF-8 validation, and
+      variable-width packing only where measurements show a bottleneck.
+      Curiosity poke: per-byte map lookup plus 1–3-byte output may make gathers
+      and compaction slower than the scalar table path on real inputs.
 
 ## Container honors `--spaces` (legible-markdown containers) — DONE (2026-07-21 EDT)
 
