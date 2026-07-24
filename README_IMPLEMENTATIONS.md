@@ -24,7 +24,7 @@ PrintableBinary is available in multiple high-performance implementations:
 - **Full CLI parity**: Same arguments and mapping behavior as the native C binary
 - **Measured honestly**: The benchmark includes wazero startup and runtime overhead
 
-### 🦎 **Zig Implementation** (Modern, Memory-Safe)
+### 🦎 **Zig Implementation** (Canonical CLI)
 - **Memory-safe**: Zig's safety features catch bugs at compile time and runtime
 - **Cross-compilation**: Easy cross-compilation to many platforms from a single host
 - **Fast compilation**: Incremental builds and fast compile times
@@ -41,7 +41,7 @@ PrintableBinary is available in multiple high-performance implementations:
 - **Portable runtime**: Runs in browsers, Node.js, and compatible bundlers
 - **CLI parity**: Node exposes the full user-facing command surface
 
-### ⚡ **LuaJIT Implementation** (Original)
+### ⚡ **LuaJIT Implementation** (Explicit Legacy CLI)
 - **Reference implementation**: Easy to modify and extend
 - **Well-tested**: Extensive test suite and battle-tested
 - **Development-friendly**: Rapid prototyping and debugging
@@ -115,11 +115,11 @@ WASM has the C CLI's feature set. The runtime does not automatically inherit hos
 ```bash
 # Build with Nix
 nix build .#printableBinaryZig
-./result-zig/bin/printable-binary-zig file.bin
+./result-zig/bin/printable-binary file.bin
 
 # Or build directly with Zig
 zig build -Doptimize=ReleaseFast
-./zig-out/bin/printable-binary-zig file.bin
+./zig-out/bin/printable-binary file.bin
 ```
 
 ### Rust Implementation
@@ -141,8 +141,8 @@ Use Rust as an embedded codec or a Rust↔Zig transport boundary. Its CLI curren
 
 ```bash
 # Already optimized and ready to use
-./bin/printable-binary file.bin
-./bin/printable-binary -d encoded_file.txt
+./bin/printable-binary-luajit file.bin
+./bin/printable-binary-luajit -d encoded_file.txt
 ```
 
 ## Installation Options
@@ -490,7 +490,7 @@ dd if=/dev/urandom of=test.bin bs=1M count=1
 
 # Binary compatibility test
 ./bin/printable-binary-c test.bin > c_output.txt
-./bin/printable-binary test.bin > lua_output.txt
+./bin/printable-binary-luajit test.bin > lua_output.txt
 cmp c_output.txt lua_output.txt && echo "✓ Outputs identical"
 ```
 

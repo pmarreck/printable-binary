@@ -199,7 +199,7 @@ Five container surfaces, each already exercised by the parameterized
 
 | Surface        | File(s)                                   | Notes |
 |----------------|-------------------------------------------|-------|
-| Lua (reference)| `bin/printable-binary`                    | implement first |
+| Lua (reference)| `bin/printable-binary-luajit`             | implement first |
 | Node           | `bin/printable-binary-node.js`, `js/printable_binary.js` | only impl with auto `mime`/`mode`/… → needs the override-merge |
 | Zig            | `src/zig/main.zig` (container in the CLI, not the core) | manual JSON string build |
 | standalone C   | `src/printable_binary.c` + `src/container_json.h` | array `preserve_chars` |

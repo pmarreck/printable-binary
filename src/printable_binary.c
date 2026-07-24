@@ -1647,6 +1647,33 @@ static options_t parse_options(int argc, char *argv[]) {
     return opts;
 }
 
+/// Return a monotonic wall-clock timestamp for comparable CLI pipeline rates.
+static double throughput_now_seconds(void) {
+#if defined(_WIN32)
+    static LARGE_INTEGER frequency;
+    LARGE_INTEGER counter;
+    if (frequency.QuadPart == 0) QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / (double)frequency.QuadPart;
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+        return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
+    }
+    return (double)clock() / (double)CLOCKS_PER_SEC;
+#endif
+}
+
+/// Emit input-byte throughput after output is flushed so UTF-8 expansion is explicit.
+static void print_input_throughput(bool enabled, size_t input_bytes_read, double started_at) {
+    if (!enabled) return;
+    double elapsed = throughput_now_seconds() - started_at;
+    if (elapsed < 0.0005) elapsed = 0.0005;
+    double megabytes = (double)input_bytes_read / 1000000.0;
+    fprintf(stderr, "Input throughput: %.2f MB read in %.3f s (%.2f MB/s)\n",
+            megabytes, elapsed, megabytes / elapsed);
+}
+
 
 #ifndef PRINTABLE_BINARY_NO_MAIN
 /* CLI-only leak-test support: the WASM build excludes the buffer_free/CLI path. */
@@ -1741,8 +1768,12 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    // Measure the user-visible pipeline: input read, codec work, and output write.
+    double throughput_started_at = throughput_now_seconds();
+
     // Read input
     buffer_t input = read_file(opts.input_file);
+    size_t input_bytes_read = input.size;
 
     // Apply byte range if specified
     if (opts.has_range_start || opts.has_range_end) {
@@ -1830,6 +1861,8 @@ int main(int argc, char *argv[]) {
                 if (colen != 8 || memcmp(hx, co, 8) != 0) { fprintf(stderr, "Error: container crc32 mismatch (decoded data corrupted)\n"); return 1; }
             }
             fwrite(dec.data, 1, dec.size, stdout);
+            fflush(stdout);
+            print_input_throughput(stats_enabled, input_bytes_read, throughput_started_at);
             return 0;
         } else {
             options_t enc_opts = opts;
@@ -1849,6 +1882,8 @@ int main(int argc, char *argv[]) {
             printf("\",\n  \"byte_length\": %zu,\n  \"crc32\": \"%s\",\n  \"crc32_encoded\": \"%s\",\n  \"data\": \"", input.size, crc_orig, crc_enc);
             fwrite(enc.data, 1, enc.size, stdout);
             printf("\"\n}\n");
+            fflush(stdout);
+            print_input_throughput(stats_enabled, input_bytes_read, throughput_started_at);
             return 0;
         }
     }
@@ -1982,6 +2017,9 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    fflush(stdout);
+    fflush(stderr);
+    print_input_throughput(stats_enabled, input_bytes_read, throughput_started_at);
     free(input.data);
     return 0;
 }

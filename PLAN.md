@@ -20,6 +20,23 @@ maintained_by: agent
       build. Pushed as `1281b38`; Mechatron reported `PASSING` on
       2026-07-22 10:28 PM EDT.
 
+## Canonical Zig CLI migration — active (2026-07-24 EDT)
+
+- [x] Make the compiled Zig CLI the `printable-binary` installation and PATH
+      name; retain the legacy LuaJIT CLI as `printable-binary-luajit`.
+      Curiosity poke: package, development, benchmark, documentation, and
+      direct-script entry points must all select the same implementation while
+      both CLIs remain independently usable. Nix package/install, local `bin/`,
+      benchmark discovery, docs, and `test-cli-layout` now agree; `./build_all`
+      builds Linux C, Zig, WASM, and APE outputs. (2026-07-24 02:49 PM EDT)
+- [x] Add a common stderr processed-input throughput line to every CLI
+      implementation. Curiosity poke: rate must use elapsed wall time and
+      input bytes (the stable denominator across encode/decode), must not
+      pollute stdout, and must remain finite for tiny inputs. Every CLI now
+      emits `Input throughput: … MB read … (… MB/s)` with decimal MB and MB/s
+      rounded to two places; tests cover encode/decode where supported.
+      (2026-07-24 02:49 PM EDT)
+
 ## Deferred performance investigation
 
 - [x] Baseline the deterministic 10 MB mixed-byte core benchmark against Rust,
@@ -202,7 +219,7 @@ ALL-EXECUTABLES STATUS (Peter's ask):
 - [ ] Zig CLI (src/zig/main.zig) — core has crc32; use std.json for the envelope.
 - [ ] C FFI CLI (src/printable_binary_ffi_main.c) — pb_crc32 + hand-rolled flat JSON.
 - [ ] C standalone (src/printable_binary.c) — own crc32 + hand-rolled flat JSON.
-- [ ] Lua (bin/printable-binary) — own crc32 + Lua JSON.
+- [ ] Lua (bin/printable-binary-luajit) — own crc32 + Lua JSON.
 PATTERN for each: add `-C` (encode→container, `-d -C` decode→restore+self-verify),
 crc32 VECTOR-PINNED to CRC32("123456789")=0xCBF43926 (so all impls agree), then add
 a test-container-<impl> flake check running test/test_container against it. Once ≥2

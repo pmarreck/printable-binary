@@ -84,10 +84,10 @@ build_zig() {
     log_info "Building Zig binary..."
     if nix build .#printableBinaryZig -o result-zig 2>&1; then
         mkdir -p bin
-        cp -f result-zig/bin/printable-binary-zig bin/
+        cp -f result-zig/bin/printable-binary bin/
         cp -f result-zig/bin/character_map.txt bin/ 2>/dev/null || true
-        chmod +x bin/printable-binary-zig
-        log_success "Zig binary: bin/printable-binary-zig"
+        chmod +x bin/printable-binary
+        log_success "Zig binary: bin/printable-binary"
     else
         log_error "Zig build failed"
         return 1
@@ -154,12 +154,16 @@ build_all() {
     if nix build .#default -o result 2>&1; then
         mkdir -p bin
         cp -f result/bin/printable-binary-c bin/ 2>/dev/null || true
-        cp -f result/bin/printable-binary-zig bin/ 2>/dev/null || true
+        cp -f result/bin/printable-binary bin/ 2>/dev/null || true
         cp -f result/bin/printable-binary.wasm bin/ 2>/dev/null || true
         cp -f result/bin/printable-binary-ape.com bin/ 2>/dev/null || true
         cp -f result/bin/character_map.txt bin/ 2>/dev/null || true
-        chmod +x bin/printable-binary-c bin/printable-binary-zig 2>/dev/null || true
-        log_success "Native, Zig, and WASM built successfully"
+        chmod +x bin/printable-binary-c bin/printable-binary 2>/dev/null || true
+        if [[ "$(uname -s)" == "Linux" ]]; then
+            log_success "Native C, Zig, WASM, and APE built successfully"
+        else
+            log_success "Native C, Zig, and WASM built successfully"
+        fi
     else
         log_error "Build failed"
         return 1
@@ -176,7 +180,7 @@ build_all() {
 
     echo ""
     echo "Built artifacts:"
-    ls -la bin/printable-binary-c bin/printable-binary-zig bin/printable-binary.wasm bin/printable-binary-ape.com 2>/dev/null || true
+    ls -la bin/printable-binary bin/printable-binary-c bin/printable-binary.wasm bin/printable-binary-ape.com bin/printable-binary-luajit 2>/dev/null || true
 }
 
 run_tests() {
@@ -184,9 +188,9 @@ run_tests() {
     local failed=0
 
     # Test Lua implementation (original)
-    if [[ -x bin/printable-binary ]]; then
+    if [[ -x bin/printable-binary-luajit ]]; then
         log_info "Testing Lua implementation..."
-        if ./test/test; then
+        if IMPLEMENTATION_TO_TEST=./bin/printable-binary-luajit ./test/test; then
             log_success "Lua tests passed"
         else
             log_error "Lua tests failed"
@@ -206,9 +210,9 @@ run_tests() {
     fi
 
     # Test Zig implementation
-    if [[ -x bin/printable-binary-zig ]]; then
+    if [[ -x bin/printable-binary ]]; then
         log_info "Testing Zig implementation..."
-        if IMPLEMENTATION_TO_TEST=./bin/printable-binary-zig ./test/test; then
+        if IMPLEMENTATION_TO_TEST=./bin/printable-binary ./test/test; then
             log_success "Zig tests passed"
         else
             log_error "Zig tests failed"
@@ -247,7 +251,7 @@ WASM_EOF
 clean() {
     log_info "Cleaning build artifacts..."
     rm -f result result-native result-wasm result-ape 2>/dev/null || true
-    rm -f bin/printable-binary-c bin/printable-binary-zig bin/printable-binary.wasm bin/printable-binary-ape.com 2>/dev/null || true
+    rm -f bin/printable-binary bin/printable-binary-c bin/printable-binary.wasm bin/printable-binary-ape.com 2>/dev/null || true
     log_success "Cleaned"
 }
 

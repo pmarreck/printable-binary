@@ -116,7 +116,7 @@ local function run_benchmark()
     print("=====================================")
     print("")
     
-    local original_script = "./bin/printable-binary"
+    local original_script = "./bin/printable-binary-luajit"
     local optimized_script = "./printable_binary_optimized"
     
     -- Check if both scripts exist
@@ -224,7 +224,7 @@ local function run_memory_test()
         print("")
     end
     
-    test_memory("./bin/printable-binary", "Original")
+    test_memory("./bin/printable-binary-luajit", "Original")
     test_memory("./printable_binary_optimized", "Optimized")
     
     os.remove(temp_file)

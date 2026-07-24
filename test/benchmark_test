@@ -13,7 +13,7 @@ echo -e "${BLUE}=== PrintableBinary Performance Benchmark ===${NC}"
 # Auto-detect the correct path based on script location
 SCRIPT_DIR="$(dirname "$0")"
 # Default to the Zig implementation (reference build); override with IMPLEMENTATION_TO_TEST.
-DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../zig-out/bin/printable-binary-zig"
+DEFAULT_IMPLEMENTATION="$SCRIPT_DIR/../zig-out/bin/printable-binary"
 SCRIPT="${IMPLEMENTATION_TO_TEST:-$DEFAULT_IMPLEMENTATION}"
 echo "==> Implementation under test: $SCRIPT" >&2
 if [ ! -e "$SCRIPT" ] && ! command -v "$SCRIPT" >/dev/null 2>&1; then

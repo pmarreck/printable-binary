@@ -699,6 +699,34 @@ if arg then
     end
   end
 
+  -- Use a wall clock for CLI pipeline timing; fall back to Lua CPU time on a
+  -- non-POSIX LuaJIT host where gettimeofday is unavailable.
+  local now_seconds = os.clock
+  if ffi.os ~= "Windows" then
+    local cdef_ok = pcall(ffi.cdef, [[
+      struct timeval { long tv_sec; long tv_usec; };
+      int gettimeofday(struct timeval *tv, void *tz);
+    ]])
+    if cdef_ok then
+      local tv = ffi.new("struct timeval[1]")
+      now_seconds = function()
+        if ffi.C.gettimeofday(tv, nil) == 0 then
+          return tonumber(tv[0].tv_sec) + tonumber(tv[0].tv_usec) / 1000000
+        end
+        return os.clock()
+      end
+    end
+  end
+
+  local function report_input_throughput(input_bytes_read, started_at)
+    local elapsed = math.max(now_seconds() - started_at, 0.0005)
+    local megabytes = input_bytes_read / 1000000
+    stats_write(string.format(
+      "Input throughput: %.2f MB read in %.3f s (%.2f MB/s)\n",
+      megabytes, elapsed, megabytes / elapsed
+    ))
+  end
+
   -- Main program
   if #arg == 0 then
     -- Check if stdin is a terminal
@@ -987,6 +1015,9 @@ if arg then
     os.exit(0)
   end
 
+  -- Measure the user-visible pipeline: input read, codec work, and output write.
+  local throughput_started_at = now_seconds()
+
   -- Read input data
   local input_data
   if file_path then
@@ -994,6 +1025,7 @@ if arg then
   else
     input_data = read_stdin()
   end
+  local input_bytes_read = #input_data
 
   -- Apply byte range if specified
   if range_start ~= nil or range_end ~= nil then
@@ -1076,6 +1108,7 @@ if arg then
         os.exit(1)
       end
       io.write(decoded)
+      report_input_throughput(input_bytes_read, throughput_started_at)
       os.exit(0)
     else
       local data = PrintableBinary.encode(input_data, { spaces = spaces_mode })
@@ -1088,6 +1121,7 @@ if arg then
         .. json_escape(fname) .. '",\n  "byte_length": ' .. #input_data
         .. ',\n  "crc32": "' .. crc_orig .. '",\n  "crc32_encoded": "' .. crc_enc
         .. '",\n  "data": "' .. data .. '"\n}\n')
+      report_input_throughput(input_bytes_read, throughput_started_at)
       os.exit(0)
     end
   end
@@ -1258,6 +1292,8 @@ if arg then
     -- Normal encode mode, send output to stdout
     io.write(output)
   end
+
+  report_input_throughput(input_bytes_read, throughput_started_at)
 end
 
 return PrintableBinary

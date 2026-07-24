@@ -57,6 +57,8 @@ expected_mechatron_targets="$(printf '%s\n' \
 	'checks.x86_64-linux.test-container-lua' \
 	'checks.x86_64-linux.test-container-node' \
 	'checks.x86_64-linux.test-container-zig' \
+	'checks.x86_64-linux.test-build-all' \
+	'checks.x86_64-linux.test-cli-layout' \
 	'checks.x86_64-linux.test-docs-benchmark-contract' \
 	'checks.x86_64-linux.test-elixir' \
 	'checks.x86_64-linux.test-embedded-map-sync' \
@@ -64,6 +66,7 @@ expected_mechatron_targets="$(printf '%s\n' \
 	'checks.x86_64-linux.test-js' \
 	'checks.x86_64-linux.test-js-unit' \
 	'checks.x86_64-linux.test-leak' \
+	'checks.x86_64-linux.test-lua' \
 	'checks.x86_64-linux.test-no-ffi-symbols' \
 	'checks.x86_64-linux.test-rust' \
 	'checks.x86_64-linux.test-zig' \

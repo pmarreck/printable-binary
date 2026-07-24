@@ -205,16 +205,16 @@ discover_implementations() {
 		record_unavailable c 'build with ./build native'
 	fi
 
-	if binary=$(first_executable "$PROJ_ROOT/bin/printable-binary-zig" "$PROJ_ROOT/zig-out/bin/printable-binary-zig" "$PROJ_ROOT/result/bin/printable-binary-zig"); then
+	if binary=$(first_executable "$PROJ_ROOT/bin/printable-binary" "$PROJ_ROOT/zig-out/bin/printable-binary" "$PROJ_ROOT/result/bin/printable-binary"); then
 		record_available zig "$binary"
 	else
 		record_unavailable zig 'build with ./build zig'
 	fi
 
-	if binary=$(first_executable "$PROJ_ROOT/bin/printable-binary"); then
+	if binary=$(first_executable "$PROJ_ROOT/bin/printable-binary-luajit"); then
 		record_available lua "$binary"
 	else
-		record_unavailable lua 'LuaJIT CLI missing at bin/printable-binary'
+		record_unavailable lua 'LuaJIT CLI missing at bin/printable-binary-luajit'
 	fi
 
 	if binary=$(first_executable "$PROJ_ROOT/bin/printable-binary-node.js"); then

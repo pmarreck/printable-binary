@@ -7,6 +7,7 @@
  */
 
 import fs from 'fs';
+import { performance } from 'node:perf_hooks';
 import PrintableBinary from '../js/printable_binary.js';
 
 function printUsage() {
@@ -320,6 +321,22 @@ function stats(msg) {
   }
 }
 
+function writeTo(stream, data) {
+  return new Promise((resolve, reject) => {
+    try {
+      stream.write(data, (err) => err ? reject(err) : resolve());
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+function reportInputThroughput(inputBytesRead, startedAt) {
+  const elapsedSeconds = Math.max((performance.now() - startedAt) / 1000, 0.0005);
+  const megabytes = inputBytesRead / 1_000_000;
+  stats(`Input throughput: ${megabytes.toFixed(2)} MB read in ${elapsedSeconds.toFixed(3)} s (${(megabytes / elapsedSeconds).toFixed(2)} MB/s)`);
+}
+
 async function main() {
   const { decodeMode, formatSpec, filePath, mappingsFormat, passthrough, spacesMode, stripWhitespace, tabsMode, crlfMode, preserveChars, rangeStart, rangeEnd, noDoubleEncodeCheck, hexlikeMode, containerMode } = parseArgs(process.argv.slice(2));
   const pb = new PrintableBinary();
@@ -331,7 +348,9 @@ async function main() {
       return;
     }
 
+    const throughputStartedAt = performance.now();
     let input = await readInput(filePath);
+    const inputBytesRead = input.length;
 
     // Apply byte range if specified
     if (rangeStart !== null || rangeEnd !== null) {
@@ -371,7 +390,7 @@ async function main() {
       if (decodeMode) {
         const res = pb.decodeText(input.toString('utf8'));
         stats(`Decoded ${res.kind} container${res.filename && res.filename !== 'decoded.bin' ? ' (' + res.filename + ')' : ''}: ${res.bytes.length} bytes`);
-        process.stdout.write(Buffer.from(res.bytes));
+        await writeTo(process.stdout, Buffer.from(res.bytes));
       } else {
         const meta = {};
         if (filePath) {
@@ -385,8 +404,9 @@ async function main() {
         }
         const container = pb.encodeToContainer(new Uint8Array(input), meta, { spaces: spacesMode });
         stats(`Encoded ${input.length} bytes -> .pbf.json container (crc32 ${container.crc32})`);
-        process.stdout.write(JSON.stringify(container, null, 2) + '\n');
+        await writeTo(process.stdout, JSON.stringify(container, null, 2) + '\n');
       }
+      reportInputThroughput(inputBytesRead, throughputStartedAt);
       return;
     }
 
@@ -416,7 +436,7 @@ async function main() {
         }
 
         stats(`Decoded result size: ${decoded.length} bytes`);
-        process.stdout.write(Buffer.from(decoded));
+        await writeTo(process.stdout, Buffer.from(decoded));
       } else {
         // Warn if hexlike encoding detected in regular PB decode
         if (PrintableBinary.detectHexlike(inputStr)) {
@@ -432,7 +452,7 @@ async function main() {
           warnOnIndent: spacesMode && stripWhitespace
         });
         stats(`Decoded result size: ${decoded.length} bytes`);
-        process.stdout.write(Buffer.from(decoded));
+        await writeTo(process.stdout, Buffer.from(decoded));
       }
     } else {
       // Check for double-encoding
@@ -450,10 +470,10 @@ async function main() {
         const encoded = pb.hexlikeEncode(input, { spaces: spacesMode });
         stats(`Encoded ${input.length} bytes of input to ${Buffer.byteLength(encoded, 'utf8')} bytes`);
         if (passthrough) {
-          process.stdout.write(input);
-          process.stderr.write(encoded);
+          await writeTo(process.stdout, input);
+          await writeTo(process.stderr, encoded);
         } else {
-          process.stdout.write(encoded);
+          await writeTo(process.stdout, encoded);
         }
       } else {
         const options = { spaces: spacesMode, tabs: tabsMode, crlf: crlfMode };
@@ -466,13 +486,14 @@ async function main() {
         const encoded = pb.encode(input, options);
         stats(`Encoded ${input.length} bytes of input to ${Buffer.byteLength(encoded, 'utf8')} bytes`);
         if (passthrough) {
-          process.stdout.write(input);
-          process.stderr.write(encoded);
+          await writeTo(process.stdout, input);
+          await writeTo(process.stderr, encoded);
         } else {
-          process.stdout.write(encoded);
+          await writeTo(process.stdout, encoded);
         }
       }
     }
+    reportInputThroughput(inputBytesRead, throughputStartedAt);
   } catch (err) {
     process.stderr.write(`Error: ${err.message}\n`);
     process.exit(1);

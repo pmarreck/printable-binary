@@ -91,17 +91,20 @@ The optional PGO path (`make pgo-ffi`) adds a further ~1–3% via profile-guided
 
 ```bash
 # Use any implementation:
-# LuaJIT version:     ./bin/printable-binary
+# Zig CLI (default):  ./build zig && ./bin/printable-binary
+# LuaJIT CLI:         ./bin/printable-binary-luajit
 # Node.js CLI:         ./bin/printable-binary-node.js
 # C version:           ./build native && ./bin/printable-binary-c
 # APE version:         ./build ape && ./bin/printable-binary-ape.com
-# Zig version:         ./build zig && ./bin/printable-binary-zig
 # WASM version:        ./build wasm && wazero run bin/printable-binary.wasm < input.bin
 # Rust raw codec:      cargo build --release --manifest-path rust/Cargo.toml
 #                     < input.bin rust/target/release/printable-binary-rs
-# (Examples below use the LuaJIT full CLI. Rust intentionally offers only
+# (Examples below use the canonical Zig full CLI. Rust intentionally offers only
 # stdin→stdout encoding and -d/--decode; the other listed CLI variants share
 # the full option surface.)
+
+# Build every compiled distribution on Linux (C, Zig, WASM, and APE).
+./build_all
 
 # Encode binary data
 echo -n "Hello, World!" | ./bin/printable-binary
@@ -153,6 +156,16 @@ echo -n "Hello, World!" | ./bin/printable-binary --passthrough 2>encoded.txt | w
 # Use the C implementation for better performance on large files
 ./bin/printable-binary-c large_file.bin > encoded_large.txt
 ```
+
+Every CLI writes a final stderr line for informal comparisons:
+
+```text
+Input throughput: 4999.36 MB read in 49.939 s (100.11 MB/s)
+```
+
+`MB` means decimal input megabytes (1,000,000 bytes). The rate uses bytes read,
+not the larger encoded result, and covers input read, codec work, and output
+write. Set `PRINTABLE_BINARY_MUTE_STATS=1` to suppress it.
 
 ### Web Interface
 

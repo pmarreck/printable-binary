@@ -130,7 +130,7 @@
 
         # Zig implementation
         printableBinaryZig = pkgs.stdenv.mkDerivation {
-          pname = "printable-binary-zig";
+          pname = "printable-binary";
           version = "1.0.0";
 
           src = ./.;
@@ -144,7 +144,7 @@
 
           installPhase = ''
             mkdir -p $out/bin
-            cp zig-out/bin/printable-binary-zig $out/bin/
+            cp zig-out/bin/printable-binary $out/bin/
             cp character_map.txt $out/bin/character_map.txt
           '';
 
@@ -314,7 +314,38 @@
             buildPhase = ''
               export HOME=$TMPDIR
               zig build -Doptimize=ReleaseFast
-              IMPLEMENTATION_TO_TEST=./zig-out/bin/printable-binary-zig bash ./test/test
+              IMPLEMENTATION_TO_TEST=./zig-out/bin/printable-binary bash ./test/test
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
+          # The installed command name is a compatibility contract: Zig is the
+          # default CLI, while the source-distributed LuaJIT implementation
+          # remains explicitly selectable for comparison and fallback.
+          test-cli-layout = pkgs.stdenvNoCC.mkDerivation {
+            name = "test-cli-layout";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ zig luajit ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              patchShebangs bin/printable-binary-luajit
+              zig build -Doptimize=ReleaseFast
+              test -x ${printableBinaryZig}/bin/printable-binary
+              test ! -e ${printableBinaryZig}/bin/printable-binary-zig
+              bash ./test/test_cli_layout \
+                ./zig-out/bin/printable-binary \
+                ./bin/printable-binary-luajit
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
+          test-build-all = pkgs.stdenvNoCC.mkDerivation {
+            name = "test-build-all";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ bash ];
+            buildPhase = ''
+              bash ./test/test_build_all
+              test -x ${printableBinaryApe}/bin/printable-binary-ape.com
             '';
             installPhase = "mkdir -p $out && touch $out/passed";
           };
@@ -327,6 +358,21 @@
               export HOME=$TMPDIR
               patchShebangs bin/printable-binary-node.js
               IMPLEMENTATION_TO_TEST=./bin/printable-binary-node.js bash ./test/test
+              bash ./test/test_node_cli_stats
+            '';
+            installPhase = "mkdir -p $out && touch $out/passed";
+          };
+
+          # The retained LuaJIT CLI has an explicit name but remains a supported
+          # full implementation, including the common stderr throughput contract.
+          test-lua = pkgs.stdenv.mkDerivation {
+            name = "test-lua";
+            src = ./.;
+            nativeBuildInputs = with pkgs; [ luajit python3 xxd hexdump ];
+            buildPhase = ''
+              export HOME=$TMPDIR
+              patchShebangs bin/printable-binary-luajit
+              IMPLEMENTATION_TO_TEST=./bin/printable-binary-luajit bash ./test/test
             '';
             installPhase = "mkdir -p $out && touch $out/passed";
           };
@@ -367,7 +413,7 @@
             buildPhase = ''
               export HOME=$TMPDIR
               zig build -Doptimize=ReleaseFast
-              IMPLEMENTATION_TO_TEST=./zig-out/bin/printable-binary-zig bash ./test/test_container
+              IMPLEMENTATION_TO_TEST=./zig-out/bin/printable-binary bash ./test/test_container
             '';
             installPhase = "mkdir -p $out && touch $out/passed";
           };
@@ -379,11 +425,11 @@
             nativeBuildInputs = with pkgs; [ zig clang nodejs_24 luajit ];
             buildPhase = ''
               export HOME=$TMPDIR
-              patchShebangs bin/printable-binary-node.js bin/printable-binary
+              patchShebangs bin/printable-binary-node.js bin/printable-binary-luajit
               zig build
               clang -O2 -I. -o pb-ffi src/printable_binary_ffi_main.c zig-out/lib/libprintable_binary.a
               clang -O3 -Wall -Wextra -I. -o printable-binary-c src/printable_binary.c
-              for impl in ./zig-out/bin/printable-binary-zig ./pb-ffi ./printable-binary-c ./bin/printable-binary; do
+              for impl in ./zig-out/bin/printable-binary ./pb-ffi ./printable-binary-c ./bin/printable-binary-luajit; do
                 IMPL_A=./bin/printable-binary-node.js IMPL_B="$impl" bash ./test/test_container_cross || exit 1
               done
             '';
@@ -425,8 +471,8 @@
             nativeBuildInputs = with pkgs; [ luajit ];
             buildPhase = ''
               export HOME=$TMPDIR
-              patchShebangs bin/printable-binary
-              IMPLEMENTATION_TO_TEST=./bin/printable-binary bash ./test/test_container
+              patchShebangs bin/printable-binary-luajit
+              IMPLEMENTATION_TO_TEST=./bin/printable-binary-luajit bash ./test/test_container
             '';
             installPhase = "mkdir -p $out && touch $out/passed";
           };
@@ -444,10 +490,20 @@
               cargo build --release --offline --manifest-path rust/Cargo.toml
               zig build
               for i in $(seq 0 255); do printf "\\$(printf '%03o' "$i")"; done > allbytes
-              ./rust/target/release/printable-binary-rs < allbytes > r.out
-              PRINTABLE_BINARY_MUTE_STATS=1 ./zig-out/bin/printable-binary-zig < allbytes > z.out
+              ./rust/target/release/printable-binary-rs < allbytes > r.out 2> r.err
+              grep -Eq 'Input throughput: [0-9]+[.][0-9]{2} MB read in [0-9]+[.][0-9]{3} s \([0-9]+[.][0-9]{2} MB/s\)' r.err || {
+                echo "FAIL: Rust CLI did not emit input throughput" >&2
+                cat r.err >&2
+                exit 1
+              }
+              PRINTABLE_BINARY_MUTE_STATS=1 ./zig-out/bin/printable-binary < allbytes > z.out
               cmp r.out z.out || { echo "FAIL: Rust encode != Zig encode" >&2; exit 1; }
-              ./rust/target/release/printable-binary-rs -d < z.out > rt.out
+              ./rust/target/release/printable-binary-rs -d < z.out > rt.out 2> rt.err
+              grep -Eq 'Input throughput: [0-9]+[.][0-9]{2} MB read in [0-9]+[.][0-9]{3} s \([0-9]+[.][0-9]{2} MB/s\)' rt.err || {
+                echo "FAIL: Rust decode did not emit input throughput" >&2
+                cat rt.err >&2
+                exit 1
+              }
               cmp allbytes rt.out || { echo "FAIL: Rust decode(Zig encode) != original" >&2; exit 1; }
               echo "Rust <-> Zig byte-identical across all 256 bytes"
             '';
@@ -471,8 +527,8 @@
               zig build
               for i in $(seq 0 255); do printf "\\$(printf '%03o' "$i")"; done > allbytes
               head -c 8192 /dev/urandom > rand.bin
-              PRINTABLE_BINARY_MUTE_STATS=1 ./zig-out/bin/printable-binary-zig < allbytes > z_all.out
-              PRINTABLE_BINARY_MUTE_STATS=1 ./zig-out/bin/printable-binary-zig < rand.bin  > z_rand.out
+              PRINTABLE_BINARY_MUTE_STATS=1 ./zig-out/bin/printable-binary < allbytes > z_all.out
+              PRINTABLE_BINARY_MUTE_STATS=1 ./zig-out/bin/printable-binary < rand.bin  > z_rand.out
               ( cd elixir && mix run --no-start -e '
                   for {enc, orig} <- [{"../z_all.out", "../allbytes"}, {"../z_rand.out", "../rand.bin"}] do
                     got = PrintableBinary.decode(File.read!(enc))
@@ -496,7 +552,18 @@
               zig build
               clang -O2 -I. -o pb-ffi src/printable_binary_ffi_main.c zig-out/lib/libprintable_binary.a
               head -c 4096 /dev/urandom > in.bin
-              ./pb-ffi in.bin | ./pb-ffi -d > out.bin
+              ./pb-ffi in.bin > encoded.bin 2> encode.stats
+              grep -Eq 'Input throughput: [0-9]+[.][0-9]{2} MB read in [0-9]+[.][0-9]{3} s \([0-9]+[.][0-9]{2} MB/s\)' encode.stats || {
+                echo "FFI encode did not emit input throughput" >&2
+                cat encode.stats >&2
+                exit 1
+              }
+              ./pb-ffi -d encoded.bin > out.bin 2> decode.stats
+              grep -Eq 'Input throughput: [0-9]+[.][0-9]{2} MB read in [0-9]+[.][0-9]{3} s \([0-9]+[.][0-9]{2} MB/s\)' decode.stats || {
+                echo "FFI decode did not emit input throughput" >&2
+                cat decode.stats >&2
+                exit 1
+              }
               cmp in.bin out.bin || { echo "FFI CLI encode/decode roundtrip failed" >&2; exit 1; }
               ./pb-ffi -X in.bin | ./pb-ffi -X -d > outx.bin
               cmp in.bin outx.bin || { echo "FFI CLI hexlike roundtrip failed" >&2; exit 1; }

@@ -51,10 +51,10 @@ echo -e "${BLUE}    PrintableBinary Multi-Implementation Test Suite${NC}"
 echo -e "${BLUE}══════════════════════════════════════════════════════════════════${NC}"
 
 # Test each implementation
-test_implementation "Lua (reference)" "./bin/printable-binary" || true
+test_implementation "Zig (canonical)" "./result/bin/printable-binary" || true
+test_implementation "LuaJIT (legacy)" "./bin/printable-binary-luajit" || true
 test_implementation "Node.js" "./bin/printable-binary-node.js" || true
 test_implementation "C (standalone)" "./result/bin/printable-binary-c" || true
-test_implementation "Zig" "./result/bin/printable-binary-zig" || true
 
 # WASM via wazero wrapper (if available)
 if [[ -f bin/printable-binary.wasm ]]; then

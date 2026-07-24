@@ -15,9 +15,14 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 #include <ctype.h>
 #include <errno.h>
+#include <time.h>
 
 #include "printable_binary.h"
 #include "container_json.h"
@@ -56,6 +61,33 @@ static bool env_var_truthy(const char *value) {
         lower[i] = (char)tolower((unsigned char)value[i]);
     }
     return strcmp(lower, "true") == 0 || strcmp(lower, "yes") == 0;
+}
+
+/// Return a monotonic wall-clock timestamp for comparable CLI pipeline rates.
+static double throughput_now_seconds(void) {
+#if defined(_WIN32)
+    static LARGE_INTEGER frequency;
+    LARGE_INTEGER counter;
+    if (frequency.QuadPart == 0) QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / (double)frequency.QuadPart;
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+        return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
+    }
+    return (double)clock() / (double)CLOCKS_PER_SEC;
+#endif
+}
+
+/// Emit input-byte throughput after output is flushed so UTF-8 expansion is explicit.
+static void print_input_throughput(bool enabled, size_t input_bytes_read, double started_at) {
+    if (!enabled) return;
+    double elapsed = throughput_now_seconds() - started_at;
+    if (elapsed < 0.0005) elapsed = 0.0005;
+    double megabytes = (double)input_bytes_read / 1000000.0;
+    fprintf(stderr, "Input throughput: %.2f MB read in %.3f s (%.2f MB/s)\n",
+            megabytes, elapsed, megabytes / elapsed);
 }
 
 static void print_usage(const char *name) {
@@ -500,9 +532,13 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    /* Measure the user-visible pipeline: input read, codec work, and output write. */
+    double throughput_started_at = throughput_now_seconds();
+
     /* Read input */
     size_t input_len;
     char *input = read_input(opts.input_file, &input_len);
+    size_t input_bytes_read = input_len;
 
     /* Apply byte range if specified (policy logic lives in Zig core) */
     if (opts.has_range_start || opts.has_range_end) {
@@ -585,6 +621,8 @@ int main(int argc, char *argv[]) {
                 if (colen != 8 || memcmp(hx, co, 8) != 0) { pb_free(dr.data, dr.len); free(input); fprintf(stderr, "Error: container crc32 mismatch (decoded data corrupted)\n"); return 1; }
             }
             fwrite(dr.data, 1, dr.len, stdout);
+            fflush(stdout);
+            print_input_throughput(stats_enabled, input_bytes_read, throughput_started_at);
             pb_free(dr.data, dr.len);
             free(input);
             return 0;
@@ -604,6 +642,8 @@ int main(int argc, char *argv[]) {
             printf("\",\n  \"byte_length\": %zu,\n  \"crc32\": \"%s\",\n  \"crc32_encoded\": \"%s\",\n  \"data\": \"", input_len, crc_orig, crc_enc);
             fwrite(er.data, 1, er.len, stdout);
             printf("\"\n}\n");
+            fflush(stdout);
+            print_input_throughput(stats_enabled, input_bytes_read, throughput_started_at);
             pb_free(er.data, er.len);
             free(input);
             return 0;
@@ -720,6 +760,9 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    fflush(stdout);
+    fflush(stderr);
+    print_input_throughput(stats_enabled, input_bytes_read, throughput_started_at);
     free(input);
     if (opts.preserve_chars) free(opts.preserve_chars);
     return 0;

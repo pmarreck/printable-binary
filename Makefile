@@ -26,7 +26,7 @@ STRIP ?= strip
 
 # Zig build outputs
 ZIG_LIB = zig-out/lib/libprintable_binary.a
-ZIG_CLI = zig-out/bin/printable-binary-zig
+ZIG_CLI = zig-out/bin/printable-binary
 
 COSMOCC_VERSION ?= 4.0.2
 COSMOCC_URL ?= https://cosmo.zip/pub/cosmocc/cosmocc-$(COSMOCC_VERSION).zip
@@ -379,7 +379,7 @@ benchmark: $(TARGET)
 # Compare with LuaJIT version
 .PHONY: compare
 compare: $(TARGET)
-	@if [ ! -f bin/printable-binary ]; then \
+	@if [ ! -f bin/printable-binary-luajit ]; then \
 		echo "Error: LuaJIT version not found"; \
 		exit 1; \
 	fi
@@ -392,13 +392,13 @@ compare: $(TARGET)
 	@time $(BIN_DIR)/$(TARGET) compare_test.bin > compare_c_encoded.tmp 2>/dev/null
 	@echo
 	@echo "LuaJIT version encoding:"
-	@time ./bin/printable-binary compare_test.bin > compare_lua_encoded.tmp 2>/dev/null
+	@time ./bin/printable-binary-luajit compare_test.bin > compare_lua_encoded.tmp 2>/dev/null
 	@echo
 	@echo "C version decoding:"
 	@time $(BIN_DIR)/$(TARGET) -d compare_c_encoded.tmp > compare_c_decoded.tmp 2>/dev/null
 	@echo
 	@echo "LuaJIT version decoding:"
-	@time ./bin/printable-binary -d compare_lua_encoded.tmp > compare_lua_decoded.tmp 2>/dev/null
+	@time ./bin/printable-binary-luajit -d compare_lua_encoded.tmp > compare_lua_decoded.tmp 2>/dev/null
 	@echo
 	@echo "Verifying output compatibility:"
 	@if cmp compare_c_encoded.tmp compare_lua_encoded.tmp; then \
@@ -422,13 +422,13 @@ hyperfine: $(TARGET)
 		echo "Running hyperfine benchmark..."; \
 		hyperfine --warmup 3 \
 			"$(BIN_DIR)/$(TARGET) hyperfine_test.bin" \
-		"./bin/printable-binary hyperfine_test.bin" \
+		"./bin/printable-binary-luajit hyperfine_test.bin" \
 			--export-markdown benchmark_results.md; \
 		echo "Encode benchmark results saved to benchmark_results.md"; \
 		$(BIN_DIR)/$(TARGET) hyperfine_test.bin > hyperfine_encoded.tmp 2>/dev/null; \
 		hyperfine --warmup 3 \
 			"$(BIN_DIR)/$(TARGET) -d hyperfine_encoded.tmp" \
-		"./bin/printable-binary -d hyperfine_encoded.tmp" \
+		"./bin/printable-binary-luajit -d hyperfine_encoded.tmp" \
 			--export-markdown decode_benchmark_results.md;
 		echo "Decode benchmark results saved to decode_benchmark_results.md"; \
 		rm -f hyperfine_test.bin hyperfine_encoded.tmp; \

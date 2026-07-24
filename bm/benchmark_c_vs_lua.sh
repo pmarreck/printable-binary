@@ -21,7 +21,7 @@ PATTERNS=("ascii" "binary" "random")
 OPERATIONS=("encode" "decode")
 
 C_BINARY="./bin/printable-binary-c"
-LUA_BINARY="./bin/printable-binary"
+LUA_BINARY="./bin/printable-binary-luajit"
 
 echo -e "${BOLD}${BLUE}PrintableBinary: C vs LuaJIT Performance Benchmark${NC}"
 echo -e "${BLUE}===================================================${NC}"

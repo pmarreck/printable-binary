@@ -103,6 +103,22 @@ fn writeStats(comptime fmt: []const u8, args: anytype) void {
     rawWriteAll(std.Io.File.stderr(), msg);
 }
 
+/// Report end-to-end CLI throughput in input bytes so expansion from UTF-8
+/// glyphs cannot be mistaken for codec speed; the timer includes read and write I/O.
+fn writeInputThroughput(io: std.Io, input_bytes_read: usize, started_at: std.Io.Timestamp) void {
+    const finished = std.Io.Timestamp.now(io, .awake);
+    const elapsed_seconds = @max(
+        @as(f64, @floatFromInt(finished.nanoseconds - started_at.nanoseconds)) / 1_000_000_000.0,
+        0.0005,
+    );
+    const megabytes = @as(f64, @floatFromInt(input_bytes_read)) / 1_000_000.0;
+    writeStats("Input throughput: {d:.2} MB read in {d:.3} s ({d:.2} MB/s)\n", .{
+        megabytes,
+        elapsed_seconds,
+        megabytes / elapsed_seconds,
+    });
+}
+
 // ============================================================================
 // Argument Parsing (I/O boundary - reads from OS)
 // ============================================================================
@@ -360,7 +376,7 @@ fn printUsage(io: std.Io) void {
     const help =
         \\PrintableBinary Zig - Encode binary data as printable UTF-8 and decode it back
         \\
-        \\Usage: printable-binary-zig [options] [file]
+        \\Usage: printable-binary [options] [file]
         \\
         \\Options:
         \\  -d, --decode       Decode mode (default is encode mode)
@@ -576,6 +592,9 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
+    // Measure the user-visible pipeline: input read, codec work, and output write.
+    const throughput_started_at = std.Io.Timestamp.now(io, .awake);
+
     // Read input (I/O boundary)
     const raw_input = readInput(io, allocator, opts.input_file) catch |err| {
         writeStats("Error reading input: {}\n", .{err});
@@ -605,6 +624,7 @@ pub fn main(init: std.process.Init) !void {
             writeStats("Container error: {}\n", .{err});
             std.process.exit(1);
         };
+        writeInputThroughput(io, raw_input.len, throughput_started_at);
         return;
     }
 
@@ -737,6 +757,8 @@ pub fn main(init: std.process.Init) !void {
             try writeOutput(io, output, opts.passthrough_mode);
         }
     }
+
+    writeInputThroughput(io, raw_input.len, throughput_started_at);
 }
 
 // ============================================================================
